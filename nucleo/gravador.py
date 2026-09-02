@@ -1,0 +1,118 @@
+"""Sobe gravacoes ao vivo, uma por canal escolhido.
+
+O comando e um cano: yt-dlp entrega o stream, ffmpeg fatia em pedacos de
+MPEG-TS sem recodificar. TS sobrevive a processo morto; mp4 nao.
+"""
+import json
+import re
+import shutil
+import subprocess
+import unicodedata
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import Callable
+
+from nucleo import canais as mod_canais
+
+
+@dataclass
+class Processo:
+    canal: mod_canais.Canal
+    pasta: Path
+    sessao: int
+    processo: object
+
+
+def apelido(nome: str) -> str:
+    sem_acento = unicodedata.normalize("NFKD", nome).encode("ascii", "ignore").decode()
+    limpo = re.sub(r"[^a-zA-Z0-9]+", "-", sem_acento).strip("-")
+    return limpo.lower()
+
+
+def pasta_do_canal(biblioteca: Path, jogo: str, canal: mod_canais.Canal) -> Path:
+    return Path(biblioteca) / jogo / "bruto" / apelido(canal.nome)
+
+
+def comando(url: str, pasta: Path, sessao: int, cfg: dict) -> str:
+    formato = (
+        f'bv*[height<={cfg["altura_maxima"]}]+ba/'
+        f'b[height<={cfg["altura_maxima"]}]'
+    )
+    # _abrir roda com cwd=pasta; nomes relativos mantem nomes simples no CSV.
+    saida = f"s{sessao:02d}-parte-%03d.ts"
+    lista = f"s{sessao:02d}-segmentos.csv"
+    return (
+        f'"{cfg["caminho_ytdlp"]}" -f "{formato}" --no-part -o - "{url}"'
+        f' | "{cfg["caminho_ffmpeg"]}" -y -i pipe: -c copy'
+        f' -f segment -segment_time {cfg["duracao_pedaco"]}'
+        f" -segment_format mpegts -reset_timestamps 1"
+        f' -segment_list "{lista}" -segment_list_type csv'
+        f' "{saida}"'
+    )
+
+
+def espaco_livre_gb(caminho: Path) -> float:
+    return shutil.disk_usage(Path(caminho)).free / (1024**3)
+
+
+def verificar_espaco(caminho: Path, minimo_gb: float) -> None:
+    livre = espaco_livre_gb(caminho)
+    if livre < minimo_gb:
+        raise RuntimeError(
+            f"disco com {livre:.0f} GB livres, minimo exigido {minimo_gb:.0f} GB. "
+            "Libere espaco antes de comecar - nao no meio do jogo."
+        )
+
+
+def avaliar_banda(quantidade: int, teto: int) -> str | None:
+    if quantidade <= teto:
+        return None
+    return (
+        f"{quantidade} canais passa do teto de {teto} da placa de 100 Mbps. "
+        "Gravacao pode cair no meio do jogo."
+    )
+
+
+def escrever_gravacao(pasta: Path, url: str, sessao: int, t0: datetime) -> Path:
+    pasta = Path(pasta)
+    pasta.mkdir(parents=True, exist_ok=True)
+    arquivo = pasta / "gravacao.json"
+    if arquivo.is_file():
+        dados = json.loads(arquivo.read_text(encoding="utf-8"))
+    else:
+        dados = {"url": url, "sessoes": []}
+    dados["sessoes"].append({"numero": sessao, "t0": t0.isoformat()})
+    arquivo.write_text(
+        json.dumps(dados, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return arquivo
+
+
+def _abrir(comando_shell: str, pasta: Path):
+    return subprocess.Popen(comando_shell, shell=True, cwd=str(pasta))
+
+
+def iniciar(
+    escolhidos: list[tuple[mod_canais.Canal, str]],
+    biblioteca: Path,
+    jogo: str,
+    cfg: dict,
+    abrir: Callable[[str, Path], object] = _abrir,
+) -> list[Processo]:
+    Path(biblioteca).mkdir(parents=True, exist_ok=True)
+    verificar_espaco(biblioteca, cfg["disco_minimo_gb"])
+
+    aviso = avaliar_banda(len(escolhidos), cfg["teto_canais"])
+    if aviso:
+        print(f"AVISO: {aviso}")
+
+    processos = []
+    for canal, url in escolhidos:
+        pasta = pasta_do_canal(biblioteca, jogo, canal)
+        pasta.mkdir(parents=True, exist_ok=True)
+        sessao = 1
+        escrever_gravacao(pasta, url, sessao, datetime.now())
+        processo = abrir(comando(url, pasta, sessao, cfg), pasta)
+        processos.append(Processo(canal, pasta, sessao, processo))
+    return processos
