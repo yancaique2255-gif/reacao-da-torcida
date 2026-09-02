@@ -1,0 +1,61 @@
+from pathlib import Path
+
+from nucleo import catalogo
+from painel import servidor
+
+CFG = {"caminho_ffmpeg": "ffmpeg"}
+
+
+def preparar(tmp_path: Path) -> Path:
+    dados = catalogo.novo("jogo")
+    dados = catalogo.registrar_clipe(
+        dados, 1, "canal-a", "clipes/gol-01/a.mp4", 10.0, 12.0, True
+    )
+    catalogo.salvar(tmp_path, dados)
+    return tmp_path
+
+
+def test_get_catalogo_devolve_os_clipes(tmp_path: Path):
+    pasta = preparar(tmp_path)
+    codigo, corpo = servidor.montar_resposta("GET /api/catalogo", {}, pasta, CFG)
+    assert codigo == 200
+    assert corpo["clipes"][0]["canal"] == "canal-a"
+
+
+def test_escolha_grava_no_disco_na_hora(tmp_path: Path):
+    pasta = preparar(tmp_path)
+
+    codigo, _ = servidor.montar_resposta(
+        "POST /api/escolha",
+        {"gol": 1, "canal": "canal-a", "escolhido": True},
+        pasta,
+        CFG,
+    )
+
+    assert codigo == 200
+    relido = catalogo.carregar(pasta)
+    assert relido["clipes"][0]["escolhido"] is True
+
+
+def test_escolha_de_clipe_inexistente_devolve_404(tmp_path: Path):
+    pasta = preparar(tmp_path)
+    codigo, corpo = servidor.montar_resposta(
+        "POST /api/escolha",
+        {"gol": 9, "canal": "fantasma", "escolhido": True},
+        pasta,
+        CFG,
+    )
+    assert codigo == 404
+    assert "erro" in corpo
+
+
+def test_montar_sem_escolhidos_devolve_400_com_recado(tmp_path: Path):
+    pasta = preparar(tmp_path)
+    codigo, corpo = servidor.montar_resposta("POST /api/montar", {}, pasta, CFG)
+    assert codigo == 400
+    assert "nenhum" in corpo["erro"].lower()
+
+
+def test_rota_desconhecida_devolve_404(tmp_path: Path):
+    codigo, _ = servidor.montar_resposta("GET /api/nada", {}, tmp_path, CFG)
+    assert codigo == 404
