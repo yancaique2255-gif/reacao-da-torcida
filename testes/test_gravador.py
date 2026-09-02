@@ -1,3 +1,4 @@
+import time
 import json
 from datetime import datetime
 from pathlib import Path
@@ -23,6 +24,21 @@ def test_comando_respeita_as_travas_do_projeto(tmp_path: Path):
     assert "-segment_time 600" in cmd
     assert "segment_list" in cmd and "csv" in cmd
     assert cmd.count("|") == 1, "e um cano de yt-dlp para ffmpeg"
+
+
+def test_comando_baixa_pelo_downloader_do_ytdlp_e_nao_pelo_ffmpeg(tmp_path: Path):
+    """Sem isto a gravacao morre calada por volta dos trinta segundos.
+
+    Para live, o yt-dlp entrega o HLS ao ffmpeg. O ffmpeg guarda a URL dos
+    pedacos e para de renovar; o YouTube passa a responder 403 em todos eles.
+    Medido nesta maquina em quatro canais: sempre entre 31 e 35 segundos, com o
+    processo VIVO - por isso o supervisor nao percebia.
+    """
+    cmd = gravador.comando("https://x/watch?v=1", tmp_path, 1, CFG)
+
+    assert "m3u8:native" in cmd, "o download do HLS e do yt-dlp, nao do ffmpeg"
+    assert "--hls-use-mpegts" in cmd, "o cano tem que sair em TS"
+    assert "+ba" not in cmd, "juntar duas faixas na saida padrao nao da; formato unico"
 
 
 def test_sessoes_diferentes_nao_sobrescrevem_arquivos(tmp_path: Path):
@@ -179,3 +195,60 @@ def test_um_canal_desistindo_nao_derruba_o_outro(tmp_path: Path):
     )
 
     assert [p.canal.nome for p in lista] == ["Bom"]
+
+
+class ProcessoEmperrado:
+    """Vivo para sempre, mas nao escreve nada. E o caso que enganava o supervisor."""
+
+    def __init__(self):
+        self.morto = False
+
+    def poll(self):
+        return 1 if self.morto else None
+
+    def kill(self):
+        self.morto = True
+
+
+def test_gravacao_que_emperra_com_o_processo_vivo_e_derrubada_e_religada(tmp_path: Path):
+    """Medido em jogo: o download morre e o processo continua de pe, mudo."""
+    travado = ProcessoEmperrado()
+    pr = gravador.Processo(
+        canais.Canal("A", "u", True), "https://x", tmp_path, 1, travado,
+        inicio=time.time() - 300,  # nada escrito ha cinco minutos
+    )
+    abertos = []
+
+    gravador.supervisionar(
+        [pr], {**SUPERVISAO, "segundos_sem_crescer": 90},
+        abrir=lambda c, p: abertos.append(c) or ProcessoFalso(),
+        dormir=lambda s: None, voltas=1,
+    )
+
+    assert travado.morto, "processo emperrado tem que ser derrubado"
+    assert pr.sessao == 2 and len(abertos) == 1
+
+
+def test_pedaco_crescendo_conta_como_gravacao_viva(tmp_path: Path):
+    (tmp_path / "s01-parte-000.ts").write_bytes(b"x")  # escrito agora
+    pr = gravador.Processo(
+        canais.Canal("A", "u", True), "https://x", tmp_path, 1, ProcessoEmperrado(),
+        inicio=time.time() - 300,
+    )
+    abertos = []
+
+    gravador.supervisionar(
+        [pr], {**SUPERVISAO, "segundos_sem_crescer": 90},
+        abrir=lambda c, p: abertos.append(c), dormir=lambda s: None, voltas=1,
+    )
+
+    assert abertos == [] and pr.sessao == 1
+
+
+def test_sessao_recem_aberta_tem_folga_para_o_ytdlp_negociar(tmp_path: Path):
+    """Nos primeiros segundos ainda nao existe .ts nenhum - nao e travamento."""
+    pr = gravador.Processo(
+        canais.Canal("A", "u", True), "https://x", tmp_path, 1, ProcessoEmperrado()
+    )
+
+    assert not gravador.travou(pr, 90, time.time())

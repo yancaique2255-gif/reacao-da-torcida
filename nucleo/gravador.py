@@ -2,6 +2,10 @@
 
 O comando e um cano: yt-dlp entrega o stream, ffmpeg fatia em pedacos de
 MPEG-TS sem recodificar. TS sobrevive a processo morto; mp4 nao.
+
+Quem baixa o HLS e o proprio yt-dlp (m3u8:native). Deixar o ffmpeg baixar,
+que e o padrao para live, derruba a gravacao em meio minuto com 403 em todo
+pedaco - e sem matar o processo, o que engana qualquer supervisor.
 """
 import json
 import re
@@ -9,7 +13,7 @@ import shutil
 import subprocess
 import time
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Callable
@@ -28,6 +32,7 @@ class Processo:
     sessao: int
     processo: object
     tentativas: int = 0
+    inicio: float = field(default_factory=time.time)  # epoch do comeco da sessao
 
 
 def apelido(nome: str) -> str:
@@ -41,15 +46,15 @@ def pasta_do_canal(biblioteca: Path, jogo: str, canal: mod_canais.Canal) -> Path
 
 
 def comando(url: str, pasta: Path, sessao: int, cfg: dict) -> str:
-    formato = (
-        f'bv*[height<={cfg["altura_maxima"]}]+ba/'
-        f'b[height<={cfg["altura_maxima"]}]'
-    )
+    # Formato unico, ja com video e audio: juntar duas faixas na saida padrao
+    # nao da, e para live o YouTube sempre oferece um combinado ate 720p.
+    formato = f'b[height<={cfg["altura_maxima"]}]'
     # _abrir roda com cwd=pasta; nomes relativos mantem nomes simples no CSV.
     saida = f"s{sessao:02d}-parte-%03d.ts"
     lista = f"s{sessao:02d}-segmentos.csv"
     return (
-        f'"{cfg["caminho_ytdlp"]}" -f "{formato}" --no-part -o - "{url}"'
+        f'"{cfg["caminho_ytdlp"]}" --downloader m3u8:native --hls-use-mpegts'
+        f' -f "{formato}" --no-part -o - "{url}"'
         f' | "{cfg["caminho_ffmpeg"]}" -y -i pipe: -c copy'
         f' -f segment -segment_time {cfg["duracao_pedaco"]}'
         f" -segment_format mpegts -reset_timestamps 1"
@@ -124,12 +129,33 @@ def iniciar(
     return processos
 
 
+def _ultimo_crescimento(pasta: Path) -> float:
+    marcas = [arquivo.stat().st_mtime for arquivo in Path(pasta).glob("*.ts")]
+    return max(marcas, default=0.0)
+
+
+def travou(pr: Processo, limite: float, agora_epoch: float) -> bool:
+    """Processo vivo que parou de escrever ha tempo demais.
+
+    Morrer e o caso facil. O caso que engana e a gravacao que emperra com o
+    processo de pe: nenhum byte novo entra e o poll() continua respondendo que
+    esta tudo bem. Sem esta conferencia, o canal fica mudo o jogo inteiro.
+    """
+    ultimo = max(_ultimo_crescimento(pr.pasta), pr.inicio)
+    return agora_epoch - ultimo > limite
+
+
+def _matar(processo) -> None:
+    processo.kill()
+
+
 def supervisionar(
     processos: list[Processo],
     cfg: dict,
     abrir: Callable[[str, Path], object] = _abrir,
     dormir: Callable[[float], None] = time.sleep,
     agora: Callable[[], datetime] = datetime.now,
+    matar: Callable[[object], None] = _matar,
     voltas: int | None = None,
 ) -> None:
     """Fica de olho nas gravacoes: quem cair volta em nova sessao.
@@ -144,9 +170,15 @@ def supervisionar(
     while processos and (voltas is None or feitas < voltas):
         dormir(cfg["segundos_entre_conferencias"])
         feitas += 1
+        limite = cfg.get("segundos_sem_crescer", 120)
         for pr in list(processos):
-            if pr.processo.poll() is None:
+            vivo = pr.processo.poll() is None
+            emperrado = vivo and travou(pr, limite, agora().timestamp())
+            if vivo and not emperrado:
                 continue
+            if emperrado:
+                print(f"{pr.canal.nome}: parou de gravar sem morrer - derrubando")
+                matar(pr.processo)
 
             pr.tentativas += 1
             if pr.tentativas > MAX_TENTATIVAS:
@@ -155,6 +187,7 @@ def supervisionar(
                 continue
 
             pr.sessao += 1
+            pr.inicio = agora().timestamp()
             escrever_gravacao(pr.pasta, pr.url, pr.sessao, agora())
             pr.processo = abrir(comando(pr.url, pr.pasta, pr.sessao, cfg), pr.pasta)
             print(f"{pr.canal.nome}: caiu, religando na sessao {pr.sessao}")

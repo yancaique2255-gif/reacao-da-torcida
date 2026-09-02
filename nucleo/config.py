@@ -14,6 +14,8 @@ PADROES = {
     "teto_canais": 20,
     "disco_minimo_gb": 60,
     "segundos_entre_conferencias": 20,
+    # Vivo mas sem escrever por tanto tempo: derruba e religa.
+    "segundos_sem_crescer": 90,
     "caminho_ytdlp": r"C:\yt-dlp\yt-dlp.exe",
     "caminho_ffmpeg": r"C:\yt-dlp\ffmpeg.exe",
     # Conferido na maquina: o ffprobe NAO mora junto do ffmpeg do C:\yt-dlp.
