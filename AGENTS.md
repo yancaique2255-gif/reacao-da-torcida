@@ -21,7 +21,14 @@ Windows 10, PowerShell. Ryzen 5 5600G (6 núcleos), 15,4 GB de RAM, **sem GPU de
 
 ## Ferramentas já instaladas
 
-- `yt-dlp` e `ffmpeg.exe` em `C:\yt-dlp`
+Conferido nesta máquina em 02/09/2026:
+
+- `yt-dlp.exe` e `ffmpeg.exe` em `C:\yt-dlp`
+- `ffprobe.exe` em **`C:\ffmpeg\bin`** — repare que **não** fica junto do ffmpeg do
+  `C:\yt-dlp`. Está no PATH.
+- `numpy` 2.5.2 já instalado
+- Fonte da cartela: `C:\Windows\Fonts\arialbd.ttf` (o `drawtext` do ffmpeg no Windows
+  exige `fontfile=` explícito, senão falha com "Cannot find a valid font")
 - Python com faster-whisper e Ollama (do projeto LEGENDAR VIDEO) — **não são necessários
   aqui**, e usá-los seria contrariar o desenho.
 

@@ -1,5 +1,5 @@
 {
-  "biblioteca": "G:\REACAO DA TORCIDA",
+  "biblioteca": "G:\\REACAO DA TORCIDA",
   "altura_maxima": 720,
   "segundos_antes": 8,
   "segundos_depois": 12,
@@ -9,6 +9,9 @@
   "duracao_pedaco": 600,
   "teto_canais": 20,
   "disco_minimo_gb": 60,
-  "caminho_ytdlp": "C:\yt-dlp\yt-dlp.exe",
-  "caminho_ffmpeg": "C:\yt-dlp\ffmpeg.exe"
+  "segundos_entre_conferencias": 20,
+  "caminho_ytdlp": "C:\\yt-dlp\\yt-dlp.exe",
+  "caminho_ffmpeg": "C:\\yt-dlp\\ffmpeg.exe",
+  "caminho_ffprobe": "C:\\ffmpeg\\bin\\ffprobe.exe",
+  "fonte_cartela": "C:\\Windows\\Fonts\\arialbd.ttf"
 }

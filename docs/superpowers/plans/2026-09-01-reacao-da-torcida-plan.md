@@ -52,7 +52,7 @@ de aceite, para tudo e reavalia o detector; não adianta seguir.
 | 5 | **Modo teste** | **a régua: erro em segundos sobre um VOD** |
 | 6 | `catalogo` | estado do jogo em disco |
 | 7 | `canais` | cadastro e descoberta de live |
-| 8 | `gravador` | N gravações em paralelo, com religamento |
+| 8 | `gravador` | N gravações em paralelo, com religamento automático de quem cair |
 | 9 | `montador` | compilação com cartelas |
 | 10 | `painel` | curadoria no navegador |
 | 11 | Esteira | os quatro `.bat` |
@@ -163,6 +163,9 @@ PADROES = {
     "disco_minimo_gb": 60,
     "caminho_ytdlp": r"C:\yt-dlp\yt-dlp.exe",
     "caminho_ffmpeg": r"C:\yt-dlp\ffmpeg.exe",
+    "caminho_ffprobe": r"C:\ffmpeg\bin\ffprobe.exe",  # conferido: nao existe em C:\yt-dlp
+    "fonte_cartela": r"C:\Windows\Fonts\arialbd.ttf",
+    "segundos_entre_conferencias": 20,
 }
 
 PADRAO_ARQUIVO = Path(__file__).resolve().parent.parent / "dados" / "config.json"
@@ -182,7 +185,34 @@ def carregar(caminho: Path | None = PADRAO_ARQUIVO) -> dict:
 Rodar: `python -m pytest testes/test_config.py -v`
 Esperado: 2 passed
 
-- [ ] **Passo 6: commitar**
+- [ ] **Passo 6: instalar as dependências e criar os arquivos de trabalho**
+
+Os `.exemplo.json` estão versionados; os arquivos reais **não** (o `.gitignore` os exclui,
+porque `canais.json` é a lista de trabalho do operador). Sem esta cópia, a etapa 0 quebra
+com `FileNotFoundError` na primeira execução.
+
+```powershell
+python -m pip install -r requisitos.txt
+Copy-Item dados\config.exemplo.json dados\config.json
+Copy-Item dados\canais.exemplo.json dados\canais.json
+```
+
+Confirme as três ferramentas externas:
+
+```powershell
+foreach ($k in "caminho_ytdlp","caminho_ffmpeg","caminho_ffprobe","fonte_cartela") {
+  $v = python -c "from nucleo import config; print(config.carregar()['$k'])"
+  "$k = $v -> $(Test-Path $v)"
+}
+```
+
+Todas devem dar `True`. **Atenção:** o `ffmpeg.exe` vive em `C:\yt-dlp`, mas o
+`ffprobe.exe` **não** — ele está em `C:\ffmpeg\bin` (conferido em 02/09/2026). Os padrões
+já apontam para os lugares certos; se alguma linha der `False`, corrija no
+`dados/config.json`. O `ffprobe` é o que mede o pedaço final de uma gravação interrompida
+(tarefa 11); sem ele, gol no fim de jogo se perde.
+
+- [ ] **Passo 7: commitar**
 
 ```bash
 git add requisitos.txt pytest.ini nucleo/ testes/
@@ -696,6 +726,10 @@ git commit -m "detector: acha o comeco da explosao de audio por energia em db"
     deslocamento `0.0`.
   - `executar(comando: list[str]) -> None` — invólucro de `subprocess.run` com
     `check=True`. Existe para ser substituído nos testes.
+  - `duracao(arquivo: Path, ffprobe: str, rodar=_rodar_texto) -> float` — duração em
+    segundos via ffprobe. Serve para medir o pedaço final de uma gravação que foi
+    interrompida e por isso não entrou no CSV de segmentos (ver tarefa 11).
+  - `_rodar_texto(comando: list[str]) -> str` — invólucro substituível nos testes.
 
 - [ ] **Passo 1: escrever o teste que falha**
 
@@ -756,6 +790,19 @@ def test_dois_trechos_sao_juntados_antes_do_corte(tmp_path: Path):
     assert "concat" in " ".join(chamadas[0])
 
 
+def test_duracao_le_o_numero_que_o_ffprobe_devolve():
+    def rodar_falso(comando):
+        assert "ffprobe" in comando[0]
+        return "  412.480000\n"
+
+    assert cortador.duracao(Path("a.ts"), "ffprobe", rodar=rodar_falso) == 412.48
+
+
+def test_duracao_de_arquivo_ilegivel_devolve_zero():
+    """Pedaco truncado no fim da gravacao: nao pode estourar."""
+    assert cortador.duracao(Path("a.ts"), "ffprobe", rodar=lambda c: "N/A\n") == 0.0
+
+
 def test_lista_de_concat_nomeia_os_arquivos_na_ordem(tmp_path: Path):
     trechos = [
         relogio.Trecho("parte-000.ts", 595.0, 600.0),
@@ -789,6 +836,26 @@ from nucleo import relogio
 
 def executar(comando: list[str]) -> None:
     subprocess.run(comando, check=True, capture_output=True)
+
+
+def _rodar_texto(comando: list[str]) -> str:
+    return subprocess.run(comando, capture_output=True, text=True).stdout
+
+
+def duracao(
+    arquivo: Path, ffprobe: str, rodar: Callable[[list[str]], str] = _rodar_texto
+) -> float:
+    """Duracao em segundos. Devolve 0.0 se o arquivo estiver truncado ou ilegivel."""
+    saida = rodar([
+        ffprobe, "-v", "error",
+        "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        str(arquivo),
+    ])
+    try:
+        return float(saida.strip())
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def comando_audio(
@@ -859,7 +926,7 @@ def preparar_fonte(
 - [ ] **Passo 4: rodar e ver passar**
 
 Rodar: `python -m pytest testes/test_cortador.py -v`
-Esperado: 5 passed
+Esperado: 7 passed
 
 - [ ] **Passo 5: commitar**
 
@@ -1391,6 +1458,15 @@ def test_carrega_o_cadastro_do_json(tmp_path: Path):
     )
     cadastro = canais.carregar(arquivo)
     assert cadastro["cruzeiro"][0] == canais.Canal("A", "https://youtube.com/@a", True)
+
+
+def test_cadastro_ausente_ensina_como_criar(tmp_path: Path):
+    try:
+        canais.carregar(tmp_path / "canais.json")
+    except FileNotFoundError as erro:
+        assert "canais.exemplo.json" in str(erro), "o recado precisa dizer o que fazer"
+    else:
+        raise AssertionError("deveria ter reclamado")
 ```
 
 - [ ] **Passo 2: rodar e ver falhar**
@@ -1418,7 +1494,13 @@ class Canal:
 
 
 def carregar(caminho: Path) -> dict[str, list[Canal]]:
-    bruto = json.loads(Path(caminho).read_text(encoding="utf-8"))
+    caminho = Path(caminho)
+    if not caminho.is_file():
+        raise FileNotFoundError(
+            f"{caminho} nao existe. Copie o exemplo: "
+            f"Copy-Item {caminho.with_name('canais.exemplo.json')} {caminho}"
+        )
+    bruto = json.loads(caminho.read_text(encoding="utf-8"))
     return {
         time: [Canal(c["nome"], c["url"], c.get("ativo", True)) for c in lista]
         for time, lista in bruto.items()
@@ -1465,7 +1547,7 @@ def ao_vivo_do_time(
 - [ ] **Passo 4: rodar e ver passar**
 
 Rodar: `python -m pytest testes/test_canais.py -v`
-Esperado: 6 passed
+Esperado: 7 passed
 
 - [ ] **Passo 5: commitar**
 
@@ -1496,7 +1578,14 @@ git commit -m "canais: cadastro por time e descoberta de live sem derrubar o lot
   - `escrever_gravacao(pasta: Path, url: str, sessao: int, t0: datetime) -> Path` — grava
     `gravacao.json`.
   - `iniciar(vivos, biblioteca, jogo, cfg, abrir=_abrir) -> list[Processo]`
-  - `Processo(canal: Canal, pasta: Path, sessao: int, processo: object)`
+  - `Processo(canal: Canal, url: str, pasta: Path, sessao: int, processo: object, tentativas: int = 0)` —
+    **mutável**, o supervisor atualiza `sessao`, `processo` e `tentativas`.
+  - `supervisionar(processos, cfg, abrir=_abrir, dormir=time.sleep, agora=datetime.now, voltas=None) -> None`
+  - `MAX_TENTATIVAS = 5`
+
+**Isto é o que cumpre a promessa "gravação cai → religa em nova sessão" da spec.** Sem o
+supervisor, uma queda de conexão aos 20 minutos significa perder o resto do jogo naquele
+canal, calada. O `voltas` existe só para o teste poder rodar um número finito de conferências.
 
 - [ ] **Passo 1: escrever o teste que falha**
 
@@ -1574,6 +1663,95 @@ def test_segunda_sessao_e_acrescentada_e_nao_apaga_a_primeira(tmp_path: Path):
     assert [s["numero"] for s in dados["sessoes"]] == [1, 2]
 
 
+class ProcessoFalso:
+    """Devolve None enquanto vivo; um codigo de saida depois de `vive_por` conferencias."""
+
+    def __init__(self, vive_por: int = 999):
+        self.vive_por = vive_por
+        self.conferencias = 0
+
+    def poll(self):
+        self.conferencias += 1
+        return None if self.conferencias <= self.vive_por else 1
+
+
+def test_processo_vivo_nao_e_reiniciado(tmp_path: Path):
+    abertos = []
+    pr = gravador.Processo(
+        canais.Canal("A", "u", True), "https://x", tmp_path, 1, ProcessoFalso()
+    )
+
+    gravador.supervisionar(
+        [pr], {**CFG, "segundos_entre_conferencias": 0},
+        abrir=lambda c, p: abertos.append(c), dormir=lambda s: None, voltas=3,
+    )
+
+    assert abertos == []
+    assert pr.sessao == 1
+
+
+def test_gravacao_que_cai_volta_em_nova_sessao(tmp_path: Path):
+    import json
+
+    gravador.escrever_gravacao(tmp_path, "https://x", 1, datetime(2026, 9, 1, 21, 0, 0))
+    abertos = []
+    pr = gravador.Processo(
+        canais.Canal("A", "u", True), "https://x", tmp_path, 1, ProcessoFalso(vive_por=1)
+    )
+
+    gravador.supervisionar(
+        [pr], {**CFG, "segundos_entre_conferencias": 0},
+        abrir=lambda c, p: abertos.append(c) or ProcessoFalso(),
+        dormir=lambda s: None, voltas=2,
+    )
+
+    assert pr.sessao == 2
+    assert len(abertos) == 1
+    assert "s02" in abertos[0], "a nova sessao nao pode sobrescrever os arquivos da s01"
+    dados = json.loads((tmp_path / "gravacao.json").read_text(encoding="utf-8"))
+    assert [s["numero"] for s in dados["sessoes"]] == [1, 2]
+
+
+def test_desiste_do_canal_depois_de_muitas_quedas_seguidas(tmp_path: Path):
+    """Live encerrada de verdade: nao pode ficar religando pra sempre."""
+    abertos = []
+    pr = gravador.Processo(
+        canais.Canal("A", "u", True), "https://x", tmp_path, 1, ProcessoFalso(vive_por=0)
+    )
+    lista = [pr]
+
+    gravador.supervisionar(
+        lista, {**CFG, "segundos_entre_conferencias": 0},
+        abrir=lambda c, p: abertos.append(c) or ProcessoFalso(vive_por=0),
+        dormir=lambda s: None, voltas=20,
+    )
+
+    assert len(abertos) == gravador.MAX_TENTATIVAS
+    assert lista == [], "canal desistido sai da lista e o laco termina"
+
+
+def test_um_canal_desistindo_nao_derruba_o_outro(tmp_path: Path):
+    pasta_a = tmp_path / "a"
+    pasta_b = tmp_path / "b"
+    pasta_a.mkdir()
+    pasta_b.mkdir()
+    ruim = gravador.Processo(
+        canais.Canal("Ruim", "u", True), "https://r", pasta_a, 1, ProcessoFalso(vive_por=0)
+    )
+    bom = gravador.Processo(
+        canais.Canal("Bom", "u", True), "https://b", pasta_b, 1, ProcessoFalso()
+    )
+    lista = [ruim, bom]
+
+    gravador.supervisionar(
+        lista, {**CFG, "segundos_entre_conferencias": 0},
+        abrir=lambda c, p: ProcessoFalso(vive_por=0),
+        dormir=lambda s: None, voltas=20,
+    )
+
+    assert [p.canal.nome for p in lista] == ["Bom"]
+
+
 def test_iniciar_abre_um_processo_por_canal_vivo(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(gravador, "espaco_livre_gb", lambda caminho: 300.0)
     abertos = []
@@ -1611,6 +1789,7 @@ import json
 import re
 import shutil
 import subprocess
+import time
 import unicodedata
 from dataclasses import dataclass
 from datetime import datetime
@@ -1620,12 +1799,17 @@ from typing import Callable
 from nucleo import canais as mod_canais
 
 
+MAX_TENTATIVAS = 5
+
+
 @dataclass
 class Processo:
     canal: mod_canais.Canal
+    url: str
     pasta: Path
     sessao: int
     processo: object
+    tentativas: int = 0
 
 
 def apelido(nome: str) -> str:
@@ -1720,21 +1904,58 @@ def iniciar(
         sessao = 1
         escrever_gravacao(pasta, url, sessao, datetime.now())
         processos.append(
-            Processo(canal, pasta, sessao, abrir(comando(url, pasta, sessao, cfg), pasta))
+            Processo(
+                canal, url, pasta, sessao,
+                abrir(comando(url, pasta, sessao, cfg), pasta),
+            )
         )
     return processos
+
+
+def supervisionar(
+    processos: list[Processo],
+    cfg: dict,
+    abrir: Callable[[str, Path], object] = _abrir,
+    dormir: Callable[[float], None] = time.sleep,
+    agora: Callable[[], datetime] = datetime.now,
+    voltas: int | None = None,
+) -> None:
+    """Fica de olho nas gravacoes: quem cair volta em nova sessao.
+
+    Sem isto, uma queda de conexao aos 20 minutos perde o resto do jogo naquele
+    canal, calada. Quem cai varias vezes seguidas teve a live encerrada de
+    verdade — ai desiste, em vez de religar para sempre.
+    """
+    feitas = 0
+    while processos and (voltas is None or feitas < voltas):
+        dormir(cfg["segundos_entre_conferencias"])
+        feitas += 1
+        for pr in list(processos):
+            if pr.processo.poll() is None:
+                continue
+
+            pr.tentativas += 1
+            if pr.tentativas > MAX_TENTATIVAS:
+                print(f"{pr.canal.nome}: caiu {MAX_TENTATIVAS}x seguidas — desistindo")
+                processos.remove(pr)
+                continue
+
+            pr.sessao += 1
+            escrever_gravacao(pr.pasta, pr.url, pr.sessao, agora())
+            pr.processo = abrir(comando(pr.url, pr.pasta, pr.sessao, cfg), pr.pasta)
+            print(f"{pr.canal.nome}: caiu, religando na sessao {pr.sessao}")
 ```
 
 - [ ] **Passo 4: rodar e ver passar**
 
 Rodar: `python -m pytest testes/test_gravador.py -v`
-Esperado: 8 passed
+Esperado: 12 passed
 
 - [ ] **Passo 5: commitar**
 
 ```bash
 git add nucleo/gravador.py testes/test_gravador.py
-git commit -m "gravador: gravacao em mpegts fatiado, com travas de banda e disco"
+git commit -m "gravador: gravacao em mpegts fatiado, com religamento e travas de banda"
 ```
 
 ---
@@ -1748,8 +1969,11 @@ git commit -m "gravador: gravacao em mpegts fatiado, com travas de banda e disco
 **Interfaces:**
 - Consome: `catalogo.escolhidos`.
 - Produz:
-  - `comando_cartela(clipe: Path, nome_canal: str, saida: Path, ffmpeg: str) -> list[str]` —
+  - `comando_cartela(clipe: Path, nome_canal: str, saida: Path, ffmpeg: str, fonte: str) -> list[str]` —
     normaliza para 1280x720 a 30 fps e escreve o nome do canal nos 3 primeiros segundos.
+    **`fonte` e obrigatorio**: no Windows o `drawtext` falha com "Cannot find a valid font"
+    sem um `fontfile=` explicito, e o caminho precisa de escape proprio (`C\:/Windows/...`).
+  - `caminho_de_fonte(fonte: str) -> str` — escapa o caminho para o filtro.
   - `comando_concat(lista: Path, saida: Path, ffmpeg: str) -> list[str]`
   - `escrever_lista(arquivos: list[Path], destino: Path) -> Path`
   - `montar(escolhidos: list[dict], pasta_jogo: Path, cfg: dict, executar=cortador.executar) -> Path`
@@ -1763,10 +1987,13 @@ from pathlib import Path
 from nucleo import montador
 
 FFMPEG = "ffmpeg"
+FONTE = r"C:\Windows\Fonts\arialbd.ttf"
 
 
 def test_cartela_normaliza_e_escreve_o_nome_do_canal():
-    cmd = montador.comando_cartela(Path("a.mp4"), "Canal do Zé", Path("b.mp4"), FFMPEG)
+    cmd = montador.comando_cartela(
+        Path("a.mp4"), "Canal do Zé", Path("b.mp4"), FFMPEG, FONTE
+    )
     texto = " ".join(cmd)
     assert "1280" in texto and "720" in texto, "canais entregam formatos diferentes"
     assert "fps=30" in texto
@@ -1774,8 +2001,18 @@ def test_cartela_normaliza_e_escreve_o_nome_do_canal():
     assert "Canal do" in texto
 
 
+def test_cartela_leva_fontfile_escapado():
+    """Sem fontfile o drawtext falha no Windows; com dois-pontos cru, o filtro quebra."""
+    cmd = montador.comando_cartela(Path("a.mp4"), "X", Path("b.mp4"), FFMPEG, FONTE)
+    texto = " ".join(cmd)
+    assert "fontfile=" in texto
+    assert "C\\:/Windows/Fonts/arialbd.ttf" in texto
+
+
 def test_nome_com_aspas_nao_quebra_o_filtro():
-    cmd = montador.comando_cartela(Path("a.mp4"), "Canal 'X': o melhor", Path("b.mp4"), FFMPEG)
+    cmd = montador.comando_cartela(
+        Path("a.mp4"), "Canal 'X': o melhor", Path("b.mp4"), FFMPEG, FONTE
+    )
     texto = " ".join(cmd)
     assert "\\:" in texto or "\\'" in texto, "dois-pontos e aspas precisam de escape"
 
@@ -1786,7 +2023,7 @@ def test_montar_gera_um_intermediario_por_clipe_e_um_concat(tmp_path: Path):
         {"gol": 1, "canal": "canal-a", "arquivo": "clipes/gol-01/canal-a.mp4"},
         {"gol": 1, "canal": "canal-b", "arquivo": "clipes/gol-01/canal-b.mp4"},
     ]
-    cfg = {"caminho_ffmpeg": FFMPEG}
+    cfg = {"caminho_ffmpeg": FFMPEG, "fonte_cartela": FONTE}
 
     saida = montador.montar(escolhidos, tmp_path, cfg, executar=chamadas.append)
 
@@ -1797,7 +2034,11 @@ def test_montar_gera_um_intermediario_por_clipe_e_um_concat(tmp_path: Path):
 
 def test_montar_sem_escolhidos_avisa_em_vez_de_gerar_vazio(tmp_path: Path):
     try:
-        montador.montar([], tmp_path, {"caminho_ffmpeg": FFMPEG}, executar=lambda c: None)
+        montador.montar(
+            [], tmp_path,
+            {"caminho_ffmpeg": FFMPEG, "fonte_cartela": FONTE},
+            executar=lambda c: None,
+        )
     except ValueError as erro:
         assert "nenhum" in str(erro).lower()
     else:
@@ -1830,12 +2071,20 @@ def _escapar(texto: str) -> str:
     return texto
 
 
-def comando_cartela(clipe: Path, nome_canal: str, saida: Path, ffmpeg: str) -> list[str]:
+def caminho_de_fonte(fonte: str) -> str:
+    """C:\Windows\Fonts\x.ttf -> C\:/Windows/Fonts/x.ttf (exigencia do drawtext)."""
+    return str(fonte).replace("\\", "/").replace(":", "\:", 1)
+
+
+def comando_cartela(
+    clipe: Path, nome_canal: str, saida: Path, ffmpeg: str, fonte: str
+) -> list[str]:
     filtro = (
         f"scale={LARGURA}:{ALTURA}:force_original_aspect_ratio=decrease,"
         f"pad={LARGURA}:{ALTURA}:(ow-iw)/2:(oh-ih)/2,"
         f"fps={FPS},"
-        f"drawtext=text='{_escapar(nome_canal)}':x=40:y=h-90:fontsize=42:"
+        f"drawtext=fontfile='{caminho_de_fonte(fonte)}':"
+        f"text='{_escapar(nome_canal)}':x=40:y=h-90:fontsize=42:"
         f"fontcolor=white:box=1:boxcolor=black@0.6:boxborderw=12:"
         f"enable='lt(t,{SEGUNDOS_DE_CARTELA})'"
     )
@@ -1881,7 +2130,12 @@ def montar(
     for indice, clipe in enumerate(escolhidos, start=1):
         origem = pasta_jogo / clipe["arquivo"]
         destino = temp / f"{indice:03d}.mp4"
-        executar(comando_cartela(origem, clipe["canal"], destino, cfg["caminho_ffmpeg"]))
+        executar(
+            comando_cartela(
+                origem, clipe["canal"], destino,
+                cfg["caminho_ffmpeg"], cfg["fonte_cartela"],
+            )
+        )
         intermediarios.append(destino)
 
     lista = escrever_lista(intermediarios, temp / "lista.txt")
@@ -1893,7 +2147,7 @@ def montar(
 - [ ] **Passo 4: rodar e ver passar**
 
 Rodar: `python -m pytest testes/test_montador.py -v`
-Esperado: 4 passed
+Esperado: 5 passed
 
 - [ ] **Passo 5: commitar**
 
@@ -2190,8 +2444,24 @@ git commit -m "painel: curadoria no navegador, com escolha gravada em disco na h
 - Consome: todos os módulos anteriores.
 - Produz:
   - `nome_do_jogo(mandante: str, visitante: str, data=None) -> str` — `"2026-09-01 mandante x visitante"`
+  - `resolver_horario(texto: str, sessoes: list[relogio.Sessao]) -> datetime` — escolhe o
+    dia certo para o `HH:MM:SS` informado.
+  - `_completar_pedaco_final(sessao, pasta, cfg, prefixo) -> relogio.Sessao`
+  - `_sessoes_do_canal(pasta: Path, cfg: dict) -> list[relogio.Sessao]`
   - `etapa_canais(argv) -> int`, `etapa_gravar(argv) -> int`, `etapa_cortar(argv) -> int`,
     `etapa_estudio(argv) -> int`
+
+**Duas armadilhas que estas funções existem para desarmar:**
+
+*A virada da meia-noite.* Jogo de Copa do Brasil começa 21:30 e termina depois da
+meia-noite. Colar a hora do gol na data de hoje poria um gol de 00:15 doze horas **antes**
+do início da gravação, e todo canal responderia "não coberto". `resolver_horario` escolhe
+entre o dia do início e o seguinte, pelo que a gravação realmente cobre.
+
+*O pedaço final que não entrou no CSV.* O ffmpeg só escreve a linha do CSV quando o pedaço
+de 10 minutos fecha. Fechar a janela da gravação mata o processo no meio de um pedaço: o
+`.ts` está no disco, mas o relógio não sabe dele. Sem `_completar_pedaco_final`, **um gol
+nos últimos minutos — o material mais valioso — apareceria como "não coberto"**.
 
 `etapa_cortar` é a que costura tudo: lê `gravacao.json` e os CSVs de cada canal, monta as
 sessões com `relogio.ler_segmentos`, abre a janela por gol, extrai o áudio, chama o
@@ -2203,8 +2473,9 @@ horário do gol, registra o motivo e segue para o próximo — **não derruba o 
 `testes/test_esteira.py`:
 ```python
 from datetime import datetime
+from pathlib import Path
 
-from nucleo import esteira
+from nucleo import esteira, relogio
 
 
 def test_nome_do_jogo_usa_data_e_apelidos():
@@ -2216,6 +2487,68 @@ def test_nome_do_jogo_serve_como_pasta():
     nome = esteira.nome_do_jogo("São Paulo", "Grêmio", datetime(2026, 9, 1))
     assert ":" not in nome and "?" not in nome
     assert nome == "2026-09-01 sao-paulo x gremio"
+
+
+def sessao_da_noite() -> relogio.Sessao:
+    """Gravacao das 21:30 as 00:10 do dia seguinte."""
+    return relogio.Sessao(
+        t0=datetime(2026, 9, 1, 21, 30, 0),
+        pedacos=[relogio.Pedaco(f"s01-parte-{i:03d}.ts", i * 600.0, (i + 1) * 600.0)
+                 for i in range(16)],
+    )
+
+
+def test_horario_do_primeiro_tempo_fica_no_dia_do_jogo():
+    momento = esteira.resolver_horario("21:47:00", [sessao_da_noite()])
+    assert momento == datetime(2026, 9, 1, 21, 47, 0)
+
+
+def test_gol_depois_da_meia_noite_cai_no_dia_seguinte():
+    """Copa do Brasil comeca 21:30; gol aos 50 do segundo tempo passa da meia-noite."""
+    momento = esteira.resolver_horario("00:05:00", [sessao_da_noite()])
+    assert momento == datetime(2026, 9, 2, 0, 5, 0), "nao pode voltar 12h para 01/09"
+
+
+def test_sem_gravacao_nenhuma_nao_estoura():
+    momento = esteira.resolver_horario("21:47:00", [])
+    assert momento.hour == 21 and momento.minute == 47
+
+
+def test_pedaco_final_fora_do_csv_e_recuperado(tmp_path: Path):
+    """Fechar a janela mata o ffmpeg no meio do pedaco: o .ts existe, o CSV nao o cita."""
+    (tmp_path / "s01-parte-000.ts").write_bytes(b"x")
+    (tmp_path / "s01-parte-001.ts").write_bytes(b"x")  # o que ficou de fora
+    sessao = relogio.Sessao(
+        t0=datetime(2026, 9, 1, 21, 0, 0),
+        pedacos=[relogio.Pedaco("s01-parte-000.ts", 0.0, 600.0)],
+    )
+    cfg = {"caminho_ffprobe": "ffprobe"}
+    monkey = esteira.cortador.duracao
+    esteira.cortador.duracao = lambda arquivo, ffprobe: 137.0
+    try:
+        completada = esteira._completar_pedaco_final(sessao, tmp_path, cfg, "s01")
+    finally:
+        esteira.cortador.duracao = monkey
+
+    assert [p.arquivo for p in completada.pedacos] == [
+        "s01-parte-000.ts", "s01-parte-001.ts"
+    ]
+    assert completada.pedacos[1] == relogio.Pedaco("s01-parte-001.ts", 600.0, 737.0)
+
+
+def test_pedaco_final_ilegivel_e_ignorado(tmp_path: Path):
+    (tmp_path / "s01-parte-001.ts").write_bytes(b"")
+    sessao = relogio.Sessao(datetime(2026, 9, 1, 21, 0, 0), [])
+    monkey = esteira.cortador.duracao
+    esteira.cortador.duracao = lambda arquivo, ffprobe: 0.0
+    try:
+        completada = esteira._completar_pedaco_final(
+            sessao, tmp_path, {"caminho_ffprobe": "ffprobe"}, "s01"
+        )
+    finally:
+        esteira.cortador.duracao = monkey
+
+    assert completada.pedacos == []
 ```
 
 - [ ] **Passo 2: rodar e ver falhar**
@@ -2230,7 +2563,7 @@ Esperado: FALHA com `ModuleNotFoundError: No module named 'nucleo.esteira'`
 """As quatro etapas da esteira. Os .bat sao cascas de uma linha em volta daqui."""
 import argparse
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from nucleo import canais as mod_canais
@@ -2282,21 +2615,70 @@ def etapa_gravar(argv=None) -> int:
     processos = gravador.iniciar(vivos, Path(cfg["biblioteca"]), jogo, cfg)
     print(f"Gravando {len(processos)} canal(is) em {cfg['biblioteca']}\\{jogo}")
     print("Feche esta janela para parar.")
-    for pr in processos:
-        pr.processo.wait()
+    gravador.supervisionar(processos, cfg)  # religa quem cair
     return 0
 
 
-def _sessoes_do_canal(pasta: Path) -> list[relogio.Sessao]:
+def _completar_pedaco_final(sessao: relogio.Sessao, pasta: Path, cfg: dict, prefixo: str):
+    """Acrescenta o pedaco que ficou de fora do CSV.
+
+    O ffmpeg so escreve a linha do CSV quando o pedaco fecha. Fechar a janela da
+    gravacao mata o processo no meio de um pedaco de 10 minutos: o .ts esta no
+    disco, mas o relogio nao sabe dele — e um gol nos ultimos minutos, que e
+    justamente o material bom, apareceria como "nao coberto".
+    """
+    conhecidos = {p.arquivo for p in sessao.pedacos}
+    orfaos = sorted(
+        a.name for a in pasta.glob(f"{prefixo}-parte-*.ts") if a.name not in conhecidos
+    )
+    pedacos = list(sessao.pedacos)
+    fim = pedacos[-1].fim if pedacos else 0.0
+    for nome in orfaos:
+        medida = cortador.duracao(pasta / nome, cfg["caminho_ffprobe"])
+        if medida <= 0:
+            continue
+        pedacos.append(relogio.Pedaco(nome, fim, fim + medida))
+        fim += medida
+    return relogio.Sessao(t0=sessao.t0, pedacos=pedacos)
+
+
+def _sessoes_do_canal(pasta: Path, cfg: dict) -> list[relogio.Sessao]:
     import json
 
     dados = json.loads((pasta / "gravacao.json").read_text(encoding="utf-8"))
     sessoes = []
     for s in dados["sessoes"]:
-        csv = pasta / f"s{s['numero']:02d}-segmentos.csv"
-        if csv.is_file():
-            sessoes.append(relogio.ler_segmentos(csv, datetime.fromisoformat(s["t0"])))
+        prefixo = f"s{s['numero']:02d}"
+        csv = pasta / f"{prefixo}-segmentos.csv"
+        t0 = datetime.fromisoformat(s["t0"])
+        sessao = (
+            relogio.ler_segmentos(csv, t0)
+            if csv.is_file()
+            else relogio.Sessao(t0=t0, pedacos=[])
+        )
+        sessao = _completar_pedaco_final(sessao, pasta, cfg, prefixo)
+        if sessao.pedacos:
+            sessoes.append(sessao)
     return sessoes
+
+
+def resolver_horario(texto: str, sessoes: list[relogio.Sessao]) -> datetime:
+    """HH:MM:SS -> datetime, escolhendo o dia que cai dentro do que foi gravado.
+
+    Jogo de Copa do Brasil comeca 21:30 e termina depois da meia-noite. Colar a
+    hora do gol na data de hoje poria um gol de 00:15 doze horas antes do t0.
+    """
+    hora = datetime.strptime(texto, "%H:%M:%S").time()
+    intervalos = relogio.cobertura(sessoes)
+    if not intervalos:
+        return datetime.combine(datetime.now().date(), hora)
+
+    inicio = intervalos[0][0]
+    for dia in (inicio.date(), inicio.date() + timedelta(days=1)):
+        candidato = datetime.combine(dia, hora)
+        if any(de <= candidato <= ate for de, ate in intervalos):
+            return candidato
+    return datetime.combine(inicio.date(), hora)
 
 
 def etapa_cortar(argv=None) -> int:
@@ -2309,20 +2691,28 @@ def etapa_cortar(argv=None) -> int:
 
     pasta_jogo = Path(cfg["biblioteca"]) / args.jogo
     dados = catalogo.carregar(pasta_jogo)
-    hoje = datetime.now().date()
+
+    # Le as sessoes de todos os canais uma vez so: alem de evitar reler o disco
+    # por gol, e o que permite resolver a data do horario informado.
+    por_canal = {
+        pasta.name: _sessoes_do_canal(pasta, cfg)
+        for pasta in sorted((pasta_jogo / "bruto").iterdir())
+        if (pasta / "gravacao.json").is_file()
+    }
+    if not por_canal:
+        print(f"Nenhuma gravacao em {pasta_jogo / 'bruto'}")
+        return 1
+    qualquer = next(iter(por_canal.values()))
 
     for numero, texto in enumerate(args.gols, start=1):
-        momento = datetime.combine(hoje, datetime.strptime(texto, "%H:%M:%S").time())
+        momento = resolver_horario(texto, qualquer)
         dados = catalogo.registrar_gol(dados, numero, momento.isoformat(), "")
         inicio, fim = relogio.janela(momento, cfg["janela_antes"], cfg["janela_depois"])
         destino = pasta_jogo / "clipes" / f"gol-{numero:02d}"
         destino.mkdir(parents=True, exist_ok=True)
 
-        for pasta_canal in sorted((pasta_jogo / "bruto").iterdir()):
-            if not (pasta_canal / "gravacao.json").is_file():
-                continue
-            nome = pasta_canal.name
-            sessoes = _sessoes_do_canal(pasta_canal)
+        for nome, sessoes in por_canal.items():
+            pasta_canal = pasta_jogo / "bruto" / nome
             recortes = relogio.trechos(sessoes, inicio, fim)
             if not recortes:
                 gravado = ", ".join(
@@ -2361,6 +2751,8 @@ def etapa_cortar(argv=None) -> int:
             marca = "" if achado.tem_pico else "  (SEM PICO — conferir)"
             print(f"gol {numero}: {nome} -> {saida.name}{marca}")
             wav.unlink(missing_ok=True)
+            temp.unlink(missing_ok=True)  # a juncao temporaria, quando houve
+            temp.with_suffix(".txt").unlink(missing_ok=True)
 
     catalogo.salvar(pasta_jogo, dados)
     return 0
@@ -2389,7 +2781,7 @@ if __name__ == "__main__":
 - [ ] **Passo 4: rodar e ver passar**
 
 Rodar: `python -m pytest testes/test_esteira.py -v`
-Esperado: 2 passed
+Esperado: 7 passed
 
 - [ ] **Passo 5: escrever os quatro `.bat`**
 
@@ -2435,7 +2827,7 @@ python -m nucleo.esteira estudio "%JOGO%"
 - [ ] **Passo 6: rodar a bateria inteira**
 
 Rodar: `python -m pytest -v`
-Esperado: todos passando, ~50 testes.
+Esperado: todos passando, ~62 testes.
 
 - [ ] **Passo 7: commitar**
 
@@ -2455,5 +2847,13 @@ Depois da tarefa 11, antes de dizer que está pronto:
       é APROVADO (≥80% dentro de 3 s). **Esse é o critério que importa.** Cole a saída.
 - [ ] Um jogo de verdade gravado com **um canal**, cortado e curado no painel do começo ao
       fim.
+- [ ] **Matar a gravação na marra** (fechar a janela) e conferir que um gol dos últimos
+      minutos ainda é cortado — é o teste do pedaço órfão que não entrou no CSV.
+- [ ] **Derrubar a internet por uns segundos** durante uma gravação e conferir que ela
+      volta sozinha numa sessão 2, e que o `gravacao.json` registrou as duas.
+- [ ] Se o jogo passou da meia-noite, conferir que um gol de `00:0x` foi localizado — e não
+      reportado como "não coberto".
 - [ ] Conferir que a mídia foi para o `G:` e não para o `C:`.
 - [ ] Conferir que nenhum arquivo de vídeo entrou no repositório (`git status` limpo).
+- [ ] Apagar a pasta `bruto/` do jogo depois de montar a compilação. São ~44 GB por jogo e
+      a limpeza ainda é manual, de propósito.

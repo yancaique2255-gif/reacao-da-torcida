@@ -143,6 +143,12 @@ Três decisões dentro desse comando:
 - **`-segment_list segmentos.csv`**: o próprio ffmpeg escreve `arquivo,início,fim` de cada
   pedaço. Esse arquivo é metade do manifesto — a outra metade é o horário de relógio.
 
+Um detalhe que morde: **o ffmpeg só escreve a linha do CSV quando o pedaço fecha.**
+Encerrar a gravação mata o processo no meio de um pedaço de 10 minutos — o `.ts` fica no
+disco, mas fora do manifesto. Como gol no fim de jogo é o material mais valioso, na hora
+de cortar o sistema varre a pasta e mede com `ffprobe` qualquer pedaço órfão, em vez de
+declarar "não coberto".
+
 `gravacao.json` guarda, por canal: url, horário local do início (`t0`), formato obtido,
 e a lista de sessões. Se a gravação cair e religar, abre uma nova sessão com seu próprio
 `t0` e o buraco fica registrado e visível.
@@ -157,11 +163,18 @@ Traduz um horário de relógio (ex.: 21:37:00) para um par (arquivo, segundo), s
 buracos entre sessões, e horário que cai fora de qualquer gravação (devolve "não coberto",
 não estoura).
 
-**Entrada dos gols.** O operador informa o **horário de relógio** do gol — é o dado que
-não precisa de conversão nenhuma e o que uma API de placar entrega. Informar por minuto
+**Entrada dos gols.** O operador informa apenas os gols **contra** o time cujos canais
+foram gravados — é a reação de quem sofreu que vira vídeo. O dado é o **horário de
+relógio** do gol: não precisa de conversão nenhuma e é o que uma API de placar entrega.
+Informar por minuto
 de jogo ("38 do 2º tempo") é opcional e só funciona se os horários de início de cada tempo
 tiverem sido registrados, porque acréscimo e intervalo tornam a conversão impossível sem
 eles.
+
+**A virada da meia-noite.** Jogo de Copa do Brasil começa 21:30 e termina depois da
+meia-noite. O horário informado (`00:05`) é resolvido contra o intervalo realmente gravado,
+escolhendo entre o dia do início e o seguinte — colar na data de hoje jogaria o gol doze
+horas antes do começo da gravação.
 
 **Janela de busca:** de `gol − 30s` a `gol + 180s`, configurável. Larga de propósito: o
 atraso da live é desconhecido e variável, e o áudio é quem resolve.
@@ -266,6 +279,10 @@ De propósito, e não por esquecimento:
 - Corte vertical para Shorts/Reels.
 - Gravar mais de um jogo ao mesmo tempo.
 - Fonte automática de placar (ver abaixo).
+- **Limpeza automática do bruto.** Cada jogo deixa ~44 GB e o `G:` comporta ~7 antes de
+  encher. Por ora o operador apaga a pasta `bruto/` na mão depois de montar a compilação;
+  o sistema só avisa quando o disco está baixo, e recusa começar. Automatizar isso é a
+  terceira evolução prevista.
 
 ## Depois do piloto
 
@@ -331,3 +348,5 @@ G:\REACAO DA TORCIDA\
 | `duracao_pedaco` | `600` | Segundos por pedaço de gravação. |
 | `teto_canais` | `20` | Limite de banda dos 100 Mbps. |
 | `disco_minimo_gb` | `60` | Recusa gravar abaixo disso. |
+| `segundos_entre_conferencias` | `20` | De quanto em quanto o supervisor confere as gravações. |
+| `fonte_cartela` | `arialbd.ttf` | O `drawtext` do ffmpeg no Windows exige fonte explícita. |
