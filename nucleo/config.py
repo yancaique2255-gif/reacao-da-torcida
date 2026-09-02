@@ -13,8 +13,11 @@ PADROES = {
     "duracao_pedaco": 600,
     "teto_canais": 20,
     "disco_minimo_gb": 60,
+    "segundos_entre_conferencias": 20,
     "caminho_ytdlp": r"C:\yt-dlp\yt-dlp.exe",
     "caminho_ffmpeg": r"C:\yt-dlp\ffmpeg.exe",
+    # Conferido na maquina: o ffprobe NAO mora junto do ffmpeg do C:\yt-dlp.
+    "caminho_ffprobe": r"C:\ffmpeg\bin\ffprobe.exe",
 }
 
 PADRAO_ARQUIVO = Path(__file__).resolve().parent.parent / "dados" / "config.json"

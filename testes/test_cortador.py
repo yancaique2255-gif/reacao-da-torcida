@@ -64,3 +64,16 @@ def test_lista_de_concat_nomeia_os_arquivos_na_ordem(tmp_path: Path):
     assert conteudo.count("file ") == 2
     assert "inpoint 595.0" in conteudo and "outpoint 600.0" in conteudo
     assert "inpoint 0.0" in conteudo and "outpoint 15.0" in conteudo
+
+
+def test_duracao_le_o_numero_que_o_ffprobe_devolve():
+    def rodar_falso(comando):
+        assert "ffprobe" in comando[0]
+        return "  412.480000\n"
+
+    assert cortador.duracao(Path("a.ts"), "ffprobe", rodar=rodar_falso) == 412.48
+
+
+def test_duracao_de_arquivo_ilegivel_devolve_zero():
+    """Pedaco truncado no fim da gravacao: nao pode estourar."""
+    assert cortador.duracao(Path("a.ts"), "ffprobe", rodar=lambda c: "N/A\n") == 0.0

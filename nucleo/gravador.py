@@ -7,6 +7,7 @@ import json
 import re
 import shutil
 import subprocess
+import time
 import unicodedata
 from dataclasses import dataclass
 from datetime import datetime
@@ -16,12 +17,17 @@ from typing import Callable
 from nucleo import canais as mod_canais
 
 
+MAX_TENTATIVAS = 5
+
+
 @dataclass
 class Processo:
     canal: mod_canais.Canal
+    url: str
     pasta: Path
     sessao: int
     processo: object
+    tentativas: int = 0
 
 
 def apelido(nome: str) -> str:
@@ -114,5 +120,41 @@ def iniciar(
         sessao = 1
         escrever_gravacao(pasta, url, sessao, datetime.now())
         processo = abrir(comando(url, pasta, sessao, cfg), pasta)
-        processos.append(Processo(canal, pasta, sessao, processo))
+        processos.append(Processo(canal, url, pasta, sessao, processo))
     return processos
+
+
+def supervisionar(
+    processos: list[Processo],
+    cfg: dict,
+    abrir: Callable[[str, Path], object] = _abrir,
+    dormir: Callable[[float], None] = time.sleep,
+    agora: Callable[[], datetime] = datetime.now,
+    voltas: int | None = None,
+) -> None:
+    """Fica de olho nas gravacoes: quem cair volta em nova sessao.
+
+    Sem isto, uma queda de conexao aos 20 minutos perde o resto do jogo naquele
+    canal, calada. Quem cai varias vezes seguidas teve a live encerrada de
+    verdade — ai desiste, em vez de religar para sempre.
+
+    `voltas` existe para o teste rodar um numero finito de conferencias.
+    """
+    feitas = 0
+    while processos and (voltas is None or feitas < voltas):
+        dormir(cfg["segundos_entre_conferencias"])
+        feitas += 1
+        for pr in list(processos):
+            if pr.processo.poll() is None:
+                continue
+
+            pr.tentativas += 1
+            if pr.tentativas > MAX_TENTATIVAS:
+                print(f"{pr.canal.nome}: caiu {MAX_TENTATIVAS}x seguidas - desistindo")
+                processos.remove(pr)
+                continue
+
+            pr.sessao += 1
+            escrever_gravacao(pr.pasta, pr.url, pr.sessao, agora())
+            pr.processo = abrir(comando(pr.url, pr.pasta, pr.sessao, cfg), pr.pasta)
+            print(f"{pr.canal.nome}: caiu, religando na sessao {pr.sessao}")

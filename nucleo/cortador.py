@@ -9,6 +9,30 @@ from typing import Callable
 from nucleo import relogio
 
 
+def _rodar_texto(comando: list[str]) -> str:
+    return subprocess.run(comando, capture_output=True, text=True).stdout
+
+
+def duracao(
+    arquivo: Path, ffprobe: str, rodar: Callable[[list[str]], str] = _rodar_texto
+) -> float:
+    """Duracao em segundos. Devolve 0.0 se o arquivo estiver truncado ou ilegivel.
+
+    Serve para medir o pedaco final de uma gravacao interrompida, que por isso
+    nao chegou a entrar no CSV de segmentos.
+    """
+    saida = rodar([
+        ffprobe, "-v", "error",
+        "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        str(arquivo),
+    ])
+    try:
+        return float(saida.strip())
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def executar(comando: list[str]) -> None:
     subprocess.run(comando, check=True, capture_output=True)
 

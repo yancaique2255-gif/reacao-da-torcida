@@ -89,3 +89,93 @@ def test_iniciar_abre_um_processo_por_canal_escolhido(tmp_path: Path, monkeypatc
     assert len(processos) == 2
     assert len(abertos) == 2
     assert (tmp_path / "jogo-teste" / "bruto" / "a" / "gravacao.json").is_file()
+
+
+class ProcessoFalso:
+    """Devolve None enquanto vivo; um codigo de saida depois de `vive_por` conferencias."""
+
+    def __init__(self, vive_por: int = 999):
+        self.vive_por = vive_por
+        self.conferencias = 0
+
+    def poll(self):
+        self.conferencias += 1
+        return None if self.conferencias <= self.vive_por else 1
+
+
+SUPERVISAO = {**CFG, "segundos_entre_conferencias": 0}
+
+
+def test_processo_vivo_nao_e_reiniciado(tmp_path: Path):
+    abertos = []
+    pr = gravador.Processo(
+        canais.Canal("A", "u", True), "https://x", tmp_path, 1, ProcessoFalso()
+    )
+
+    gravador.supervisionar(
+        [pr], SUPERVISAO,
+        abrir=lambda c, p: abertos.append(c), dormir=lambda s: None, voltas=3,
+    )
+
+    assert abertos == []
+    assert pr.sessao == 1
+
+
+def test_gravacao_que_cai_volta_em_nova_sessao(tmp_path: Path):
+    gravador.escrever_gravacao(tmp_path, "https://x", 1, datetime(2026, 9, 1, 21, 0, 0))
+    abertos = []
+    pr = gravador.Processo(
+        canais.Canal("A", "u", True), "https://x", tmp_path, 1, ProcessoFalso(vive_por=1)
+    )
+
+    gravador.supervisionar(
+        [pr], SUPERVISAO,
+        abrir=lambda c, p: abertos.append(c) or ProcessoFalso(),
+        dormir=lambda s: None, voltas=2,
+    )
+
+    assert pr.sessao == 2
+    assert len(abertos) == 1
+    assert "s02" in abertos[0], "a nova sessao nao pode sobrescrever os arquivos da s01"
+    dados = json.loads((tmp_path / "gravacao.json").read_text(encoding="utf-8"))
+    assert [s["numero"] for s in dados["sessoes"]] == [1, 2]
+
+
+def test_desiste_do_canal_depois_de_muitas_quedas_seguidas(tmp_path: Path):
+    """Live encerrada de verdade: nao pode ficar religando pra sempre."""
+    abertos = []
+    pr = gravador.Processo(
+        canais.Canal("A", "u", True), "https://x", tmp_path, 1, ProcessoFalso(vive_por=0)
+    )
+    lista = [pr]
+
+    gravador.supervisionar(
+        lista, SUPERVISAO,
+        abrir=lambda c, p: abertos.append(c) or ProcessoFalso(vive_por=0),
+        dormir=lambda s: None, voltas=20,
+    )
+
+    assert len(abertos) == gravador.MAX_TENTATIVAS
+    assert lista == [], "canal desistido sai da lista e o laco termina"
+
+
+def test_um_canal_desistindo_nao_derruba_o_outro(tmp_path: Path):
+    pasta_a = tmp_path / "a"
+    pasta_b = tmp_path / "b"
+    pasta_a.mkdir()
+    pasta_b.mkdir()
+    ruim = gravador.Processo(
+        canais.Canal("Ruim", "u", True), "https://r", pasta_a, 1, ProcessoFalso(vive_por=0)
+    )
+    bom = gravador.Processo(
+        canais.Canal("Bom", "u", True), "https://b", pasta_b, 1, ProcessoFalso()
+    )
+    lista = [ruim, bom]
+
+    gravador.supervisionar(
+        lista, SUPERVISAO,
+        abrir=lambda c, p: ProcessoFalso(vive_por=0),
+        dormir=lambda s: None, voltas=20,
+    )
+
+    assert [p.canal.nome for p in lista] == ["Bom"]
