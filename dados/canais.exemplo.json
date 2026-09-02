@@ -1,6 +1,10 @@
 {
   "cruzeiro": [
-    {"nome": "Canal de exemplo", "url": "https://www.youtube.com/@exemplo", "ativo": true}
+    {
+      "nome": "Cole aqui o nome da live escolhida",
+      "url": "https://www.youtube.com/watch?v=COLE_O_ID",
+      "ativo": false
+    }
   ],
   "atletico-mg": []
 }
