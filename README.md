@@ -1,43 +1,34 @@
 # REAÇÃO DA TORCIDA
 
-Ferramenta para montar vídeos de compilação de reações de torcida a gols.
+Ferramenta local para gravar lives escolhidas pelo operador, recortar reações
+em horários informados manualmente, selecionar os melhores clipes e gerar uma
+compilação.
 
-Durante o jogo, grava as lives dos canais de YouTube da torcida de um time. Quando sai um
-gol contra esse time, acha o instante exato da reação **dentro de cada gravação** — cada
-live tem seu próprio atraso — corta um clipe curto de cada canal e organiza numa pasta.
-Depois, um painel local deixa ouvir cada reação, escolher as boas e montar a compilação.
+## Fluxo atual
 
-O trabalho braçal é automático. A escolha de qual reação tem graça continua sendo de
-quem edita.
+1. **0 - CANAIS.bat** — escolha no YouTube as lives com mais visualizações e
+   cole as URLs exatas em dados/canais.json.
+2. **1 - GRAVAR.bat** — grave simultaneamente todos os canais marcados como
+   ativos, em até 720p e em segmentos MPEG-TS.
+3. **2 - CORTAR.bat** — informe o horário exato em que a reação aparece na
+   gravação. Cada clipe terá 8 segundos antes e 12 segundos depois.
+4. **3 - ESTUDIO.bat** — assista aos clipes no painel local, escolha quais
+   usar e monte a compilação.
 
-## A esteira
+O detector de pico permanece no repositório como experimento, mas não participa
+do fluxo atual. A descoberta automática de lives também foi removida: a decisão
+dos canais é sempre do operador.
 
-```
-0 - CANAIS.bat     cadastrar canais por time e ver quem está ao vivo
-1 - GRAVAR.bat     iniciar as gravações do jogo
-2 - CORTAR.bat     informar os gols e gerar os clipes
-3 - ESTUDIO.bat    ouvir, escolher e montar a compilação
-```
+## Configuração
 
-## Como acha o momento certo
+Copie dados/config.exemplo.json para dados/config.json e ajuste os caminhos se
+necessário. O arquivo pessoal não entra no Git.
 
-O placar diz **que** houve gol. O áudio diz **onde** cortar.
+Toda mídia deve ficar no Drive G:. Vídeos, áudios e segmentos são ignorados pelo
+repositório.
 
-Cada live atrasa de 30 segundos a 2 minutos, e o atraso muda durante o jogo — não existe
-um instante único que sirva para todos os canais. Então o horário do gol só delimita uma
-janela larga de busca, e a explosão do narrador dentro de cada gravação define o corte
-daquele canal.
+## Testes
 
-Por causa disso, **fonte de placar atrasada ou imprecisa não atrapalha** — o que mais
-tarde vai permitir usar plano grátis de API de futebol.
+Execute: python -m pytest -v
 
-## Situação
-
-Desenho aprovado, implementação não começou.
-
-- Desenho: [`docs/superpowers/specs/2026-09-01-reacao-da-torcida-design.md`](docs/superpowers/specs/2026-09-01-reacao-da-torcida-design.md)
-- Plano: [`docs/superpowers/plans/2026-09-01-reacao-da-torcida-plan.md`](docs/superpowers/plans/2026-09-01-reacao-da-torcida-plan.md)
-- Regras da casa: [`AGENTS.md`](AGENTS.md)
-
-O piloto é **um canal**, calibrado sobre um VOD de live já encerrada com gols de posição
-conhecida. Só depois de o erro ficar aceitável é que se liga a gravação ao vivo.
+As decisões feitas no painel são gravadas imediatamente em catalogo.json.
