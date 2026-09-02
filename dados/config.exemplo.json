@@ -1,0 +1,14 @@
+{
+  "biblioteca": "G:\REACAO DA TORCIDA",
+  "altura_maxima": 720,
+  "segundos_antes": 8,
+  "segundos_depois": 12,
+  "janela_antes": 30,
+  "janela_depois": 180,
+  "limiar_confianca_db": 6,
+  "duracao_pedaco": 600,
+  "teto_canais": 20,
+  "disco_minimo_gb": 60,
+  "caminho_ytdlp": "C:\yt-dlp\yt-dlp.exe",
+  "caminho_ffmpeg": "C:\yt-dlp\ffmpeg.exe"
+}
