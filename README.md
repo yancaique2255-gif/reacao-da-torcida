@@ -24,8 +24,11 @@ dos canais é sempre do operador.
 Copie dados/config.exemplo.json para dados/config.json e ajuste os caminhos se
 necessário. O arquivo pessoal não entra no Git.
 
-Toda mídia deve ficar no Drive G:. Vídeos, áudios e segmentos são ignorados pelo
-repositório.
+A biblioteca tem que ficar em **disco local** (`C:\REACAO DA TORCIDA`). O `G:` é o
+Google Drive: gravar lá dispara upload durante o jogo e o upload disputa a mesma
+banda que baixa as lives. Só a compilação pronta sobe para o Drive.
+
+Vídeos, áudios e segmentos são ignorados pelo repositório.
 
 ## Testes
 

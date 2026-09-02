@@ -46,9 +46,24 @@ Conferido nesta máquina em 02/09/2026:
 - Português no código, nos commits e na interface. Nomes de módulo em português, como
   na spec.
 
+## Duas coisas medidas em jogo, não deduzidas
+
+**O download do HLS é do yt-dlp, nunca do ffmpeg.** Para live, o yt-dlp entrega o HLS ao
+ffmpeg por padrão; o ffmpeg guarda a URL dos pedaços e não renova. Medido em quatro canais
+nesta máquina: entre 31 e 35 segundos, o YouTube responde 403 em todo pedaço e a gravação
+para — **com o processo vivo**. Não é o cano nem falta de cookie (testado sem cano e com os
+cookies do Opera: mesmos 403). O que resolve é `--downloader m3u8:native`. E como a saída
+padrão não junta duas faixas, o formato tem que ser um combinado único (`b[height<=720]`).
+
+**O t0 não é a hora em que o processo subiu.** Entre subir e o primeiro frame cabem o
+arranque do yt-dlp e o trecho velho que ele puxa acelerado até alcançar o ao vivo. Medido:
+meio minuto num teste, cinco segundos em outro — variável por canal. O t0 vem do relógio do
+disco (`esteira.ancorar_t0`), não do `datetime.now()` do lançamento.
+
 ## O que não fazer
 
 - Recodificar durante a gravação. A gravação é `-c copy`.
+- Deixar o ffmpeg baixar o HLS. Veja acima: morre calado em meio minuto.
 - Gravar `.mp4` direto. Processo morto deixa `.mp4` ilegível — por isso é MPEG-TS.
 - Cortar pelo auge do grito. O corte é pelo **começo da subida**; o susto é a graça.
 - Implementar fonte automática de placar, publicação, corte vertical ou gravação de dois
