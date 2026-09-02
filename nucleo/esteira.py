@@ -91,6 +91,32 @@ def _completar_pedaco_final(
     return relogio.Sessao(t0=sessao.t0, pedacos=pedacos)
 
 
+def ancorar_t0(sessao: relogio.Sessao, pasta: Path) -> relogio.Sessao:
+    """Refaz o t0 da sessao pelo relogio do disco, em vez do horario de lancamento.
+
+    O t0 gravado e a hora em que o processo subiu. O primeiro frame chega bem
+    depois: o yt-dlp leva alguns segundos para negociar e o ffmpeg ainda puxa
+    acelerado o trecho velho que ja estava na playlist, ate alcancar o ao vivo.
+    Medido nesta maquina, a diferenca passou de meio minuto - o bastante para o
+    corte cair inteiro fora do lance.
+
+    Cada pedaco fechado da um palpite: hora em que ele fechou menos a posicao em
+    que ele termina. Fica o menor deles, que e o instante em que a gravacao
+    esteve mais colada no ao vivo; assim um canal que atrasa la pelo fim do jogo
+    nao empurra o horario de todos os gols anteriores.
+    """
+    palpites = []
+    for pedaco in sessao.pedacos:
+        arquivo = Path(pasta) / pedaco.arquivo
+        if not arquivo.is_file():
+            continue
+        fechou = datetime.fromtimestamp(arquivo.stat().st_mtime)
+        palpites.append(fechou - timedelta(seconds=pedaco.fim))
+    if not palpites:
+        return sessao
+    return relogio.Sessao(t0=min(palpites), pedacos=sessao.pedacos)
+
+
 def _sessoes_do_canal(pasta: Path, cfg: dict) -> list[relogio.Sessao]:
     import json
 
@@ -106,6 +132,7 @@ def _sessoes_do_canal(pasta: Path, cfg: dict) -> list[relogio.Sessao]:
             else relogio.Sessao(t0=t0, pedacos=[])
         )
         sessao = _completar_pedaco_final(sessao, pasta, cfg, prefixo)
+        sessao = ancorar_t0(sessao, pasta)
         if sessao.pedacos:
             sessoes.append(sessao)
     return sessoes

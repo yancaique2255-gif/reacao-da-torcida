@@ -1,3 +1,4 @@
+import os
 import json
 from datetime import datetime
 from pathlib import Path
@@ -173,3 +174,62 @@ def test_pedaco_final_ilegivel_e_ignorado(tmp_path: Path, monkeypatch):
     )
 
     assert completada.pedacos == []
+
+
+def _tocar(arquivo: Path, quando: datetime) -> None:
+    arquivo.write_bytes(b"x")
+    marca = quando.timestamp()
+    os.utime(arquivo, (marca, marca))
+
+
+def test_t0_e_ancorado_pelo_relogio_do_disco_e_nao_pelo_lancamento(tmp_path: Path):
+    """O t0 gravado e a hora em que o processo subiu, nao a do primeiro frame.
+
+    Entre um e outro cabem o arranque do yt-dlp e o trecho velho que o ffmpeg
+    puxa acelerado para alcancar o ao vivo. Meio minuto de erro joga o corte
+    inteiro para fora do lance.
+    """
+    _tocar(tmp_path / "s01-parte-000.ts", datetime(2026, 9, 2, 21, 40, 30))
+    _tocar(tmp_path / "s01-parte-001.ts", datetime(2026, 9, 2, 21, 50, 30))
+    sessao = relogio.Sessao(
+        t0=datetime(2026, 9, 2, 21, 30, 0),  # lancamento
+        pedacos=[
+            relogio.Pedaco("s01-parte-000.ts", 0.0, 600.0),
+            relogio.Pedaco("s01-parte-001.ts", 600.0, 1200.0),
+        ],
+    )
+
+    ancorada = esteira.ancorar_t0(sessao, tmp_path)
+
+    # 21:40:30 menos os 600s do primeiro pedaco: o frame zero e de 21:30:30.
+    assert ancorada.t0 == datetime(2026, 9, 2, 21, 30, 30)
+    assert ancorada.pedacos == sessao.pedacos
+
+
+def test_ancora_escolhe_o_instante_mais_perto_do_ao_vivo(tmp_path: Path):
+    """Pedaco que demorou a fechar so mostra que a maquina ficou para tras.
+
+    A ancora e o menor dos palpites: o momento em que a gravacao esteve mais
+    colada no ao vivo. Assim, canal que atrasa no fim do jogo nao arrasta o
+    horario de todos os gols anteriores.
+    """
+    _tocar(tmp_path / "s01-parte-000.ts", datetime(2026, 9, 2, 21, 40, 30))
+    _tocar(tmp_path / "s01-parte-001.ts", datetime(2026, 9, 2, 21, 51, 10))  # 40s atras
+    sessao = relogio.Sessao(
+        t0=datetime(2026, 9, 2, 21, 30, 0),
+        pedacos=[
+            relogio.Pedaco("s01-parte-000.ts", 0.0, 600.0),
+            relogio.Pedaco("s01-parte-001.ts", 600.0, 1200.0),
+        ],
+    )
+
+    assert esteira.ancorar_t0(sessao, tmp_path).t0 == datetime(2026, 9, 2, 21, 30, 30)
+
+
+def test_ancora_sem_arquivo_no_disco_mantem_o_t0_gravado(tmp_path: Path):
+    sessao = relogio.Sessao(
+        t0=datetime(2026, 9, 2, 21, 30, 0),
+        pedacos=[relogio.Pedaco("sumiu.ts", 0.0, 600.0)],
+    )
+
+    assert esteira.ancorar_t0(sessao, tmp_path).t0 == datetime(2026, 9, 2, 21, 30, 0)
