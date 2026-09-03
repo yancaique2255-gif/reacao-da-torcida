@@ -3,9 +3,9 @@
 O comando e um cano: yt-dlp entrega o stream, ffmpeg fatia em pedacos de
 MPEG-TS sem recodificar. TS sobrevive a processo morto; mp4 nao.
 
-Quem baixa o HLS e o proprio yt-dlp (m3u8:native). Deixar o ffmpeg baixar,
-que e o padrao para live, derruba a gravacao em meio minuto com 403 em todo
-pedaco - e sem matar o processo, o que engana qualquer supervisor.
+Um yt-dlp velho derruba a gravacao em meio minuto: o YouTube passa a responder
+403 em todo pedaco e o processo continua de pe, mudo. Manter o yt-dlp em dia
+nao e higiene, e requisito.
 """
 import json
 import re
@@ -22,6 +22,7 @@ from nucleo import canais as mod_canais
 
 
 MAX_TENTATIVAS = 5
+MINIMO_PRODUTIVO = 15  # segundos gravados que provam que a live continua de pe
 
 
 @dataclass
@@ -46,14 +47,15 @@ def pasta_do_canal(biblioteca: Path, jogo: str, canal: mod_canais.Canal) -> Path
 
 
 def comando(url: str, pasta: Path, sessao: int, cfg: dict) -> str:
-    # Formato unico, ja com video e audio: juntar duas faixas na saida padrao
-    # nao da, e para live o YouTube sempre oferece um combinado ate 720p.
-    formato = f'b[height<={cfg["altura_maxima"]}]'
+    formato = (
+        f'bv*[height<={cfg["altura_maxima"]}]+ba/'
+        f'b[height<={cfg["altura_maxima"]}]'
+    )
     # _abrir roda com cwd=pasta; nomes relativos mantem nomes simples no CSV.
     saida = f"s{sessao:02d}-parte-%03d.ts"
     lista = f"s{sessao:02d}-segmentos.csv"
     return (
-        f'"{cfg["caminho_ytdlp"]}" --downloader m3u8:native --hls-use-mpegts'
+        f'"{cfg["caminho_ytdlp"]}" --js-runtimes node --hls-use-mpegts'
         f' -f "{formato}" --no-part -o - "{url}"'
         f' | "{cfg["caminho_ffmpeg"]}" -y -i pipe: -c copy'
         f' -f segment -segment_time {cfg["duracao_pedaco"]}'
@@ -180,6 +182,10 @@ def supervisionar(
                 print(f"{pr.canal.nome}: parou de gravar sem morrer - derrubando")
                 matar(pr.processo)
 
+            # Sessao que chegou a gravar de verdade nao conta como queda: o que
+            # o contador procura e a live encerrada, que morre na hora toda vez.
+            if _ultimo_crescimento(pr.pasta) - pr.inicio > MINIMO_PRODUTIVO:
+                pr.tentativas = 0
             pr.tentativas += 1
             if pr.tentativas > MAX_TENTATIVAS:
                 print(f"{pr.canal.nome}: caiu {MAX_TENTATIVAS}x seguidas - desistindo")

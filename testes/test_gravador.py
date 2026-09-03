@@ -26,19 +26,17 @@ def test_comando_respeita_as_travas_do_projeto(tmp_path: Path):
     assert cmd.count("|") == 1, "e um cano de yt-dlp para ffmpeg"
 
 
-def test_comando_baixa_pelo_downloader_do_ytdlp_e_nao_pelo_ffmpeg(tmp_path: Path):
-    """Sem isto a gravacao morre calada por volta dos trinta segundos.
+def test_comando_pede_runtime_js_e_saida_em_ts(tmp_path: Path):
+    """Sem runtime JS o yt-dlp avisa que a extracao esta obsoleta e perde formato.
 
-    Para live, o yt-dlp entrega o HLS ao ffmpeg. O ffmpeg guarda a URL dos
-    pedacos e para de renovar; o YouTube passa a responder 403 em todos eles.
-    Medido nesta maquina em quatro canais: sempre entre 31 e 35 segundos, com o
-    processo VIVO - por isso o supervisor nao percebia.
+    O node ja esta na maquina (projeto LEGENDAR VIDEO), mas o yt-dlp so o usa
+    quando mandam. Sem `--hls-use-mpegts` a saida padrao nao vira TS e o ffmpeg
+    do outro lado do cano nao le nada.
     """
     cmd = gravador.comando("https://x/watch?v=1", tmp_path, 1, CFG)
 
-    assert "m3u8:native" in cmd, "o download do HLS e do yt-dlp, nao do ffmpeg"
-    assert "--hls-use-mpegts" in cmd, "o cano tem que sair em TS"
-    assert "+ba" not in cmd, "juntar duas faixas na saida padrao nao da; formato unico"
+    assert "--js-runtimes node" in cmd
+    assert "--hls-use-mpegts" in cmd
 
 
 def test_sessoes_diferentes_nao_sobrescrevem_arquivos(tmp_path: Path):
@@ -252,3 +250,28 @@ def test_sessao_recem_aberta_tem_folga_para_o_ytdlp_negociar(tmp_path: Path):
     )
 
     assert not gravador.travou(pr, 90, time.time())
+
+
+def test_sessao_que_gravou_de_verdade_zera_o_contador_de_quedas(tmp_path: Path):
+    """Religar nao pode gastar as cinco chances: o contador e para live encerrada.
+
+    Uma gravacao que roda um bom tempo e cai e outra historia de uma live que
+    morre no mesmo segundo, toda vez. Sem zerar, um canal saudavel que reconecta
+    algumas vezes seria abandonado no meio do jogo.
+    """
+    pedaco = tmp_path / "s01-parte-000.ts"
+    pedaco.write_bytes(b"x")
+    pr = gravador.Processo(
+        canais.Canal("A", "u", True), "https://x", tmp_path, 1,
+        ProcessoFalso(vive_por=0), tentativas=4,
+        inicio=time.time() - 600,  # gravou dez minutos antes de cair
+    )
+    lista = [pr]
+
+    gravador.supervisionar(
+        lista, SUPERVISAO,
+        abrir=lambda c, p: ProcessoFalso(), dormir=lambda s: None, voltas=1,
+    )
+
+    assert pr.tentativas == 1, "gravou muito antes de cair: recomeca a contagem"
+    assert lista == [pr], "canal produtivo nao pode ser abandonado"

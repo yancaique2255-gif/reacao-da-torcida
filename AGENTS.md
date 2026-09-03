@@ -48,12 +48,14 @@ Conferido nesta máquina em 02/09/2026:
 
 ## Duas coisas medidas em jogo, não deduzidas
 
-**O download do HLS é do yt-dlp, nunca do ffmpeg.** Para live, o yt-dlp entrega o HLS ao
-ffmpeg por padrão; o ffmpeg guarda a URL dos pedaços e não renova. Medido em quatro canais
-nesta máquina: entre 31 e 35 segundos, o YouTube responde 403 em todo pedaço e a gravação
-para — **com o processo vivo**. Não é o cano nem falta de cookie (testado sem cano e com os
-cookies do Opera: mesmos 403). O que resolve é `--downloader m3u8:native`. E como a saída
-padrão não junta duas faixas, o formato tem que ser um combinado único (`b[height<=720]`).
+**yt-dlp em dia é requisito, não higiene.** Com a versão de 04/08/2026, a gravação de
+qualquer live morria entre 31 e 35 segundos: o YouTube passava a responder 403 em todo
+pedaço e o processo continuava **vivo**, mudo, enganando o supervisor. Não era o cano, nem
+falta de cookie, nem o downloader — tudo isso foi testado e deu o mesmo 403. Atualizando
+para 30/08/2026, os mesmos canais gravaram 110 segundos seguidos sem um único erro. Se a
+gravação voltar a morrer em meio minuto, rode `yt-dlp -U` antes de investigar qualquer
+outra coisa. Passe sempre `--js-runtimes node`: o node já está na máquina e sem ele o
+yt-dlp avisa que a extração está obsoleta.
 
 **O t0 não é a hora em que o processo subiu.** Entre subir e o primeiro frame cabem o
 arranque do yt-dlp e o trecho velho que ele puxa acelerado até alcançar o ao vivo. Medido:
@@ -63,7 +65,8 @@ disco (`esteira.ancorar_t0`), não do `datetime.now()` do lançamento.
 ## O que não fazer
 
 - Recodificar durante a gravação. A gravação é `-c copy`.
-- Deixar o ffmpeg baixar o HLS. Veja acima: morre calado em meio minuto.
+- Culpar o cano, o cookie ou o downloader quando a gravação morre em meio minuto.
+  Veja acima: é o yt-dlp velho.
 - Gravar `.mp4` direto. Processo morto deixa `.mp4` ilegível — por isso é MPEG-TS.
 - Cortar pelo auge do grito. O corte é pelo **começo da subida**; o susto é a graça.
 - Implementar fonte automática de placar, publicação, corte vertical ou gravação de dois
