@@ -89,6 +89,7 @@ def test_etapa_cortar_usa_o_horario_manual_com_oito_antes_e_doze_depois(
         "segundos_antes": 8,
         "segundos_depois": 12,
         "caminho_ffmpeg": "ffmpeg",
+        "limiar_confianca_db": 6.0,
     }
     chamadas = []
     monkeypatch.setattr(esteira.config, "carregar", lambda: cfg)
@@ -97,10 +98,14 @@ def test_etapa_cortar_usa_o_horario_manual_com_oito_antes_e_doze_depois(
     codigo = esteira.etapa_cortar([jogo, "--gols", "20:05:00"])
 
     assert codigo == 0
-    assert len(chamadas) == 1
-    assert "292.0" in chamadas[0], "20:05:00 menos 8 segundos"
-    assert "20.0" in chamadas[0]
+    assert len(chamadas) == 2, "o corte, e depois a extracao de audio que mede a reacao"
+    corte, audio = chamadas
+    assert "292.0" in corte, "20:05:00 menos 8 segundos"
+    assert "20.0" in corte
+    assert "-vn" in audio, "a medicao so precisa do audio"
     dados = catalogo.carregar(tmp_path / jogo)
+    # Com o ffmpeg de mentira nenhum wav e escrito, entao a medicao devolve zero -
+    # e o clipe fica registrado do mesmo jeito, que e o comportamento exigido.
     assert dados["clipes"][0]["confianca_db"] == 0.0
     assert dados["clipes"][0]["tem_pico"] is False
 
@@ -346,13 +351,13 @@ def test_cortar_um_canal_apaga_a_juncao_que_criou(tmp_path: Path):
     ]
     rodados = []
 
-    nome, saida, deslocamento = esteira.cortar_um_canal(
-        "peixao", tmp_path, recortes, 1, destino, 120.0,
-        {"caminho_ffmpeg": "ffmpeg"}, executar=rodados.append,
+    clipe = esteira.cortar_um_canal(
+        "peixao", tmp_path, recortes, 1, destino, 120.0, CFG_CORTE,
+        executar=rodados.append,
     )
 
-    assert nome == "peixao" and saida == destino / "peixao.mp4"
-    assert deslocamento == 0.0, "com juncao, o corte comeca do zero do arquivo novo"
+    assert clipe.canal == "peixao" and clipe.arquivo == destino / "peixao.mp4"
+    assert clipe.deslocamento == 0.0, "com juncao, o corte comeca do zero do arquivo novo"
     assert not (tmp_path / "janela-manual-01.ts").exists()
     assert not (tmp_path / "janela-manual-01.txt").exists()
 
@@ -363,10 +368,29 @@ def test_cortar_um_canal_com_um_trecho_so_nao_junta_nada(tmp_path: Path):
     destino.mkdir()
     rodados = []
 
-    _, _, deslocamento = esteira.cortar_um_canal(
+    clipe = esteira.cortar_um_canal(
         "peixao", tmp_path, [relogio.Trecho("a.ts", 42.0, 162.0)], 1, destino,
-        120.0, {"caminho_ffmpeg": "ffmpeg"}, executar=rodados.append,
+        120.0, CFG_CORTE, executar=rodados.append,
     )
 
-    assert deslocamento == 42.0, "corta direto do pedaco, no ponto certo"
-    assert len(rodados) == 1, "so o corte; nenhuma juncao"
+    assert clipe.deslocamento == 42.0, "corta direto do pedaco, no ponto certo"
+    assert len(rodados) == 2, "o corte e a extracao de audio que mede a reacao"
+
+
+CFG_CORTE = {
+    "caminho_ffmpeg": "ffmpeg",
+    "segundos_antes": 60,
+    "segundos_depois": 60,
+    "limiar_confianca_db": 6.0,
+}
+
+
+def test_medir_reacao_devolve_zero_quando_o_audio_nao_da_para_ler(tmp_path: Path):
+    """Medir e um luxo para ordenar a lista; falhar nele nao pode custar o clipe."""
+    clipe = tmp_path / "peixao.mp4"
+    clipe.write_bytes(b"nao e video")
+
+    forca, tem_pico = esteira.medir_reacao(clipe, CFG_CORTE, executar=lambda c: None)
+
+    assert forca == 0.0 and tem_pico is False
+    assert not (tmp_path / "peixao.wav").exists(), "o wav de medicao nao pode ficar"

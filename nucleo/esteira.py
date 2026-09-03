@@ -2,11 +2,12 @@
 import argparse
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 
 from nucleo import canais as mod_canais
-from nucleo import catalogo, config, cortador, gravador, relogio
+from nucleo import catalogo, config, cortador, detector, gravador, importar, relogio
 
 
 def listar_jogos(biblioteca: Path) -> list[str]:
@@ -60,19 +61,44 @@ def nome_do_jogo(
 
 
 def _cadastro() -> dict[str, list[mod_canais.Canal]]:
-    arquivo = Path(__file__).resolve().parent.parent / "dados" / "canais.json"
-    return mod_canais.carregar(arquivo)
+    return mod_canais.carregar(ARQUIVO_CANAIS)
+
+
+ARQUIVO_CANAIS = Path(__file__).resolve().parent.parent / "dados" / "canais.json"
 
 
 def etapa_canais(argv=None) -> int:
-    p = argparse.ArgumentParser(description="Lista as lives escolhidas manualmente.")
+    p = argparse.ArgumentParser(description="Lista ou cadastra as lives escolhidas.")
     p.add_argument("time")
+    p.add_argument(
+        "--importar", nargs="+", metavar="URL",
+        help="cola as URLs das lives; o nome do canal vem do proprio YouTube",
+    )
+    p.add_argument(
+        "--torcida", default="",
+        help="de que torcida e o lote, ex: santos. Vazio para narracao neutra.",
+    )
     args = p.parse_args(argv)
     cfg = config.carregar()
 
+    if args.importar:
+        print(f"Lendo {len(args.importar)} endereco(s)...")
+        novos = importar.importar(
+            args.importar, cfg["caminho_ytdlp"], args.torcida.strip().lower()
+        )
+        if novos:
+            cadastro = importar.juntar(
+                importar.carregar_cru(ARQUIVO_CANAIS), args.time, novos
+            )
+            importar.salvar(ARQUIVO_CANAIS, cadastro)
+            print(f'{len(novos)} canal(is) somado(s) a "{args.time}".\n')
+        else:
+            print("Nenhum canal novo.\n")
+
     escolhidos = mod_canais.selecionados_do_time(args.time, _cadastro())
     for canal, url in escolhidos:
-        print(f"SELECIONADO  {canal.nome}  {url}")
+        marca = f"[{canal.torcida}] " if canal.torcida else ""
+        print(f"SELECIONADO  {marca}{canal.nome}  {url}")
     print(f"\n{len(escolhidos)} canal(is) selecionado(s).")
     if not escolhidos:
         print("Edite dados\\canais.json e cole as URLs das lives escolhidas.")
@@ -179,6 +205,16 @@ def _sessoes_do_canal(pasta: Path, cfg: dict) -> list[relogio.Sessao]:
     return sessoes
 
 
+def _torcida_do_canal(pasta: Path) -> str:
+    """De que torcida e o canal, segundo o que ficou anotado na gravacao."""
+    import json
+
+    arquivo = Path(pasta) / "gravacao.json"
+    if not arquivo.is_file():
+        return ""
+    return json.loads(arquivo.read_text(encoding="utf-8")).get("torcida", "")
+
+
 def _data_da_pasta(jogo: str):
     try:
         return datetime.strptime(jogo[:10], "%Y-%m-%d").date()
@@ -208,6 +244,40 @@ def resolver_horario(
     return datetime.combine(data_padrao, hora)
 
 
+@dataclass(frozen=True)
+class ClipeCortado:
+    canal: str
+    arquivo: Path
+    deslocamento: float
+    forca_db: float   # quanto o audio subiu acima da linha de base
+    tem_pico: bool
+
+
+def medir_reacao(clipe: Path, cfg: dict, executar=None) -> tuple[float, bool]:
+    """Quanto o audio explodiu acima da linha de base, em dB.
+
+    Nao serve para achar o gol - o horario ja veio do operador. Serve para
+    ordenar: com onze canais por gol, ver primeiro os mais explosivos poupa a
+    maior parte do trabalho de curadoria. Falhar aqui nao pode custar o clipe,
+    entao qualquer erro vira zero.
+    """
+    executar = executar or cortador.executar
+    wav = clipe.with_suffix(".wav")
+    try:
+        executar(
+            cortador.comando_audio(
+                clipe, 0, cfg["segundos_antes"] + cfg["segundos_depois"],
+                wav, cfg["caminho_ffmpeg"],
+            )
+        )
+        achado = detector.analisar(wav, cfg["limiar_confianca_db"])
+        return round(achado.confianca_db, 1), achado.tem_pico
+    except Exception:
+        return 0.0, False
+    finally:
+        wav.unlink(missing_ok=True)
+
+
 def cortar_um_canal(
     nome: str, pasta_canal: Path, recortes, numero: int, destino: Path,
     tamanho: float, cfg: dict, executar=None,
@@ -231,7 +301,8 @@ def cortar_um_canal(
     )
     temporaria.unlink(missing_ok=True)  # a juncao, quando houve
     temporaria.with_suffix(".txt").unlink(missing_ok=True)
-    return nome, saida, deslocamento
+    forca, tem_pico = medir_reacao(saida, cfg, executar)
+    return ClipeCortado(nome, saida, deslocamento, forca, tem_pico)
 
 
 def _gols_a_cortar(
@@ -294,6 +365,7 @@ def etapa_cortar(argv=None) -> int:
     # primeiro por ordem alfabetica for justamente o que caiu cedo, resolver a
     # data do horario por ele jogaria todos os gols para fora do gravado.
     referencia = [sessao for sessoes in por_canal.values() for sessao in sessoes]
+    torcidas = {nome: _torcida_do_canal(pasta_bruto / nome) for nome in por_canal}
 
     marcados = _gols_a_cortar(args.gols, dados, referencia, data_jogo)
     if not marcados:
@@ -350,13 +422,18 @@ def etapa_cortar(argv=None) -> int:
         for nome, _ in a_cortar:
             if nome not in prontos:
                 continue
-            _, saida, deslocamento = prontos[nome]
+            clipe = prontos[nome]
             dados = catalogo.registrar_clipe(
                 dados, numero, nome,
-                str(saida.relative_to(pasta_jogo)).replace("\\", "/"),
-                deslocamento, 0.0, False,
+                str(clipe.arquivo.relative_to(pasta_jogo)).replace("\\", "/"),
+                clipe.deslocamento, clipe.forca_db, clipe.tem_pico,
+                torcidas.get(nome, ""),
             )
-            print(f"gol {numero}: {nome} -> {saida.name}", flush=True)
+            print(
+                f"gol {numero}: {nome} -> {clipe.arquivo.name}  "
+                f"(reacao {clipe.forca_db:+.1f} dB)",
+                flush=True,
+            )
 
     catalogo.salvar(pasta_jogo, dados)
     return 0

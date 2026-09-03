@@ -82,6 +82,7 @@ def registrar_clipe(
     instante: float,
     confianca_db: float,
     tem_pico: bool,
+    torcida: str = "",
 ) -> dict:
     existente = _achar_clipe(dados, gol, canal)
     campos = {
@@ -91,6 +92,7 @@ def registrar_clipe(
         "instante": instante,
         "confianca_db": confianca_db,
         "tem_pico": tem_pico,
+        "torcida": torcida,
     }
     if existente is not None:
         existente.update(campos)

@@ -59,3 +59,16 @@ def test_montar_sem_escolhidos_devolve_400_com_recado(tmp_path: Path):
 def test_rota_desconhecida_devolve_404(tmp_path: Path):
     codigo, _ = servidor.montar_resposta("GET /api/nada", {}, tmp_path, CFG)
     assert codigo == 404
+
+
+def test_estudio_ordena_pelo_mais_explosivo_e_separa_por_torcida():
+    """Com onze canais por gol, a ordem e o filtro sao o que poupa o olho."""
+    from painel import servidor
+
+    html = (Path(servidor.__file__).resolve().parent / "pagina.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert "confianca_db) || 0) - (Number(a.confianca_db)" in html, "mais forte primeiro"
+    assert "torcidaEscolhida" in html and "desenharFiltros" in html
+    assert "Reação fraca" in html, "o clipe fraco tem que se explicar"

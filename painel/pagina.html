@@ -48,6 +48,13 @@
     .sinal.pico { color: var(--verde); }
     .nota { min-height: 32px; color: var(--amarelo); font-size: 12px; line-height: 1.35; margin: 0 2px 10px; }
     .acoes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .filtros { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 4px; }
+    .filtros button { padding: 7px 14px; font-weight: 600; opacity: .55; }
+    .filtros button.ativo { opacity: 1; outline: 2px solid currentColor; }
+    .torcida { font-size: 11px; text-transform: uppercase; letter-spacing: .8px;
+               font-weight: 800; padding: 2px 8px; border-radius: 999px;
+               background: rgba(255,255,255,.14); }
+    .forte { font-weight: 800; }
     button { border: 0; border-radius: 9px; padding: 10px 14px; font: inherit; font-weight: 800; cursor: pointer; transition: filter .15s, transform .15s; }
     button:hover { filter: brightness(1.12); }
     button:active { transform: translateY(1px); }
@@ -73,6 +80,7 @@
       <h1>Reação da Torcida</h1>
     </div>
     <div id="resumo">Carregando catálogo…</div>
+    <div id="filtros" class="filtros"></div>
   </header>
   <main>
     <div id="gols"></div>
@@ -123,11 +131,14 @@
       caixa.appendChild(video);
 
       const meta = elemento('div', 'meta');
-      meta.appendChild(elemento('div', 'nome', clipe.canal));
+      const nome = elemento('div', 'nome', clipe.canal);
+      if (clipe.torcida) nome.appendChild(elemento('span', 'torcida', ' ' + clipe.torcida));
+      meta.appendChild(nome);
+      const forca = Number(clipe.confianca_db) || 0;
       const sinal = elemento(
         'div',
-        'sinal' + (clipe.tem_pico ? ' pico' : ''),
-        clipe.tem_pico ? `${Number(clipe.confianca_db).toFixed(1)} dB` : 'sem pico'
+        'sinal' + (clipe.tem_pico ? ' pico forte' : ''),
+        forca ? `${forca.toFixed(1)} dB` : 'sem medida'
       );
       meta.appendChild(sinal);
       caixa.appendChild(meta);
@@ -135,7 +146,7 @@
       caixa.appendChild(elemento(
         'p',
         'nota',
-        clipe.tem_pico ? '' : 'Gol sofrido ou corte manual: confira o ponto antes de usar.'
+        clipe.tem_pico ? '' : 'Reação fraca neste canal: o áudio quase não subiu.'
       ));
 
       const acoes = elemento('div', 'acoes');
@@ -152,12 +163,28 @@
       return caixa;
     }
 
+    let torcidaEscolhida = '';
+
+    function desenharFiltros(clipes) {
+      const caixa = document.getElementById('filtros');
+      const torcidas = [...new Set(clipes.map(c => c.torcida || 'neutro'))].sort();
+      caixa.replaceChildren();
+      if (torcidas.length < 2) return;  // filtro de um valor so nao filtra nada
+      [['', 'todos'], ...torcidas.map(t => [t, t])].forEach(([valor, rotulo]) => {
+        const b = elemento('button', torcidaEscolhida === valor ? 'ativo' : '', rotulo);
+        b.type = 'button';
+        b.onclick = () => { torcidaEscolhida = valor; carregar(); };
+        caixa.appendChild(b);
+      });
+    }
+
     async function carregar() {
       const resposta = await fetch('/api/catalogo');
       const dados = await resposta.json();
       alvo.replaceChildren();
       const escolhidos = dados.clipes.filter(c => c.escolhido === true).length;
       resumo.textContent = `${dados.clipes.length} clipes · ${escolhidos} escolhidos`;
+      desenharFiltros(dados.clipes);
 
       if (!dados.gols.length) {
         alvo.appendChild(elemento('div', 'vazio', 'Nenhum gol registrado neste jogo.'));
@@ -171,7 +198,13 @@
         topo.appendChild(elemento('div', 'horario', gol.horario || 'horário não informado'));
         bloco.appendChild(topo);
         const linha = elemento('div', 'canais');
-        dados.clipes.filter(c => c.gol === gol.numero).forEach(c => linha.appendChild(cartaoClipe(c)));
+        // Mais explosivo primeiro: com onze canais por gol, ver na ordem certa
+        // e o que poupa a maior parte do trabalho.
+        dados.clipes
+          .filter(c => c.gol === gol.numero)
+          .filter(c => torcidaEscolhida === '' || (c.torcida || 'neutro') === torcidaEscolhida)
+          .sort((a, b) => (Number(b.confianca_db) || 0) - (Number(a.confianca_db) || 0))
+          .forEach(c => linha.appendChild(cartaoClipe(c)));
         bloco.appendChild(linha);
         alvo.appendChild(bloco);
       }

@@ -9,6 +9,7 @@ class Canal:
     nome: str
     url: str
     ativo: bool = True
+    torcida: str = ""  # "santos", "palmeiras", "" para neutro/narracao
 
 
 def carregar(caminho: Path) -> dict[str, list[Canal]]:
@@ -18,7 +19,10 @@ def carregar(caminho: Path) -> dict[str, list[Canal]]:
     bruto = json.loads(arquivo.read_text(encoding="utf-8"))
     return {
         time: [
-            Canal(c["nome"], c["url"].strip(), c.get("ativo", True))
+            Canal(
+                c["nome"], c["url"].strip(), c.get("ativo", True),
+                (c.get("torcida") or "").strip().lower(),
+            )
             for c in lista
         ]
         for time, lista in bruto.items()

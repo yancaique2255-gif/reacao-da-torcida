@@ -1,3 +1,4 @@
+import os
 import time
 import json
 from datetime import datetime
@@ -376,3 +377,180 @@ def test_busca_que_estoura_nao_derruba_a_gravacao(tmp_path: Path):
     )
 
     assert pr.url == "https://x" and lista == [pr]
+
+
+def _pasta_gravando(tmp_path: Path, nome: str, sessao: int, pid: int, idade: float) -> Path:
+    pasta = tmp_path / nome
+    pasta.mkdir(parents=True, exist_ok=True)
+    (pasta / "gravacao.json").write_text(
+        json.dumps({
+            "url": "https://www.youtube.com/watch?v=ATUAL",
+            "sessoes": [{"numero": sessao, "t0": "2026-09-02T21:30:00", "pid": pid}],
+        }),
+        encoding="utf-8",
+    )
+    ts = pasta / f"s{sessao:02d}-parte-000.ts"
+    ts.write_bytes(b"x" * 1000)
+    marca = time.time() - idade
+    os.utime(ts, (marca, marca))
+    return pasta
+
+
+def test_gravacao_em_andamento_e_adotada_em_vez_de_duplicada(tmp_path: Path):
+    """Trocar o codigo do supervisor nao pode custar o jogo inteiro."""
+    pasta = _pasta_gravando(tmp_path, "peixao", sessao=3, pid=4321, idade=2)
+
+    adotado = gravador.adotar(
+        canais.Canal("Peixao", "https://outra", True), pasta,
+        {"segundos_sem_crescer": 45}, time.time(),
+    )
+
+    assert adotado is not None
+    assert adotado.sessao == 3, "continua na sessao que ja estava rodando"
+    assert adotado.url == "https://www.youtube.com/watch?v=ATUAL", (
+        "vale o endereco que esta gravando, que o religador pode ter trocado"
+    )
+    assert adotado.processo.pid == 4321
+
+
+def test_pasta_parada_ha_tempo_nao_e_adotada(tmp_path: Path):
+    pasta = _pasta_gravando(tmp_path, "morto", sessao=1, pid=1, idade=600)
+
+    assert gravador.adotar(
+        canais.Canal("Morto", "u", True), pasta,
+        {"segundos_sem_crescer": 45}, time.time(),
+    ) is None
+
+
+def test_pasta_nova_nao_tem_o_que_adotar(tmp_path: Path):
+    (tmp_path / "novo").mkdir()
+
+    assert gravador.adotar(
+        canais.Canal("Novo", "u", True), tmp_path / "novo",
+        {"segundos_sem_crescer": 45}, time.time(),
+    ) is None
+
+
+def test_adotado_se_diz_vivo_e_quem_julga_e_o_disco(tmp_path: Path):
+    """Nao ha handle: o dono do processo era outro Python, que ja morreu."""
+    adotado = gravador.Adotado(pid=999)
+
+    assert adotado.poll() is None
+
+    pr = gravador.Processo(
+        canais.Canal("A", "u", True), "u", tmp_path, 1, adotado,
+        inicio=time.time() - 300,
+    )
+    assert gravador.travou(pr, 45, time.time()), "sem byte novo, o disco condena"
+
+
+def test_derrubar_adotado_mata_a_arvore_inteira(tmp_path: Path):
+    """Sem o /T o cmd morre e o ffmpeg fica orfao, gravando para sempre."""
+    comandos = []
+    gravador.derrubar_arvore(4321, rodar=comandos.append)
+
+    assert comandos == [["taskkill", "/T", "/F", "/PID", "4321"]]
+
+
+def test_derrubar_sem_pid_nao_faz_nada():
+    comandos = []
+    gravador.derrubar_arvore(None, rodar=comandos.append)
+    assert comandos == []
+
+
+def test_iniciar_adota_quem_ja_grava_e_sobe_so_o_resto(tmp_path: Path):
+    biblioteca = tmp_path / "lib"
+    jogo = "2026-09-02 santos x palmeiras"
+    vivo = canais.Canal("Peixao", "https://a", True)
+    parado = canais.Canal("Novato", "https://b", True)
+    pasta_viva = gravador.pasta_do_canal(biblioteca, jogo, vivo)
+    pasta_viva.mkdir(parents=True)
+    _pasta_gravando(pasta_viva.parent, pasta_viva.name, sessao=2, pid=77, idade=1)
+    abertos = []
+
+    processos = gravador.iniciar(
+        [(vivo, "https://a"), (parado, "https://b")], biblioteca, jogo,
+        {**CFG, "segundos_sem_crescer": 45, "disco_minimo_gb": 0},
+        abrir=lambda c, p: abertos.append(c) or ProcessoFalso(),
+    )
+
+    assert len(processos) == 2
+    assert len(abertos) == 1, "so o canal que nao estava gravando foi aberto"
+    assert "Novato".lower() in abertos[0].lower() or "https://b" in abertos[0]
+    adotado, novo = processos
+    assert isinstance(adotado.processo, gravador.Adotado)
+    assert adotado.sessao == 2 and novo.sessao == 1
+
+
+def test_sessao_nova_nunca_reaproveita_numero_ja_usado(tmp_path: Path):
+    """Reaproveitar sobrescreveria os pedacos que ja estao no disco."""
+    biblioteca = tmp_path / "lib"
+    jogo = "j"
+    canal = canais.Canal("Peixao", "https://a", True)
+    pasta = gravador.pasta_do_canal(biblioteca, jogo, canal)
+    pasta.mkdir(parents=True)
+    _pasta_gravando(pasta.parent, pasta.name, sessao=4, pid=9, idade=999)  # parou
+
+    processos = gravador.iniciar(
+        [(canal, "https://a")], biblioteca, jogo,
+        {**CFG, "segundos_sem_crescer": 45, "disco_minimo_gb": 0},
+        abrir=lambda c, p: ProcessoFalso(),
+    )
+
+    assert processos[0].sessao == 5
+
+
+def test_o_pid_da_sessao_vai_para_o_disco(tmp_path: Path):
+    class ComPid(ProcessoFalso):
+        pid = 5150
+
+    gravador.iniciar(
+        [(canais.Canal("A", "https://a", True), "https://a")], tmp_path, "j",
+        {**CFG, "disco_minimo_gb": 0}, abrir=lambda c, p: ComPid(),
+    )
+
+    pasta = gravador.pasta_do_canal(tmp_path, "j", canais.Canal("A", "https://a", True))
+    dados = json.loads((pasta / "gravacao.json").read_text(encoding="utf-8"))
+    assert dados["sessoes"][-1]["pid"] == 5150
+
+
+def test_teto_de_banda_conta_os_canais_dos_dois_jogos(tmp_path: Path):
+    """Cada jogo tem seu supervisor; sozinho, cada um so via metade da banda."""
+    _pasta_gravando(tmp_path / "jogo A" / "bruto", "um", 1, 1, idade=2)
+    _pasta_gravando(tmp_path / "jogo A" / "bruto", "dois", 1, 2, idade=2)
+    _pasta_gravando(tmp_path / "jogo B" / "bruto", "tres", 1, 3, idade=2)
+    _pasta_gravando(tmp_path / "jogo B" / "bruto", "parado", 1, 4, idade=999)
+
+    de_fora = gravador.gravando_em_outros_jogos(tmp_path, "jogo B", time.time(), 45)
+
+    assert de_fora == 2, "os dois do jogo A; o parado do proprio jogo nao conta"
+
+
+def test_biblioteca_sem_outros_jogos_nao_soma_nada(tmp_path: Path):
+    assert gravador.gravando_em_outros_jogos(tmp_path, "j", time.time(), 45) == 0
+    assert gravador.gravando_em_outros_jogos(tmp_path / "nao-existe", "j", time.time(), 45) == 0
+
+
+def test_disco_acabando_no_meio_do_jogo_avisa(tmp_path: Path, monkeypatch):
+    """Conferir so ao comecar nao bastava: duas partidas comem dezenas de GB."""
+    monkeypatch.setattr(gravador, "espaco_livre_gb", lambda caminho: 8.0)
+    pr = gravador.Processo(canais.Canal("A", "u", True), "u", tmp_path, 1, ProcessoFalso())
+    ditos = []
+
+    ok = gravador.conferir_disco([pr], {"disco_minimo_gb": 60}, ditos.append)
+
+    assert not ok
+    assert any("8 GB" in d and "AGORA" in d for d in ditos)
+
+
+def test_disco_folgado_nao_reclama(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(gravador, "espaco_livre_gb", lambda caminho: 300.0)
+    pr = gravador.Processo(canais.Canal("A", "u", True), "u", tmp_path, 1, ProcessoFalso())
+    ditos = []
+
+    assert gravador.conferir_disco([pr], {"disco_minimo_gb": 60}, ditos.append)
+    assert ditos == []
+
+
+def test_conferir_disco_sem_canal_nenhum_nao_estoura():
+    assert gravador.conferir_disco([], {"disco_minimo_gb": 60}, lambda t: None)

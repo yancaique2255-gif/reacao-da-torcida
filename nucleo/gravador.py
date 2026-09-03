@@ -95,7 +95,37 @@ def avaliar_banda(quantidade: int, teto: int) -> str | None:
     )
 
 
-def escrever_gravacao(pasta: Path, url: str, sessao: int, t0: datetime) -> Path:
+def gravando_em_outros_jogos(
+    biblioteca: Path, jogo: str, agora: float, limite: float
+) -> int:
+    """Quantos canais de OUTROS jogos estao gravando agora nesta biblioteca.
+
+    Cada jogo roda no seu proprio supervisor, e cada um so enxergava os
+    proprios canais. Com duas partidas ao mesmo tempo, o teto da placa de
+    100 Mbps era conferido pela metade - o aviso nunca aparecia.
+    """
+    raiz = Path(biblioteca)
+    if not raiz.is_dir():
+        return 0
+    total = 0
+    for pasta_jogo in raiz.iterdir():
+        if pasta_jogo.name == jogo or not (pasta_jogo / "bruto").is_dir():
+            continue
+        for canal in (pasta_jogo / "bruto").iterdir():
+            if canal.is_dir() and esta_gravando(canal, agora, limite):
+                total += 1
+    return total
+
+
+def escrever_gravacao(
+    pasta: Path, url: str, sessao: int, t0: datetime, pid: int | None = None,
+    torcida: str = "",
+) -> Path:
+    """Anota a sessao no disco, com o pid de quem a esta gravando.
+
+    O pid e o que permite trocar o codigo do supervisor sem derrubar a
+    gravacao: quem sobe depois precisa saber a quem obedece cada pasta.
+    """
     pasta = Path(pasta)
     pasta.mkdir(parents=True, exist_ok=True)
     arquivo = pasta / "gravacao.json"
@@ -103,11 +133,79 @@ def escrever_gravacao(pasta: Path, url: str, sessao: int, t0: datetime) -> Path:
         dados = json.loads(arquivo.read_text(encoding="utf-8"))
     else:
         dados = {"url": url, "sessoes": []}
-    dados["sessoes"].append({"numero": sessao, "t0": t0.isoformat()})
+    dados["url"] = url
+    if torcida:
+        dados["torcida"] = torcida  # o religador pode ter trocado o endereco no meio do jogo
+    dados["sessoes"].append({"numero": sessao, "t0": t0.isoformat(), "pid": pid})
     arquivo.write_text(
         json.dumps(dados, ensure_ascii=False, indent=2), encoding="utf-8"
     )
     return arquivo
+
+
+def derrubar_arvore(pid: int | None, rodar=None) -> None:
+    """Mata o cmd e tudo que ele abriu. Sem o /T, o ffmpeg fica orfao gravando."""
+    if not pid:
+        return
+    rodar = rodar or (lambda c: subprocess.run(c, capture_output=True))
+    rodar(["taskkill", "/T", "/F", "/PID", str(pid)])
+
+
+class Adotado:
+    """Gravacao que ja rodava quando este supervisor subiu.
+
+    Nao ha handle de processo para consultar - o dono era outro Python, que
+    ja morreu. Quem responde se esta viva e o disco, pelo mesmo criterio que
+    o supervisor ja usa para qualquer canal: o pedaco cresceu ou nao cresceu.
+    """
+
+    def __init__(self, pid: int | None):
+        self.pid = pid
+
+    def poll(self):
+        return None  # quem decide e `travou`, olhando o disco
+
+    def kill(self):
+        derrubar_arvore(self.pid)
+
+
+def ultima_sessao(pasta: Path) -> tuple[int, str, int | None]:
+    """(numero, url, pid) da ultima sessao anotada. Zeros quando nao ha nada."""
+    arquivo = Path(pasta) / "gravacao.json"
+    if not arquivo.is_file():
+        return 0, "", None
+    dados = json.loads(arquivo.read_text(encoding="utf-8"))
+    sessoes = dados.get("sessoes") or []
+    if not sessoes:
+        return 0, dados.get("url", ""), None
+    ultima = sessoes[-1]
+    return ultima["numero"], dados.get("url", ""), ultima.get("pid")
+
+
+def esta_gravando(pasta: Path, agora: float, limite: float) -> bool:
+    """Pasta que recebeu byte novo ha pouco esta sendo gravada por alguem."""
+    ultimo = _ultimo_crescimento(pasta)
+    return bool(ultimo) and (agora - ultimo) < limite
+
+
+def adotar(
+    canal: mod_canais.Canal, pasta: Path, cfg: dict, agora: float
+) -> Processo | None:
+    """Assume uma gravacao em andamento em vez de abrir outra por cima.
+
+    Sem isto, trocar o codigo do supervisor custava o jogo inteiro: era preciso
+    derrubar a arvore e recomecar, e todo canal perdia o intervalo da troca.
+    """
+    limite = cfg.get("segundos_sem_crescer", 120)
+    if not esta_gravando(pasta, agora, limite):
+        return None
+    sessao, url, pid = ultima_sessao(pasta)
+    if not sessao:
+        return None
+    return Processo(
+        canal=canal, url=url or canal.url, pasta=Path(pasta), sessao=sessao,
+        processo=Adotado(pid), inicio=agora,
+    )
 
 
 def _abrir(comando_shell: str, pasta: Path):
@@ -124,17 +222,36 @@ def iniciar(
     Path(biblioteca).mkdir(parents=True, exist_ok=True)
     verificar_espaco(biblioteca, cfg["disco_minimo_gb"])
 
-    aviso = avaliar_banda(len(escolhidos), cfg["teto_canais"])
+    agora_epoch = time.time()
+    limite = cfg.get("segundos_sem_crescer", 120)
+    ja_no_ar = gravando_em_outros_jogos(biblioteca, jogo, agora_epoch, limite)
+    aviso = avaliar_banda(len(escolhidos) + ja_no_ar, cfg["teto_canais"])
     if aviso:
         print(f"AVISO: {aviso}", flush=True)
+    if ja_no_ar:
+        print(f"({ja_no_ar} canal(is) de outro jogo ja estao no ar)", flush=True)
 
     processos = []
     for canal, url in escolhidos:
         pasta = pasta_do_canal(biblioteca, jogo, canal)
         pasta.mkdir(parents=True, exist_ok=True)
-        sessao = 1
-        escrever_gravacao(pasta, url, sessao, datetime.now())
+
+        adotado = adotar(canal, pasta, cfg, agora_epoch)
+        if adotado is not None:
+            print(
+                f"{canal.nome}: ja estava gravando na sessao {adotado.sessao} "
+                "- adotado sem interromper",
+                flush=True,
+            )
+            processos.append(adotado)
+            continue
+
+        sessao = ultima_sessao(pasta)[0] + 1
         processo = abrir(comando(url, pasta, sessao, cfg), pasta)
+        escrever_gravacao(
+            pasta, url, sessao, datetime.now(), getattr(processo, "pid", None),
+            canal.torcida,
+        )
         processos.append(Processo(canal, url, pasta, sessao, processo))
     return processos
 
@@ -157,6 +274,28 @@ def travou(pr: Processo, limite: float, agora_epoch: float) -> bool:
 
 def _matar(processo) -> None:
     processo.kill()
+
+
+VOLTAS_ENTRE_CONFERIR_DISCO = 30
+
+
+def conferir_disco(processos: list[Processo], cfg: dict, avisar=print) -> bool:
+    """Avisa se o disco esta acabando NO MEIO do jogo.
+
+    Conferir so ao comecar nao bastava: duas partidas de duas horas gravando
+    juntas comem dezenas de GB, e o disco enche depois da largada.
+    """
+    if not processos:
+        return True
+    livre = espaco_livre_gb(processos[0].pasta)
+    if livre >= cfg["disco_minimo_gb"]:
+        return True
+    avisar(
+        f"AVISO: restam {livre:.0f} GB no disco, abaixo do minimo de "
+        f"{cfg['disco_minimo_gb']:.0f} GB. Libere espaco AGORA - a gravacao "
+        "para sozinha quando acabar."
+    )
+    return False
 
 
 def _colher_buscas(processos: list[Processo]) -> None:
@@ -207,6 +346,8 @@ def supervisionar(
         dormir(cfg["segundos_entre_conferencias"])
         feitas += 1
         _colher_buscas(processos)
+        if feitas % VOLTAS_ENTRE_CONFERIR_DISCO == 1:
+            conferir_disco(processos, cfg, lambda t: print(t, flush=True))
         limite = cfg.get("segundos_sem_crescer", 120)
         teto = cfg.get("max_tentativas", MAX_TENTATIVAS)
         for pr in list(processos):
@@ -237,8 +378,11 @@ def supervisionar(
 
             pr.sessao += 1
             pr.inicio = agora().timestamp()
-            escrever_gravacao(pr.pasta, pr.url, pr.sessao, agora())
             pr.processo = abrir(comando(pr.url, pr.pasta, pr.sessao, cfg), pr.pasta)
+            escrever_gravacao(
+                pr.pasta, pr.url, pr.sessao, agora(),
+                getattr(pr.processo, "pid", None), pr.canal.torcida,
+            )
             print(f"{pr.canal.nome}: caiu, religando na sessao {pr.sessao}", flush=True)
 
     if proprias:

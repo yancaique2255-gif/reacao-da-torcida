@@ -1,9 +1,12 @@
 @echo off
 cd /d "%~dp0"
-if not exist "dados\canais.json" copy /Y "dados\canais.exemplo.json" "dados\canais.json" >nul
-echo Escolha no YouTube as lives com mais visualizacoes.
-echo Cole as URLs exatas em dados\canais.json e marque ativo como true.
-notepad "dados\canais.json"
-set /p TIME_=Time da torcida (ex: cruzeiro):
-python -m nucleo.esteira canais "%TIME_%"
+echo.
+echo Cole as URLs das lives, separadas por espaco, e diga de que torcida sao.
+echo Rode uma vez por torcida. Exemplo:
+echo   python -m nucleo.esteira canais santos-x-palmeiras --torcida santos --importar URL1 URL2
+echo.
+set /p TIME_=Nome do jogo (ex: santos-x-palmeiras): 
+set /p TORCIDA=Torcida deste lote (vazio = neutro): 
+set /p URLS=Cole as URLs: 
+python -u -m nucleo.esteira canais "%TIME_%" --torcida "%TORCIDA%" --importar %URLS%
 pause
