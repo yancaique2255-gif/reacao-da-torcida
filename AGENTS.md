@@ -9,6 +9,22 @@ Leia antes de escrever qualquer linha de código. Isto vale mais do que o hábit
 
 O plano é para ser seguido na ordem. Cada tarefa entrega algo que roda e é testado.
 
+## Onde tudo mora
+
+Uma pasta só, na Área de Trabalho, fixada no Explorador:
+
+```
+Desktop\REACAO DA TORCIDA├── 0..4 - *.lnk        atalhos numerados, na ordem de uso
+├── PROJETO\            este repositório (branch main)
+├── MIDIA\              gravações, clipes e compilações
+└── HOMOLOGACAO    ├── PROJETO\        worktree da branch homologacao
+    └── MIDIA\          biblioteca de teste
+```
+
+A biblioteca tem que ficar em disco local. O `G:` é o Google Drive: gravar lá
+dispara upload durante o jogo, e o upload disputa a mesma banda que baixa as
+lives. Só a compilação pronta sobe para o Drive.
+
 ## A máquina onde isto roda
 
 Windows 10, PowerShell. Ryzen 5 5600G (6 núcleos), 15,4 GB de RAM, **sem GPU dedicada**.

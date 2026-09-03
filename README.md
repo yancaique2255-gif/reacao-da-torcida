@@ -25,6 +25,12 @@ reação de cada clipe (para o estúdio mostrar os mais explosivos primeiro) e
 descobrir quanto cada canal atrasa em relação aos outros. A descoberta automática de lives também foi removida: a decisão
 dos canais é sempre do operador.
 
+## Onde ficam as coisas
+
+Tudo mora em `Desktop\REACAO DA TORCIDA`, com os atalhos numerados na raiz e o
+material em `MIDIA\`. A biblioteca é sempre disco local — nunca o `G:`, que é
+o Google Drive e disputaria banda com a gravação.
+
 ## Configuração
 
 Copie dados/config.exemplo.json para dados/config.json e ajuste os caminhos se

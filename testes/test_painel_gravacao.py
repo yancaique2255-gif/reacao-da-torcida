@@ -391,3 +391,15 @@ def test_a_lupa_compara_o_cronometro_da_tela_com_o_da_espn():
     assert "X-Instante" in html, "sem o instante do quadro a comparacao erra"
     assert "ESPN neste instante" in html
     assert "lido_em" in html, "a ESPN precisa voltar ao instante do quadro"
+
+
+def test_a_marca_de_gol_pode_ser_desfeita_na_hora():
+    """As teclas 1 e 2 marcam direto - basta clicar na pagina e digitar.
+
+    Aconteceu duas vezes na noite de 02/09/2026, nos dois jogos. O desfazer
+    resolve sem tirar a pressa de quem esta vendo o lance.
+    """
+    html = gravacao.PAGINA.read_text(encoding="utf-8")
+
+    assert "desfazer" in html
+    assert "avisar(" in html and "/api/apagar" in html

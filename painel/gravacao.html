@@ -134,7 +134,11 @@
     color: #fff; font-weight: 700; padding: 13px 20px; border-radius: 10px;
     opacity: 0; transition: opacity .25s; pointer-events: none;
   }
-  #recado.aparece { opacity: 1; }
+  #recado.aparece { opacity: 1; pointer-events: auto; }
+  #recado .desfazer {
+    margin-left: 14px; background: rgba(0,0,0,.35); padding: 5px 12px;
+    font-size: 13px; font-weight: 700;
+  }
   #alarme {
     display: none; align-items: center; gap: 14px; flex-wrap: wrap;
     background: #3a1116; border: 1px solid #7d2630; color: #ffc9c9;
@@ -257,11 +261,22 @@ function silencio(c) {
   return s < 120 ? `PAROU há ${s}s` : `PAROU há ${Math.floor(s / 60)} min`;
 }
 
-function avisar(texto) {
-  recado.textContent = texto;
+function avisar(texto, desfazer) {
+  recado.replaceChildren(document.createTextNode(texto));
+  if (desfazer) {
+    // O 1 e o 2 marcam gol direto, o que e o certo no meio do jogo - mas
+    // basta clicar na pagina e digitar para marcar sem querer. Ja aconteceu
+    // duas vezes numa noite; o desfazer resolve sem tirar a pressa.
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'desfazer';
+    b.textContent = 'desfazer';
+    b.onclick = () => { desfazer(); recado.classList.remove('aparece'); };
+    recado.appendChild(b);
+  }
   recado.classList.add('aparece');
   clearTimeout(avisar.t);
-  avisar.t = setTimeout(() => recado.classList.remove('aparece'), 2600);
+  avisar.t = setTimeout(() => recado.classList.remove('aparece'), desfazer ? 9000 : 2600);
 }
 
 async function enviar(rota, corpo) {
@@ -278,7 +293,12 @@ async function enviar(rota, corpo) {
 
 async function marcarGol(jogo) {
   const d = await enviar('/api/marcar', {jogo, atraso: Number(campoAtraso.value) || 0});
-  if (d) avisar(`GOL ${d.numero} anotado às ${d.horario}`);
+  if (d) {
+    avisar(
+      `GOL ${d.numero} anotado às ${d.horario}`,
+      () => enviar('/api/apagar', {jogo, numero: d.numero}),
+    );
+  }
 }
 
 document.addEventListener('keydown', (e) => {
