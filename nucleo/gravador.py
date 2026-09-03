@@ -21,7 +21,7 @@ from typing import Callable
 from nucleo import canais as mod_canais
 
 
-MAX_TENTATIVAS = 5
+MAX_TENTATIVAS = 5  # padrao; cfg["max_tentativas"] manda
 MINIMO_PRODUTIVO = 15  # segundos gravados que provam que a live continua de pe
 
 
@@ -56,6 +56,8 @@ def comando(url: str, pasta: Path, sessao: int, cfg: dict) -> str:
     lista = f"s{sessao:02d}-segmentos.csv"
     return (
         f'"{cfg["caminho_ytdlp"]}" --js-runtimes node --hls-use-mpegts'
+        f' --retries infinite --fragment-retries infinite'
+        f' --retry-sleep 2 --socket-timeout 20'
         f' -f "{formato}" --no-part -o - "{url}"'
         f' | "{cfg["caminho_ffmpeg"]}" -y -i pipe: -c copy'
         f' -f segment -segment_time {cfg["duracao_pedaco"]}'
@@ -173,6 +175,7 @@ def supervisionar(
         dormir(cfg["segundos_entre_conferencias"])
         feitas += 1
         limite = cfg.get("segundos_sem_crescer", 120)
+        teto = cfg.get("max_tentativas", MAX_TENTATIVAS)
         for pr in list(processos):
             vivo = pr.processo.poll() is None
             emperrado = vivo and travou(pr, limite, agora().timestamp())
@@ -187,8 +190,8 @@ def supervisionar(
             if _ultimo_crescimento(pr.pasta) - pr.inicio > MINIMO_PRODUTIVO:
                 pr.tentativas = 0
             pr.tentativas += 1
-            if pr.tentativas > MAX_TENTATIVAS:
-                print(f"{pr.canal.nome}: caiu {MAX_TENTATIVAS}x seguidas - desistindo")
+            if pr.tentativas > teto:
+                print(f"{pr.canal.nome}: caiu {teto}x seguidas - desistindo")
                 processos.remove(pr)
                 continue
 
