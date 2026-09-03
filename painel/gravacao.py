@@ -13,7 +13,7 @@ from pathlib import Path
 
 from urllib.parse import parse_qs, urlparse
 
-from nucleo import catalogo, config, miniatura, monitor
+from nucleo import alinhamento, catalogo, config, esteira, miniatura, monitor
 
 PAGINA = Path(__file__).resolve().parent / "gravacao.html"
 PORTA_PADRAO = 8771
@@ -24,6 +24,11 @@ def estado(biblioteca: Path, agora: float) -> dict:
     jogos = monitor.panorama(biblioteca, agora)
     for j in jogos:
         j["gols"] = gols_do_jogo(biblioteca, j["jogo"])
+        medidos = alinhamento.deslocamentos_do_jogo(
+            Path(biblioteca) / j["jogo"] / "bruto"
+        )
+        for canal in j["canais"]:
+            canal["deslocamento"] = medidos.get(canal["canal"])
     return {
         "hora": time.strftime("%H:%M:%S", time.localtime(agora)),
         "jogos": jogos,
@@ -87,6 +92,51 @@ def gols_do_jogo(biblioteca: Path, jogo: str) -> list[dict]:
         {"numero": g["numero"], "horario": g["horario"][11:19]}
         for g in dados["gols"]
     ]
+
+
+def ajustar(biblioteca: Path, jogo: str, canal: str, segundos: float) -> dict:
+    """O atrasador manual: quantos segundos este canal esta atras dos outros."""
+    pasta = _dentro(_pasta_do_jogo(biblioteca, jogo) / "bruto", canal)
+    valor = alinhamento.gravar_deslocamento(pasta, segundos, "manual")
+    return {"ok": True, "canal": canal, "deslocamento": valor}
+
+
+def medir_alinhamento(biblioteca: Path, jogo: str, numero: int, cfg: dict) -> dict:
+    """Roda o consenso sobre um gol ja marcado e guarda o que achou.
+
+    E o caminho automatico do que `ajustar` faz na mao: em vez de o operador
+    cronometrar canal por canal, o proprio grito do gol revela o atraso.
+    """
+    pasta_jogo = _pasta_do_jogo(biblioteca, jogo)
+    bruto = pasta_jogo / "bruto"
+    dados = catalogo.carregar(pasta_jogo)
+    gol = next((g for g in dados["gols"] if g["numero"] == numero), None)
+    if gol is None:
+        raise KeyError(f"gol {numero} nao existe")
+
+    por_canal = {
+        pasta.name: esteira._sessoes_do_canal(pasta, cfg)
+        for pasta in sorted(bruto.iterdir())
+        if (pasta / "gravacao.json").is_file()
+    }
+    momento = datetime.fromisoformat(gol["horario"])
+    picos = alinhamento.picos_do_gol(por_canal, bruto, momento, cfg)
+    consenso = alinhamento.medir(picos, cfg["limiar_confianca_db"])
+    if consenso is None:
+        return {
+            "ok": False,
+            "motivo": "menos de dois canais acusaram: sem consenso, nada e gravado",
+            "picos": {c: round(f, 1) for c, (_, f) in picos.items()},
+        }
+
+    gravados = alinhamento.guardar_consenso(bruto, consenso)
+    return {
+        "ok": True,
+        "deslocamentos": gravados,
+        "espalhamento": consenso.espalhamento,
+        "confiavel": consenso.confiavel,
+        "participantes": consenso.participantes,
+    }
 
 
 def _taskkill(pid: int) -> None:
@@ -165,6 +215,12 @@ class _Manipulador(BaseHTTPRequestHandler):
                 self.biblioteca, c["jogo"], int(c["numero"])
             ),
             "/api/parar": lambda c: parar_gravacao(self.biblioteca, c["jogo"]),
+            "/api/ajustar": lambda c: ajustar(
+                self.biblioteca, c["jogo"], c["canal"], float(c["segundos"])
+            ),
+            "/api/alinhar": lambda c: medir_alinhamento(
+                self.biblioteca, c["jogo"], int(c["numero"]), self.cfg
+            ),
         }
         acao = acoes.get(self.path)
         if acao is None:

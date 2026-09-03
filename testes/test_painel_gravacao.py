@@ -217,3 +217,59 @@ def test_pagina_abre_o_quadro_grande_para_ler_o_relogio_do_jogo():
     assert "abrirLupa" in html and "lupa-img" in html
     assert "ArrowRight" in html, "percorrer os canais e o que permite comparar"
     assert "v=${Date.now()}" in html, "no grande a foto tem que ser a mais nova"
+
+
+def test_ajustar_grava_o_atraso_que_o_operador_digitou(tmp_path: Path):
+    """E o 'atrasador de canal': ele ve o relogio na tela e diz quanto falta."""
+    jogo = "2026-09-02 vitoria x vasco"
+    _canal(tmp_path / jogo / "bruto", "arena", 1)
+
+    r = gravacao.ajustar(tmp_path, jogo, "arena", 18.5)
+
+    assert r["deslocamento"] == 18.5
+    from nucleo import alinhamento
+    valor, origem, _ = alinhamento.ler_deslocamento(tmp_path / jogo / "bruto" / "arena")
+    assert valor == 18.5 and origem == "manual"
+
+
+def test_ajustar_recusa_canal_de_fora(tmp_path: Path):
+    jogo = "j"
+    (tmp_path / jogo / "bruto").mkdir(parents=True)
+    for canal in ("../fora", r"..\fora"):
+        try:
+            gravacao.ajustar(tmp_path, jogo, canal, 5.0)
+        except (ValueError, OSError):
+            continue
+        raise AssertionError(f"deveria ter recusado: {canal}")
+
+
+def test_alinhar_por_gol_que_nao_existe_reclama(tmp_path: Path):
+    jogo = "j"
+    _canal(tmp_path / jogo / "bruto", "arena", 1)
+
+    try:
+        gravacao.medir_alinhamento(tmp_path, jogo, 9, {"limiar_confianca_db": 6.0})
+    except KeyError:
+        return
+    raise AssertionError("deveria ter reclamado")
+
+
+def test_o_estado_diz_o_atraso_de_cada_canal(tmp_path: Path):
+    """O campo na tela precisa vir preenchido com o que ja foi medido."""
+    jogo = "2026-09-02 vitoria x vasco"
+    _canal(tmp_path / jogo / "bruto", "arena", 1)
+    _canal(tmp_path / jogo / "bruto", "sem-medida", 1)
+    gravacao.ajustar(tmp_path, jogo, "arena", 12.0)
+
+    d = gravacao.estado(tmp_path, time.time())
+
+    por_nome = {c["canal"]: c["deslocamento"] for c in d["jogos"][0]["canais"]}
+    assert por_nome["arena"] == 12.0
+    assert por_nome["sem-medida"] is None, "canal sem medida nao inventa zero"
+
+
+def test_pagina_tem_o_campo_de_atraso_e_o_botao_de_alinhar():
+    html = gravacao.PAGINA.read_text(encoding="utf-8")
+    assert "/api/ajustar" in html and "/api/alinhar" in html
+    assert "s de atraso" in html
+    assert "discordaram em" in html, "espalhamento alto tem que virar aviso na tela"

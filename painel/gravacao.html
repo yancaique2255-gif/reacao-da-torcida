@@ -90,6 +90,16 @@
                        align-items: center; gap: 7px; }
   .quadro .bola { margin: 0; flex: none; }
   .quadro .nome { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .desloca { display: flex; align-items: center; gap: 4px; padding: 0 10px 8px; }
+  .desloca input {
+    width: 62px; background: var(--fundo); color: var(--texto); font: inherit;
+    border: 1px solid var(--linha); border-radius: 6px; padding: 4px 6px;
+    font-size: 12px; text-align: right;
+  }
+  .desloca span { color: var(--fraco); font-size: 11px; }
+  .desloca .medido { color: var(--viva); }
+  .alinhar { background: #1d3a52; font-size: 12px; padding: 6px 12px; }
+  .alinhar:hover { background: #27506f; }
   .quadro img { cursor: zoom-in; }
   .parar { background: #5b1a1f; font-size: 13px; padding: 9px 16px; }
   .parar:hover { background: #7d2630; }
@@ -294,6 +304,12 @@ async function atualizar() {
              title="Clique para ver grande e ler o relógio do jogo"
              src="/api/quadro?jogo=${encodeURIComponent(j.jogo)}&canal=${encodeURIComponent(c.canal)}&v=${selo}">
         <figcaption><span class="bola"></span><span class="nome">${c.canal}</span></figcaption>
+        <div class="desloca">
+          <input type="number" step="0.5" value="${c.deslocamento ?? ''}" placeholder="0"
+                 data-jogo="${j.jogo}" data-canal="${c.canal}"
+                 title="Segundos que este canal está atrasado em relação aos outros. Positivo = mostra o lance depois.">
+          <span class="${c.deslocamento == null ? '' : 'medido'}">s de atraso</span>
+        </div>
       </figure>`).join('');
 
     const marcas = (j.gols || []).map(g => `
@@ -301,6 +317,8 @@ async function atualizar() {
         <span class="n">#${g.numero}</span><b>${g.horario}</b>
         <button data-acao="mover" data-jogo="${j.jogo}" data-n="${g.numero}" data-s="-5">−5s</button>
         <button data-acao="mover" data-jogo="${j.jogo}" data-n="${g.numero}" data-s="5">+5s</button>
+        <button class="alinhar" data-acao="alinhar" data-jogo="${j.jogo}" data-n="${g.numero}"
+                title="Mede o atraso de cada canal pelo grito deste gol">⇔ alinhar</button>
         <button class="x" data-acao="apagar" data-jogo="${j.jogo}" data-n="${g.numero}">×</button>
       </span>`).join('') || '<span class="placar">nenhum gol anotado ainda</span>';
 
@@ -352,6 +370,17 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'ArrowLeft') { lupaIndice = (lupaIndice - 1 + lupaLista.length) % lupaLista.length; mostrarLupa(); }
 });
 
+alvo.addEventListener('change', async (e) => {
+  const campo = e.target.closest('.desloca input');
+  if (!campo) return;
+  const segundos = Number(campo.value);
+  if (Number.isNaN(segundos)) return;
+  const d = await enviar('/api/ajustar', {
+    jogo: campo.dataset.jogo, canal: campo.dataset.canal, segundos,
+  });
+  if (d) avisar(`${d.canal}: atraso ajustado para ${d.deslocamento}s`);
+});
+
 alvo.addEventListener('click', async (e) => {
   const foto = e.target.closest('.quadro img');
   if (foto) { abrirLupa(foto.dataset.jogo, foto.dataset.canal); return; }
@@ -362,6 +391,20 @@ alvo.addEventListener('click', async (e) => {
   if (acao === 'marcar') marcarGol(jogo);
   if (acao === 'mover') enviar('/api/mover', {jogo, numero: Number(n), segundos: Number(s)});
   if (acao === 'apagar') enviar('/api/apagar', {jogo, numero: Number(n)});
+  if (acao === 'alinhar') {
+    b.disabled = true;
+    avisar('medindo o atraso de cada canal...');
+    const d = await enviar('/api/alinhar', {jogo, numero: Number(n)});
+    b.disabled = false;
+    if (d && d.ok) {
+      const quantos = Object.keys(d.deslocamentos).length;
+      avisar(d.confiavel
+        ? `${quantos} canais alinhados (espalhamento ${d.espalhamento}s)`
+        : `alinhado, mas CONFIRA: os canais discordaram em ${d.espalhamento}s`);
+    } else if (d) {
+      avisar(d.motivo || 'não deu para alinhar');
+    }
+  }
   if (acao === 'parar') {
     // Irreversivel no meio do jogo: um clique sem querer nao pode custar o resto.
     if (!confirm(`PARAR a gravação de "${jogo}"?
