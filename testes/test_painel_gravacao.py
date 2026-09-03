@@ -115,3 +115,23 @@ def test_pagina_avisa_e_apita_quando_um_canal_cai():
     assert "apitar" in html and "AudioContext" in html
     assert "pararam de gravar" in html
     assert "document.title" in html, "o aviso tem que aparecer na aba tambem"
+
+
+def test_pagina_mostra_o_quadro_de_cada_canal():
+    """Saber que grava nao basta: o que importa e se tem cara na camera."""
+    html = gravacao.PAGINA.read_text(encoding="utf-8")
+    assert "/api/quadro?jogo=" in html
+    assert "encodeURIComponent" in html, "nome de canal tem espaco e acento"
+
+
+def test_canal_de_outro_jogo_nao_pode_ser_alcancado_por_caminho(tmp_path: Path):
+    jogo = "2026-09-02 santos x palmeiras"
+    _canal(tmp_path / jogo / "bruto", "peixao", 1)
+    cfg = {"caminho_ffmpeg": "ffmpeg"}
+
+    for canal in ("../../fora", r"..\..\fora"):
+        try:
+            gravacao.quadro_do_canal(tmp_path, jogo, canal, cfg)
+        except (ValueError, OSError):
+            continue
+        raise AssertionError(f"deveria ter recusado: {canal}")

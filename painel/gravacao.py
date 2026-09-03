@@ -10,7 +10,9 @@ from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from nucleo import catalogo, config, monitor
+from urllib.parse import parse_qs, urlparse
+
+from nucleo import catalogo, config, miniatura, monitor
 
 PAGINA = Path(__file__).resolve().parent / "gravacao.html"
 PORTA_PADRAO = 8771
@@ -30,13 +32,20 @@ def estado(biblioteca: Path, agora: float) -> dict:
     }
 
 
-def _pasta_do_jogo(biblioteca: Path, jogo: str) -> Path:
-    """Impede que um nome de jogo vindo da pagina escape da biblioteca."""
-    raiz = Path(biblioteca).resolve()
-    destino = (raiz / jogo).resolve()
-    if raiz not in destino.parents:
-        raise ValueError(f"jogo fora da biblioteca: {jogo}")
+def _dentro(raiz: Path, nome: str) -> Path:
+    """Junta os dois caminhos so se o resultado continuar dentro da raiz.
+
+    Jogo e canal chegam pela pagina; nome nenhum pode virar caminho de fuga.
+    """
+    base = Path(raiz).resolve()
+    destino = (base / nome).resolve()
+    if base not in destino.parents:
+        raise ValueError(f"caminho fora de {base}: {nome}")
     return destino
+
+
+def _pasta_do_jogo(biblioteca: Path, jogo: str) -> Path:
+    return _dentro(Path(biblioteca), jogo)
 
 
 def marcar(biblioteca: Path, jogo: str, agora: datetime, atraso: float = 0.0) -> dict:
@@ -79,8 +88,22 @@ def gols_do_jogo(biblioteca: Path, jogo: str) -> list[dict]:
     ]
 
 
+def quadro_do_canal(biblioteca: Path, jogo: str, canal: str, cfg: dict) -> Path | None:
+    """Quadro recente do canal. Guardado fora de `bruto` para nao virar gravacao."""
+    pasta_jogo = _pasta_do_jogo(biblioteca, jogo)
+    pasta_canal = _dentro(pasta_jogo / "bruto", canal)
+    if not pasta_canal.is_dir():
+        return None
+    return miniatura.gerar(
+        pasta_canal,
+        pasta_jogo / "miniaturas" / f"{canal}.jpg",
+        cfg["caminho_ffmpeg"],
+    )
+
+
 class _Manipulador(BaseHTTPRequestHandler):
     biblioteca = Path(".")
+    cfg: dict = {}
 
     def log_message(self, *args):  # silencio: a janela e do usuario
         pass
@@ -120,6 +143,22 @@ class _Manipulador(BaseHTTPRequestHandler):
                 estado(self.biblioteca, time.time()), ensure_ascii=False
             ).encode("utf-8")
             tipo = "application/json; charset=utf-8"
+        elif self.path.startswith("/api/quadro"):
+            campos = parse_qs(urlparse(self.path).query)
+            try:
+                arquivo = quadro_do_canal(
+                    self.biblioteca,
+                    campos.get("jogo", [""])[0],
+                    campos.get("canal", [""])[0],
+                    self.cfg,
+                )
+            except ValueError:
+                self.send_error(400)
+                return
+            if arquivo is None or not arquivo.is_file():
+                self.send_error(404)
+                return
+            corpo, tipo = arquivo.read_bytes(), "image/jpeg"
         elif self.path in ("/", "/index.html"):
             corpo = PAGINA.read_bytes()
             tipo = "text/html; charset=utf-8"
@@ -136,6 +175,7 @@ class _Manipulador(BaseHTTPRequestHandler):
 
 def servir(biblioteca: Path, porta: int = PORTA_PADRAO) -> None:
     _Manipulador.biblioteca = Path(biblioteca)
+    _Manipulador.cfg = config.carregar()
     servidor = ThreadingHTTPServer(("127.0.0.1", porta), _Manipulador)
     print(f"Painel da gravacao em http://127.0.0.1:{porta}")
     print("Fechar esta janela NAO para a gravacao.")

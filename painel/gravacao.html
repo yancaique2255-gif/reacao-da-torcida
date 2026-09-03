@@ -79,6 +79,17 @@
   .morta .canal { font-weight: 600; }
   .sessoes-muitas { color: var(--alerta); }
   .vazio { color: var(--fraco); padding: 18px; }
+  .quadros { display: grid; gap: 12px; margin-bottom: 12px;
+             grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); }
+  .quadro { background: var(--caixa); border: 1px solid var(--linha);
+            border-radius: 10px; overflow: hidden; position: relative; }
+  .quadro img { width: 100%; display: block; aspect-ratio: 16/9; object-fit: cover;
+                background: #000; }
+  .quadro.morto img { filter: grayscale(1) brightness(.45); }
+  .quadro figcaption { padding: 7px 10px; font-size: 12px; display: flex;
+                       align-items: center; gap: 7px; }
+  .quadro .bola { margin: 0; flex: none; }
+  .quadro .nome { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #recado {
     position: fixed; right: 20px; bottom: 20px; background: var(--gol);
     color: #fff; font-weight: 700; padding: 13px 20px; border-radius: 10px;
@@ -241,6 +252,10 @@ async function atualizar() {
     return;
   }
 
+  // As imagens so trocam a cada 15s: o quadro vale esse tempo do lado do servidor,
+  // e pedir a cada 3s so faria o navegador buscar de novo a mesma foto.
+  const selo = Math.floor(Date.now() / 15000);
+
   alvo.innerHTML = d.jogos.map((j, i) => {
     const linhas = j.canais.slice().sort((a, b) =>
       (b.gravando - a.gravando) || (b.mb - a.mb)
@@ -251,6 +266,15 @@ async function atualizar() {
         <td class="num ${c.sessoes > 3 ? 'sessoes-muitas' : ''}">${c.sessoes}</td>
         <td>${silencio(c)}</td>
       </tr>`).join('');
+
+    const quadros = j.canais.slice().sort((a, b) =>
+      (b.gravando - a.gravando) || a.canal.localeCompare(b.canal)
+    ).map(c => `
+      <figure class="quadro ${c.gravando ? 'viva' : 'morta'}">
+        <img loading="lazy" alt="${c.canal}"
+             src="/api/quadro?jogo=${encodeURIComponent(j.jogo)}&canal=${encodeURIComponent(c.canal)}&v=${selo}">
+        <figcaption><span class="bola"></span><span class="nome">${c.canal}</span></figcaption>
+      </figure>`).join('');
 
     const marcas = (j.gols || []).map(g => `
       <span class="marca">
@@ -267,6 +291,7 @@ async function atualizar() {
           <button class="marcar" data-acao="marcar" data-jogo="${j.jogo}">⚽ MARCAR GOL AGORA <kbd>${i + 1}</kbd></button>
           <div class="marcas">${marcas}</div>
         </div>
+        <div class="quadros">${quadros}</div>
         <table>
           <thead><tr><th>Canal</th><th class="num">Gravado</th><th class="num">Sessões</th><th>Situação</th></tr></thead>
           <tbody>${linhas}</tbody>

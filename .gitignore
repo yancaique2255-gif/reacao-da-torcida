@@ -6,3 +6,5 @@ dados/canais.json
 *.ts
 *.mp4
 *.wav
+*.jpg
+miniaturas/
