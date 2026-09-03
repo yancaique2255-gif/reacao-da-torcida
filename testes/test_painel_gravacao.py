@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 import os
 import time
 from pathlib import Path
@@ -41,3 +42,68 @@ def test_pagina_existe_e_pede_o_estado(tmp_path: Path):
     html = gravacao.PAGINA.read_text(encoding="utf-8")
     assert "/api/estado" in html
     assert "não para a gravação" in html, "o aviso e o que impede o usuario de fechar errado"
+
+
+def test_marcar_grava_o_gol_em_disco_na_hora_do_clique(tmp_path: Path):
+    """O passo mais fragil era anotar no papel e digitar depois."""
+    jogo = "2026-09-02 santos x palmeiras"
+    _canal(tmp_path / jogo / "bruto", "peixao", 1)
+
+    r = gravacao.marcar(tmp_path, jogo, datetime(2026, 9, 2, 21, 47, 13))
+
+    assert r == {"numero": 1, "horario": "21:47:13"}
+    salvo = json.loads((tmp_path / jogo / "catalogo.json").read_text(encoding="utf-8"))
+    assert salvo["gols"][0]["horario"] == "2026-09-02T21:47:13"
+
+
+def test_marcar_desconta_o_atraso_da_tela_de_quem_assiste(tmp_path: Path):
+    """Quem assiste pela TV esta adiantado em relacao ao que o YouTube entrega."""
+    jogo = "j"
+    (tmp_path / jogo).mkdir()
+
+    r = gravacao.marcar(tmp_path, jogo, datetime(2026, 9, 2, 21, 47, 13), atraso=25)
+
+    assert r["horario"] == "21:46:48"
+
+
+def test_marcas_seguidas_recebem_numeros_diferentes(tmp_path: Path):
+    jogo = "j"
+    (tmp_path / jogo).mkdir()
+
+    gravacao.marcar(tmp_path, jogo, datetime(2026, 9, 2, 21, 40, 0))
+    segundo = gravacao.marcar(tmp_path, jogo, datetime(2026, 9, 2, 22, 10, 0))
+
+    assert segundo["numero"] == 2
+    assert len(gravacao.gols_do_jogo(tmp_path, jogo)) == 2
+
+
+def test_mover_e_apagar_a_marca(tmp_path: Path):
+    jogo = "j"
+    (tmp_path / jogo).mkdir()
+    gravacao.marcar(tmp_path, jogo, datetime(2026, 9, 2, 21, 40, 0))
+
+    gravacao.mover(tmp_path, jogo, 1, -8)
+    assert gravacao.gols_do_jogo(tmp_path, jogo)[0]["horario"] == "21:39:52"
+
+    gravacao.apagar(tmp_path, jogo, 1)
+    assert gravacao.gols_do_jogo(tmp_path, jogo) == []
+
+
+def test_nome_de_jogo_nao_pode_escapar_da_biblioteca(tmp_path: Path):
+    """A pagina manda o nome do jogo; nome nenhum pode virar caminho de fuga."""
+    for nome in ("../fora", r"..\fora", r"C:\Windows"):
+        try:
+            gravacao.marcar(tmp_path, nome, datetime(2026, 9, 2, 21, 40, 0))
+        except (ValueError, OSError):
+            continue
+        raise AssertionError(f"deveria ter recusado: {nome}")
+
+
+def test_estado_traz_as_marcas_de_cada_jogo(tmp_path: Path):
+    jogo = "2026-09-02 vitoria x vasco"
+    _canal(tmp_path / jogo / "bruto", "arena", 1)
+    gravacao.marcar(tmp_path, jogo, datetime(2026, 9, 2, 21, 55, 0))
+
+    d = gravacao.estado(tmp_path, time.time())
+
+    assert d["jogos"][0]["gols"] == [{"numero": 1, "horario": "21:55:00"}]

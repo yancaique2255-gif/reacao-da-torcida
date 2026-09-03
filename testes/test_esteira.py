@@ -233,3 +233,102 @@ def test_ancora_sem_arquivo_no_disco_mantem_o_t0_gravado(tmp_path: Path):
     )
 
     assert esteira.ancorar_t0(sessao, tmp_path).t0 == datetime(2026, 9, 2, 21, 30, 0)
+
+
+def test_sem_gols_digitados_usa_o_que_o_painel_anotou():
+    """O caminho normal e o botao: o horario nasce certo, do relogio da maquina."""
+    dados = catalogo.novo("jogo")
+    dados = catalogo.registrar_gol(dados, 1, "2026-09-02T21:47:13", "")
+    dados = catalogo.registrar_gol(dados, 3, "2026-09-02T22:31:02", "")
+
+    marcados = esteira._gols_a_cortar(None, dados, [], datetime(2026, 9, 2).date())
+
+    assert marcados == [
+        (1, datetime(2026, 9, 2, 21, 47, 13)),
+        (3, datetime(2026, 9, 2, 22, 31, 2)),
+    ]
+
+
+def test_gols_digitados_continuam_valendo_e_ganham_a_frente():
+    dados = catalogo.registrar_gol(catalogo.novo("jogo"), 1, "2026-09-02T21:00:00", "")
+
+    marcados = esteira._gols_a_cortar(
+        ["22:05:30"], dados, [], datetime(2026, 9, 2).date()
+    )
+
+    assert marcados == [(1, datetime(2026, 9, 2, 22, 5, 30))]
+
+
+def test_sem_marca_nenhuma_devolve_lista_vazia():
+    assert esteira._gols_a_cortar(None, catalogo.novo("jogo"), [], None) == []
+
+
+def test_a_data_do_gol_sai_da_cobertura_de_todos_os_canais():
+    """Se o primeiro canal da pasta caiu cedo, ele nao pode decidir sozinho."""
+    caiu_cedo = relogio.Sessao(
+        t0=datetime(2026, 9, 2, 21, 30, 0),
+        pedacos=[relogio.Pedaco("a.ts", 0.0, 60.0)],
+    )
+    foi_ate_o_fim = relogio.Sessao(
+        t0=datetime(2026, 9, 2, 23, 30, 0),
+        pedacos=[relogio.Pedaco("b.ts", 0.0, 3600.0)],
+    )
+
+    momento = esteira.resolver_horario(
+        "00:15:00", [caiu_cedo, foi_ate_o_fim], datetime(2026, 9, 2).date()
+    )
+
+    assert momento == datetime(2026, 9, 3, 0, 15, 0), "gol depois da meia-noite"
+
+
+def _jogo_falso(raiz: Path, nome: str) -> None:
+    (raiz / nome / "bruto").mkdir(parents=True)
+
+
+def test_lista_jogos_do_mais_novo_para_o_mais_velho(tmp_path: Path):
+    _jogo_falso(tmp_path, "2026-09-01 gremio x inter")
+    _jogo_falso(tmp_path, "2026-09-02 santos x palmeiras")
+    (tmp_path / "ensaios").mkdir()  # sem bruto: nao e jogo
+
+    assert esteira.listar_jogos(tmp_path) == [
+        "2026-09-02 santos x palmeiras",
+        "2026-09-01 gremio x inter",
+    ]
+
+
+def test_um_jogo_so_entra_direto_sem_perguntar(tmp_path: Path):
+    _jogo_falso(tmp_path, "2026-09-02 santos x palmeiras")
+    perguntou = []
+
+    escolhido = esteira.escolher_jogo(
+        tmp_path, ler=lambda _: perguntou.append(1) or "1", escrever=lambda *a: None
+    )
+
+    assert escolhido == "2026-09-02 santos x palmeiras"
+    assert perguntou == [], "com um jogo so, perguntar e so atrito"
+
+
+def test_menu_devolve_o_jogo_do_numero_digitado(tmp_path: Path):
+    _jogo_falso(tmp_path, "2026-09-02 santos x palmeiras")
+    _jogo_falso(tmp_path, "2026-09-02 vitoria x vasco")
+
+    escolhido = esteira.escolher_jogo(
+        tmp_path, ler=lambda _: "2", escrever=lambda *a: None
+    )
+
+    assert escolhido == "2026-09-02 santos x palmeiras", "o 2 e o segundo da lista"
+
+
+def test_numero_fora_da_lista_nao_escolhe_nada(tmp_path: Path):
+    _jogo_falso(tmp_path, "a")
+    _jogo_falso(tmp_path, "b")
+    for digitado in ("0", "9", "banana", ""):
+        assert esteira.escolher_jogo(
+            tmp_path, ler=lambda _, d=digitado: d, escrever=lambda *a: None
+        ) is None
+
+
+def test_biblioteca_vazia_avisa_e_nao_escolhe(tmp_path: Path):
+    ditos = []
+    assert esteira.escolher_jogo(tmp_path, ler=lambda _: "1", escrever=ditos.append) is None
+    assert any("Nenhum jogo" in d for d in ditos)

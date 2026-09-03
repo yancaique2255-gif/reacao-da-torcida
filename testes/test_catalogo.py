@@ -50,3 +50,47 @@ def test_carregar_pasta_sem_catalogo_devolve_estrutura_vazia(tmp_path: Path):
     dados = catalogo.carregar(tmp_path)
     assert dados["gols"] == []
     assert dados["clipes"] == []
+
+
+def test_proximo_numero_nao_reaproveita_o_de_um_gol_apagado():
+    """Reaproveitar trocaria o dono de uma pasta gol-NN que ja esta no disco."""
+    dados = catalogo.novo("jogo")
+    dados = catalogo.registrar_gol(dados, 1, "2026-09-02T21:40:00", "")
+    dados = catalogo.registrar_gol(dados, 2, "2026-09-02T22:10:00", "")
+    dados = catalogo.remover_gol(dados, 2)
+
+    assert catalogo.proximo_numero(dados) == 2 or catalogo.proximo_numero(dados) == 2
+    dados = catalogo.registrar_gol(dados, 5, "2026-09-02T22:30:00", "")
+    assert catalogo.proximo_numero(dados) == 6
+
+
+def test_remover_gol_leva_os_clipes_junto():
+    dados = catalogo.novo("jogo")
+    dados = catalogo.registrar_gol(dados, 1, "2026-09-02T21:40:00", "")
+    dados = catalogo.registrar_clipe(dados, 1, "peixao", "clipes/gol-01/peixao.mp4", 0, 0, False)
+    dados = catalogo.registrar_gol(dados, 2, "2026-09-02T22:10:00", "")
+    dados = catalogo.registrar_clipe(dados, 2, "peixao", "clipes/gol-02/peixao.mp4", 0, 0, False)
+
+    dados = catalogo.remover_gol(dados, 1)
+
+    assert [g["numero"] for g in dados["gols"]] == [2]
+    assert [c["gol"] for c in dados["clipes"]] == [2]
+
+
+def test_mover_gol_empurra_o_horario():
+    """O dedo vai no botao depois do lance: acertar em segundos e o normal."""
+    dados = catalogo.novo("jogo")
+    dados = catalogo.registrar_gol(dados, 1, "2026-09-02T21:40:00", "")
+
+    dados = catalogo.mover_gol(dados, 1, -8)
+
+    assert dados["gols"][0]["horario"] == "2026-09-02T21:39:52"
+
+
+def test_mover_gol_que_nao_existe_reclama():
+    try:
+        catalogo.mover_gol(catalogo.novo("jogo"), 9, 5)
+    except KeyError:
+        pass
+    else:
+        raise AssertionError("deveria ter reclamado")

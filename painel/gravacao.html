@@ -14,6 +14,7 @@
     --viva: #35d07f;
     --morta: #ff5c5c;
     --alerta: #ffb020;
+    --gol: #e5342b;
   }
   * { box-sizing: border-box; }
   body {
@@ -24,16 +25,47 @@
   h1 { font-size: 20px; margin: 0 0 4px; letter-spacing: .3px; }
   .aviso { color: var(--fraco); font-size: 13px; margin-bottom: 20px; }
   .resumo {
-    display: flex; gap: 28px; flex-wrap: wrap;
+    display: flex; gap: 28px; flex-wrap: wrap; align-items: center;
     background: var(--caixa); border: 1px solid var(--linha);
     border-radius: 10px; padding: 14px 18px; margin-bottom: 22px;
   }
-  .resumo div span { display: block; }
-  .rotulo { color: var(--fraco); font-size: 12px; text-transform: uppercase; letter-spacing: .6px; }
-  .numero { font-size: 24px; font-weight: 600; }
-  .jogo { margin-bottom: 26px; }
-  .jogo h2 { font-size: 16px; margin: 0 0 10px; display: flex; align-items: center; gap: 10px; }
+  .rotulo { color: var(--fraco); font-size: 12px; text-transform: uppercase; letter-spacing: .6px; display: block; }
+  .numero { font-size: 24px; font-weight: 600; display: block; }
+  .atraso { margin-left: auto; }
+  .atraso input {
+    width: 74px; background: var(--fundo); color: var(--texto);
+    border: 1px solid var(--linha); border-radius: 7px; padding: 7px 9px;
+    font: inherit; text-align: right;
+  }
+  .jogo { margin-bottom: 30px; }
+  .jogo h2 { font-size: 16px; margin: 0 0 10px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .placar { color: var(--fraco); font-weight: 400; font-size: 14px; }
+  .barra-gol { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 12px; flex-wrap: wrap; }
+  button {
+    border: 0; border-radius: 9px; padding: 10px 16px; font: inherit;
+    font-weight: 700; cursor: pointer; color: #fff; background: var(--linha);
+  }
+  button:hover { filter: brightness(1.15); }
+  button:active { transform: translateY(1px); }
+  .marcar {
+    background: var(--gol); font-size: 17px; padding: 15px 26px;
+    letter-spacing: .4px; box-shadow: 0 3px 0 #8f1f19;
+  }
+  .marcar:active { box-shadow: 0 1px 0 #8f1f19; }
+  .marcar kbd {
+    background: rgba(255,255,255,.22); border-radius: 5px;
+    padding: 1px 7px; margin-left: 10px; font: 600 13px/1 "Segoe UI", sans-serif;
+  }
+  .marcas { display: flex; gap: 8px; flex-wrap: wrap; }
+  .marca {
+    display: flex; align-items: center; gap: 6px;
+    background: var(--caixa); border: 1px solid var(--linha);
+    border-radius: 9px; padding: 6px 8px 6px 12px;
+  }
+  .marca b { font-variant-numeric: tabular-nums; letter-spacing: .5px; }
+  .marca .n { color: var(--fraco); font-size: 12px; }
+  .marca button { padding: 3px 8px; font-size: 12px; font-weight: 600; background: #222735; }
+  .marca button.x { background: #3a1f22; color: #ff8b8b; }
   table { width: 100%; border-collapse: collapse; background: var(--caixa);
           border: 1px solid var(--linha); border-radius: 10px; overflow: hidden; }
   th, td { text-align: left; padding: 9px 14px; border-bottom: 1px solid var(--linha); }
@@ -47,23 +79,41 @@
   .morta .canal { font-weight: 600; }
   .sessoes-muitas { color: var(--alerta); }
   .vazio { color: var(--fraco); padding: 18px; }
+  #recado {
+    position: fixed; right: 20px; bottom: 20px; background: var(--gol);
+    color: #fff; font-weight: 700; padding: 13px 20px; border-radius: 10px;
+    opacity: 0; transition: opacity .25s; pointer-events: none;
+  }
+  #recado.aparece { opacity: 1; }
 </style>
 </head>
 <body>
 <h1>Reação da Torcida — gravação</h1>
-<p class="aviso">Esta página só lê o disco. Fechar aqui <strong>não para a gravação</strong>. Atualiza sozinha a cada 3 segundos.</p>
+<p class="aviso">Esta página só lê o disco e anota gols. Fechar aqui <strong>não para a gravação</strong>. Atualiza sozinha a cada 3 segundos.</p>
 
 <div class="resumo">
   <div><span class="rotulo">Gravando</span><span class="numero" id="r-gravando">—</span></div>
   <div><span class="rotulo">No disco</span><span class="numero" id="r-mb">—</span></div>
   <div><span class="rotulo">Jogos</span><span class="numero" id="r-jogos">—</span></div>
   <div><span class="rotulo">Atualizado</span><span class="numero" id="r-hora">—</span></div>
+  <div class="atraso">
+    <label class="rotulo" for="atraso">Atraso da sua tela (s)</label>
+    <input id="atraso" type="number" value="0" step="1" min="-120" max="120"
+           title="Se você assiste por uma fonte adiantada em relação ao YouTube, ponha aqui a diferença em segundos.">
+  </div>
 </div>
 
 <div id="jogos"></div>
+<div id="recado"></div>
 
 <script>
 const alvo = document.getElementById('jogos');
+const campoAtraso = document.getElementById('atraso');
+const recado = document.getElementById('recado');
+let ultimoEstado = null;
+
+campoAtraso.value = localStorage.getItem('atraso') || '0';
+campoAtraso.addEventListener('change', () => localStorage.setItem('atraso', campoAtraso.value));
 
 function mb(v) { return v >= 1000 ? (v / 1000).toFixed(1) + ' GB' : Math.round(v) + ' MB'; }
 
@@ -74,14 +124,45 @@ function silencio(c) {
   return s < 120 ? `PAROU há ${s}s` : `PAROU há ${Math.floor(s / 60)} min`;
 }
 
+function avisar(texto) {
+  recado.textContent = texto;
+  recado.classList.add('aparece');
+  clearTimeout(avisar.t);
+  avisar.t = setTimeout(() => recado.classList.remove('aparece'), 2600);
+}
+
+async function enviar(rota, corpo) {
+  const r = await fetch(rota, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(corpo)
+  });
+  const d = await r.json();
+  if (!r.ok) { avisar(d.erro || 'não deu certo'); return null; }
+  await atualizar();
+  return d;
+}
+
+async function marcarGol(jogo) {
+  const d = await enviar('/api/marcar', {jogo, atraso: Number(campoAtraso.value) || 0});
+  if (d) avisar(`GOL ${d.numero} anotado às ${d.horario}`);
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT') return;
+  const i = Number(e.key) - 1;
+  if (ultimoEstado && ultimoEstado.jogos[i]) marcarGol(ultimoEstado.jogos[i].jogo);
+});
+
 async function atualizar() {
   let d;
   try {
-    d = await (await fetch('/api/estado', { cache: 'no-store' })).json();
+    d = await (await fetch('/api/estado', {cache: 'no-store'})).json();
   } catch (e) {
     document.getElementById('r-hora').textContent = 'sem resposta';
     return;
   }
+  ultimoEstado = d;
   document.getElementById('r-gravando').textContent = d.gravando + ' / ' + d.total;
   document.getElementById('r-mb').textContent = mb(d.mb);
   document.getElementById('r-jogos').textContent = d.jogos.length;
@@ -92,7 +173,7 @@ async function atualizar() {
     return;
   }
 
-  alvo.innerHTML = d.jogos.map(j => {
+  alvo.innerHTML = d.jogos.map((j, i) => {
     const linhas = j.canais.slice().sort((a, b) =>
       (b.gravando - a.gravando) || (b.mb - a.mb)
     ).map(c => `
@@ -102,9 +183,22 @@ async function atualizar() {
         <td class="num ${c.sessoes > 3 ? 'sessoes-muitas' : ''}">${c.sessoes}</td>
         <td>${silencio(c)}</td>
       </tr>`).join('');
+
+    const marcas = (j.gols || []).map(g => `
+      <span class="marca">
+        <span class="n">#${g.numero}</span><b>${g.horario}</b>
+        <button data-acao="mover" data-jogo="${j.jogo}" data-n="${g.numero}" data-s="-5">−5s</button>
+        <button data-acao="mover" data-jogo="${j.jogo}" data-n="${g.numero}" data-s="5">+5s</button>
+        <button class="x" data-acao="apagar" data-jogo="${j.jogo}" data-n="${g.numero}">×</button>
+      </span>`).join('') || '<span class="placar">nenhum gol anotado ainda</span>';
+
     return `
       <div class="jogo">
         <h2>${j.jogo} <span class="placar">${j.gravando} de ${j.total} gravando · ${mb(j.mb)}</span></h2>
+        <div class="barra-gol">
+          <button class="marcar" data-acao="marcar" data-jogo="${j.jogo}">⚽ MARCAR GOL AGORA <kbd>${i + 1}</kbd></button>
+          <div class="marcas">${marcas}</div>
+        </div>
         <table>
           <thead><tr><th>Canal</th><th class="num">Gravado</th><th class="num">Sessões</th><th>Situação</th></tr></thead>
           <tbody>${linhas}</tbody>
@@ -112,6 +206,15 @@ async function atualizar() {
       </div>`;
   }).join('');
 }
+
+alvo.addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  const {acao, jogo, n, s} = b.dataset;
+  if (acao === 'marcar') marcarGol(jogo);
+  if (acao === 'mover') enviar('/api/mover', {jogo, numero: Number(n), segundos: Number(s)});
+  if (acao === 'apagar') enviar('/api/apagar', {jogo, numero: Number(n)});
+});
 
 atualizar();
 setInterval(atualizar, 3000);

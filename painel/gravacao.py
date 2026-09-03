@@ -6,10 +6,11 @@ abertos ao mesmo tempo.
 """
 import json
 import time
+from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from nucleo import config, monitor
+from nucleo import catalogo, config, monitor
 
 PAGINA = Path(__file__).resolve().parent / "gravacao.html"
 PORTA_PADRAO = 8771
@@ -18,6 +19,8 @@ PORTA_PADRAO = 8771
 def estado(biblioteca: Path, agora: float) -> dict:
     """O que a pagina precisa: os jogos, com seus canais, e a hora da medicao."""
     jogos = monitor.panorama(biblioteca, agora)
+    for j in jogos:
+        j["gols"] = gols_do_jogo(biblioteca, j["jogo"])
     return {
         "hora": time.strftime("%H:%M:%S", time.localtime(agora)),
         "jogos": jogos,
@@ -27,11 +30,89 @@ def estado(biblioteca: Path, agora: float) -> dict:
     }
 
 
+def _pasta_do_jogo(biblioteca: Path, jogo: str) -> Path:
+    """Impede que um nome de jogo vindo da pagina escape da biblioteca."""
+    raiz = Path(biblioteca).resolve()
+    destino = (raiz / jogo).resolve()
+    if raiz not in destino.parents:
+        raise ValueError(f"jogo fora da biblioteca: {jogo}")
+    return destino
+
+
+def marcar(biblioteca: Path, jogo: str, agora: datetime, atraso: float = 0.0) -> dict:
+    """Grava o horario do gol no disco, na hora do clique.
+
+    E o passo mais fragil da esteira: ate agora o operador anotava a hora no
+    papel e digitava depois. `atraso` desconta a diferenca entre a tela dele e
+    o ao vivo, para quem assiste por outra fonte.
+    """
+    pasta = _pasta_do_jogo(biblioteca, jogo)
+    dados = catalogo.carregar(pasta)
+    numero = catalogo.proximo_numero(dados)
+    momento = agora - timedelta(seconds=atraso)
+    dados = catalogo.registrar_gol(
+        dados, numero, momento.isoformat(timespec="seconds"), ""
+    )
+    catalogo.salvar(pasta, dados)
+    return {"numero": numero, "horario": momento.strftime("%H:%M:%S")}
+
+
+def mover(biblioteca: Path, jogo: str, numero: int, segundos: float) -> dict:
+    pasta = _pasta_do_jogo(biblioteca, jogo)
+    dados = catalogo.mover_gol(catalogo.carregar(pasta), numero, segundos)
+    catalogo.salvar(pasta, dados)
+    return {"ok": True}
+
+
+def apagar(biblioteca: Path, jogo: str, numero: int) -> dict:
+    pasta = _pasta_do_jogo(biblioteca, jogo)
+    dados = catalogo.remover_gol(catalogo.carregar(pasta), numero)
+    catalogo.salvar(pasta, dados)
+    return {"ok": True}
+
+
+def gols_do_jogo(biblioteca: Path, jogo: str) -> list[dict]:
+    dados = catalogo.carregar(_pasta_do_jogo(biblioteca, jogo))
+    return [
+        {"numero": g["numero"], "horario": g["horario"][11:19]}
+        for g in dados["gols"]
+    ]
+
+
 class _Manipulador(BaseHTTPRequestHandler):
     biblioteca = Path(".")
 
     def log_message(self, *args):  # silencio: a janela e do usuario
         pass
+
+    def do_POST(self):
+        tamanho = int(self.headers.get("Content-Length", 0))
+        corpo = json.loads(self.rfile.read(tamanho) or b"{}")
+        acoes = {
+            "/api/marcar": lambda c: marcar(
+                self.biblioteca, c["jogo"], datetime.now(), float(c.get("atraso", 0))
+            ),
+            "/api/mover": lambda c: mover(
+                self.biblioteca, c["jogo"], int(c["numero"]), float(c["segundos"])
+            ),
+            "/api/apagar": lambda c: apagar(
+                self.biblioteca, c["jogo"], int(c["numero"])
+            ),
+        }
+        acao = acoes.get(self.path)
+        if acao is None:
+            self.send_error(404)
+            return
+        try:
+            resposta, codigo = acao(corpo), 200
+        except (KeyError, ValueError) as erro:
+            resposta, codigo = {"erro": str(erro)}, 400
+        dados = json.dumps(resposta, ensure_ascii=False).encode("utf-8")
+        self.send_response(codigo)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(dados)))
+        self.end_headers()
+        self.wfile.write(dados)
 
     def do_GET(self):
         if self.path.startswith("/api/estado"):

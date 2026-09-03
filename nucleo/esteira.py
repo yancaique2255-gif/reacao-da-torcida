@@ -8,6 +8,46 @@ from nucleo import canais as mod_canais
 from nucleo import catalogo, config, cortador, gravador, relogio
 
 
+def listar_jogos(biblioteca: Path) -> list[str]:
+    """Os jogos da biblioteca, do mais novo para o mais velho."""
+    raiz = Path(biblioteca)
+    if not raiz.is_dir():
+        return []
+    return [
+        pasta.name
+        for pasta in sorted(raiz.iterdir(), reverse=True)
+        if (pasta / "bruto").is_dir()
+    ]
+
+
+def escolher_jogo(biblioteca: Path, ler=input, escrever=print) -> str | None:
+    """Menu numerado dos jogos. Digitar o nome da pasta so gera erro de digitacao.
+
+    Um jogo so: entra direto, sem perguntar nada.
+    """
+    jogos = listar_jogos(biblioteca)
+    if not jogos:
+        escrever(f"Nenhum jogo gravado em {biblioteca}")
+        return None
+    if len(jogos) == 1:
+        escrever(f"Jogo: {jogos[0]}")
+        return jogos[0]
+
+    escrever("")
+    for indice, jogo in enumerate(jogos, start=1):
+        escrever(f"  {indice}) {jogo}")
+    escrever("")
+    try:
+        escolha = int(ler("Numero do jogo: ").strip())
+    except (ValueError, EOFError):
+        escrever("Numero invalido.")
+        return None
+    if not 1 <= escolha <= len(jogos):
+        escrever("Numero invalido.")
+        return None
+    return jogos[escolha - 1]
+
+
 def nome_do_jogo(
     mandante: str, visitante: str, data: datetime | None = None
 ) -> str:
@@ -167,28 +207,50 @@ def resolver_horario(
     return datetime.combine(data_padrao, hora)
 
 
+def _gols_a_cortar(
+    digitados, dados: dict, referencia, data_padrao
+) -> list[tuple[int, datetime]]:
+    """Os horarios da linha de comando; sem eles, o que o painel ja anotou.
+
+    Anotar no botao durante o jogo e o caminho normal - o horario nasce certo,
+    do relogio da maquina. Digitar continua valendo para quem foi de papel.
+    """
+    if digitados:
+        return [
+            (numero, resolver_horario(texto, referencia, data_padrao))
+            for numero, texto in enumerate(digitados, start=1)
+        ]
+    return [
+        (gol["numero"], datetime.fromisoformat(gol["horario"]))
+        for gol in dados["gols"]
+    ]
+
+
 def etapa_cortar(argv=None) -> int:
     p = argparse.ArgumentParser(
         description="Gera clipes nos horarios exatos informados manualmente."
     )
-    p.add_argument("jogo", help="nome da pasta do jogo")
+    p.add_argument("jogo", nargs="?", help="nome da pasta; sem isto, menu")
     p.add_argument(
         "--gols",
         nargs="+",
-        required=True,
-        help="horarios exatos na gravacao, ex: 21:37:00 22:05:30",
+        help="horarios exatos, ex: 21:37:00 22:05:30. Sem isto, usa o que foi "
+             "anotado no botao MARCAR GOL do painel da gravacao.",
     )
     args = p.parse_args(argv)
     cfg = config.carregar()
 
-    pasta_jogo = Path(cfg["biblioteca"]) / args.jogo
+    jogo = args.jogo or escolher_jogo(Path(cfg["biblioteca"]))
+    if not jogo:
+        return 1
+    pasta_jogo = Path(cfg["biblioteca"]) / jogo
     pasta_bruto = pasta_jogo / "bruto"
     if not pasta_bruto.is_dir():
         print(f"Pasta de gravacoes nao encontrada: {pasta_bruto}")
         return 1
 
     dados = catalogo.carregar(pasta_jogo)
-    data_jogo = _data_da_pasta(args.jogo)
+    data_jogo = _data_da_pasta(jogo)
     tamanho = float(cfg["segundos_antes"] + cfg["segundos_depois"])
 
     # Le as sessoes de todos os canais uma vez so: alem de evitar reler o disco
@@ -201,10 +263,20 @@ def etapa_cortar(argv=None) -> int:
     if not por_canal:
         print(f"Nenhuma gravacao em {pasta_bruto}")
         return 1
-    referencia = next(iter(por_canal.values()))
+    # A cobertura de todos os canais junta, e nao a do primeiro da pasta: se o
+    # primeiro por ordem alfabetica for justamente o que caiu cedo, resolver a
+    # data do horario por ele jogaria todos os gols para fora do gravado.
+    referencia = [sessao for sessoes in por_canal.values() for sessao in sessoes]
 
-    for numero, texto in enumerate(args.gols, start=1):
-        momento = resolver_horario(texto, referencia, data_jogo)
+    marcados = _gols_a_cortar(args.gols, dados, referencia, data_jogo)
+    if not marcados:
+        print(
+            "Nenhum gol para cortar. Aperte MARCAR GOL no painel da gravacao "
+            "durante o jogo, ou passe --gols 21:37:00 22:05:30"
+        )
+        return 1
+
+    for numero, momento in marcados:
         dados = catalogo.registrar_gol(dados, numero, momento.isoformat(), "")
         inicio, fim = relogio.janela(
             momento, cfg["segundos_antes"], cfg["segundos_depois"]
@@ -262,11 +334,14 @@ def etapa_estudio(argv=None) -> int:
     from painel import servidor
 
     p = argparse.ArgumentParser()
-    p.add_argument("jogo")
+    p.add_argument("jogo", nargs="?")
     p.add_argument("--porta", type=int, default=8770)
     args = p.parse_args(argv)
     cfg = config.carregar()
-    servidor.servir(Path(cfg["biblioteca"]) / args.jogo, cfg, args.porta)
+    jogo = args.jogo or escolher_jogo(Path(cfg["biblioteca"]))
+    if not jogo:
+        return 1
+    servidor.servir(Path(cfg["biblioteca"]) / jogo, cfg, args.porta)
     return 0
 
 

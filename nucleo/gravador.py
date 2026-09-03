@@ -120,7 +120,7 @@ def iniciar(
 
     aviso = avaliar_banda(len(escolhidos), cfg["teto_canais"])
     if aviso:
-        print(f"AVISO: {aviso}")
+        print(f"AVISO: {aviso}", flush=True)
 
     processos = []
     for canal, url in escolhidos:
@@ -182,7 +182,7 @@ def supervisionar(
             if vivo and not emperrado:
                 continue
             if emperrado:
-                print(f"{pr.canal.nome}: parou de gravar sem morrer - derrubando")
+                print(f"{pr.canal.nome}: parou de gravar sem morrer - derrubando", flush=True)
                 matar(pr.processo)
 
             # Sessao que chegou a gravar de verdade nao conta como queda: o que
@@ -191,7 +191,7 @@ def supervisionar(
                 pr.tentativas = 0
             pr.tentativas += 1
             if pr.tentativas > teto:
-                print(f"{pr.canal.nome}: caiu {teto}x seguidas - desistindo")
+                print(f"{pr.canal.nome}: caiu {teto}x seguidas - desistindo", flush=True)
                 processos.remove(pr)
                 continue
 
@@ -199,4 +199,4 @@ def supervisionar(
             pr.inicio = agora().timestamp()
             escrever_gravacao(pr.pasta, pr.url, pr.sessao, agora())
             pr.processo = abrir(comando(pr.url, pr.pasta, pr.sessao, cfg), pr.pasta)
-            print(f"{pr.canal.nome}: caiu, religando na sessao {pr.sessao}")
+            print(f"{pr.canal.nome}: caiu, religando na sessao {pr.sessao}", flush=True)
