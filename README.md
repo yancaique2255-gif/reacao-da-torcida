@@ -15,8 +15,14 @@ compilação.
 4. **3 - ESTUDIO.bat** — assista aos clipes no painel local, escolha quais
    usar e monte a compilação.
 
-O detector de pico permanece no repositório como experimento, mas não participa
-do fluxo atual. A descoberta automática de lives também foi removida: a decisão
+Durante o jogo, o **PAINEL DA GRAVACAO.bat** (porta 8771) mostra o que cada canal
+está gravando, com um quadro recente de cada um, e traz o botão MARCAR GOL. Se
+você informar a liga no passo 1, o placar da ESPN marca os gols sozinho.
+
+O detector de pico não decide mais sozinho onde está o gol — quem marca é o
+operador, ou o placar da ESPN. Ele é usado para duas coisas: medir a força da
+reação de cada clipe (para o estúdio mostrar os mais explosivos primeiro) e
+descobrir quanto cada canal atrasa em relação aos outros. A descoberta automática de lives também foi removida: a decisão
 dos canais é sempre do operador.
 
 ## Configuração

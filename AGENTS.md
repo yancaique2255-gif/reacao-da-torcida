@@ -46,13 +46,19 @@ Conferido nesta máquina em 02/09/2026:
 - Português no código, nos commits e na interface. Nomes de módulo em português, como
   na spec.
 
-## Próxima etapa, já especificada
+## O que o placar e o áudio fazem, cada um
 
-`docs/superpowers/specs/2026-09-02-alinhamento-e-gatilho-automatico.md` — alinhar os
-canais pelo consenso de áudio e disparar o corte pelo placar da ESPN. Escrita depois da
-primeira transmissão de verdade, com os números medidos nela.
+`docs/superpowers/specs/2026-09-02-alinhamento-e-gatilho-automatico.md` está **implementado**.
+A divisão de trabalho é o coração dele:
 
-## Três coisas medidas em jogo, não deduzidas
+- **`nucleo/placar.py` + `nucleo/vigia.py`** — a ESPN sabe **QUE** houve gol. Placar oficial,
+  sem falso positivo. Mas tem atraso próprio e variável: nunca serve de relógio.
+- **`nucleo/alinhamento.py`** — o áudio sabe **QUANDO** cada canal reagiu. Quando sai um gol,
+  todo canal que o transmite explode, e a diferença entre os picos é o atraso entre eles.
+
+Uma cobre exatamente o buraco da outra. Não tente usar só uma.
+
+## Quatro coisas medidas em jogo, não deduzidas
 
 **yt-dlp em dia é requisito, não higiene.** Com a versão de 04/08/2026, a gravação de
 qualquer live morria entre 31 e 35 segundos: o YouTube passava a responder 403 em todo
@@ -62,6 +68,13 @@ para 30/08/2026, os mesmos canais gravaram 110 segundos seguidos sem um único e
 gravação voltar a morrer em meio minuto, rode `yt-dlp -U` antes de investigar qualquer
 outra coisa. Passe sempre `--js-runtimes node`: o node já está na máquina e sem ele o
 yt-dlp avisa que a extração está obsoleta.
+
+**Medida de alinhamento só vale confirmada.** Rodando o consenso sobre os dois gols de
+02/09/2026: dois canais deram +8,5/+10,0 e +12,5/+11,5 — estáveis. Um terceiro deu −54,5 e
++29,5, oitenta e quatro segundos de diferença; era o detector achando outra coisa no áudio
+dele. Aplicado, aquele número jogou o corte para fora do lance (conferido quadro a quadro).
+Por isso `alinhamento.estavel` exige duas medidas concordando antes de aplicar, e sem
+confirmação o canal corta no horário cru.
 
 **Canal pode baixar mais devagar do que o jogo acontece.** O ffmpeg entra na playlist
 atrás da ponta e não alcança. O canal escreve bytes sem parar — passa por saudável em
