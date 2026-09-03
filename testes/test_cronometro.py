@@ -94,3 +94,33 @@ def test_o_intervalo_separa_as_metades():
     assert not cronometro.mesma_metade(primeiro, segundo)
     assert cronometro.mesma_metade(primeiro, 100.0)
     assert cronometro.mesma_metade(segundo, 5000.0)
+
+
+def test_gabarito_a_conta_bate_com_o_video_gravado():
+    """Conferido quadro a quadro na gravacao de 02/09/2026, canal arena-rubro-negra.
+
+    A ancora veio de um quadro em que a tela mostrava 2T 35:22 as 23:12:34.
+    Extraindo os quadros nos instantes que a conta indica, a tela mostrou:
+
+        esperado 2T 35:10  ->  35:09
+        esperado 2T 34:10  ->  34:09
+        esperado 2T 36:10  ->  36:09
+
+    Um segundo de erro, constante - e vem do arredondamento da propria ancora,
+    lida a olho de um quadro. Para um clipe de dois minutos, e nada.
+    """
+    ancora = cronometro.Ancora(
+        datetime(2026, 9, 2, 23, 12, 34),
+        cronometro.segundos_do_texto("35:22", tempo=2),
+    )
+
+    # o gol que a ESPN deu como value=4810.0
+    assert cronometro.momento_do_minuto(ancora, 4810.0) == datetime(
+        2026, 9, 2, 23, 12, 22
+    )
+    assert cronometro.momento_do_minuto(ancora, 4750.0) == datetime(
+        2026, 9, 2, 23, 11, 22
+    )
+    assert cronometro.momento_do_minuto(ancora, 4870.0) == datetime(
+        2026, 9, 2, 23, 13, 22
+    )
