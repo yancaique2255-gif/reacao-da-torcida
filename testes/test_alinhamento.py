@@ -107,3 +107,150 @@ def test_aplicar_soma_o_deslocamento_do_canal():
 def test_canal_sem_medida_fica_no_horario_cru():
     """Nunca chutar: canal nao medido corta onde o operador marcou."""
     assert alinhamento.aplicar({"outro": 30.0}, "novo", 1000.0) == 1000.0
+
+
+import os
+from datetime import datetime
+from pathlib import Path
+
+from nucleo import relogio
+
+
+def _sessao_falsa(pasta: Path, nome: str, t0: datetime, duracao: float) -> list:
+    pasta.mkdir(parents=True, exist_ok=True)
+    (pasta / nome).write_bytes(b"x")
+    return [relogio.Sessao(t0=t0, pedacos=[relogio.Pedaco(nome, 0.0, duracao)])]
+
+
+def test_pico_do_canal_devolve_o_instante_relativo_ao_horario_marcado(
+    tmp_path: Path, monkeypatch
+):
+    """O consenso compara canais; para isso o instante tem que ser relativo."""
+    sessoes = _sessao_falsa(tmp_path, "s01-parte-000.ts", datetime(2026, 9, 2, 23, 0, 0), 3600)
+    monkeypatch.setattr(
+        alinhamento.detector, "analisar",
+        lambda wav, limiar: alinhamento.detector.Achado(100.0, 12.0, True),
+    )
+
+    medida = alinhamento.pico_do_canal(
+        tmp_path, sessoes, datetime(2026, 9, 2, 23, 12, 36),
+        {"caminho_ffmpeg": "ffmpeg", "limiar_confianca_db": 6.0},
+        executar=lambda c: None,
+    )
+
+    # o pico caiu aos 100s de uma janela que comeca 90s antes do horario:
+    # entao ele esta 10s DEPOIS do que o operador marcou.
+    assert medida == (10.0, 12.0)
+
+
+def test_canal_sem_o_trecho_gravado_nao_devolve_pico(tmp_path: Path):
+    sessoes = _sessao_falsa(tmp_path, "s01-parte-000.ts", datetime(2026, 9, 2, 21, 0, 0), 60)
+
+    medida = alinhamento.pico_do_canal(
+        tmp_path, sessoes, datetime(2026, 9, 2, 23, 12, 36),
+        {"caminho_ffmpeg": "ffmpeg", "limiar_confianca_db": 6.0},
+        executar=lambda c: None,
+    )
+
+    assert medida is None
+
+
+def test_a_busca_e_bem_mais_larga_que_o_corte():
+    """Ela precisa conter o pico mesmo com o canal dessincronizado."""
+    assert alinhamento.BUSCA_ANTES >= 60 and alinhamento.BUSCA_DEPOIS >= 60
+
+
+def test_o_wav_de_busca_nao_fica_para_tras(tmp_path: Path, monkeypatch):
+    """Sao dezenas de MB por canal por gol; deixar isso no disco enche o HD."""
+    sessoes = _sessao_falsa(tmp_path, "s01-parte-000.ts", datetime(2026, 9, 2, 23, 0, 0), 3600)
+    monkeypatch.setattr(
+        alinhamento.detector, "analisar",
+        lambda wav, limiar: alinhamento.detector.Achado(50.0, 9.0, True),
+    )
+
+    alinhamento.pico_do_canal(
+        tmp_path, sessoes, datetime(2026, 9, 2, 23, 12, 36),
+        {"caminho_ffmpeg": "ffmpeg", "limiar_confianca_db": 6.0},
+        executar=lambda c: None,
+    )
+
+    assert not (tmp_path / "busca-alinhamento.wav").exists()
+    assert not (tmp_path / "busca-alinhamento.ts").exists()
+
+
+def test_ffmpeg_que_estoura_num_canal_nao_derruba_a_medicao(tmp_path: Path):
+    sessoes = _sessao_falsa(tmp_path, "s01-parte-000.ts", datetime(2026, 9, 2, 23, 0, 0), 3600)
+
+    def explode(comando):
+        raise RuntimeError("ffmpeg morreu")
+
+    assert alinhamento.pico_do_canal(
+        tmp_path, sessoes, datetime(2026, 9, 2, 23, 12, 36),
+        {"caminho_ffmpeg": "ffmpeg", "limiar_confianca_db": 6.0}, executar=explode,
+    ) is None
+
+
+def test_picos_do_gol_pula_quem_falhou_e_devolve_o_resto(tmp_path: Path, monkeypatch):
+    bom = _sessao_falsa(tmp_path / "bom", "s01-parte-000.ts", datetime(2026, 9, 2, 23, 0, 0), 3600)
+    sem_trecho = _sessao_falsa(tmp_path / "sem", "s01-parte-000.ts", datetime(2026, 9, 2, 20, 0, 0), 60)
+    monkeypatch.setattr(
+        alinhamento.detector, "analisar",
+        lambda wav, limiar: alinhamento.detector.Achado(95.0, 11.0, True),
+    )
+
+    picos = alinhamento.picos_do_gol(
+        {"bom": bom, "sem": sem_trecho}, tmp_path, datetime(2026, 9, 2, 23, 12, 36),
+        {"caminho_ffmpeg": "ffmpeg", "limiar_confianca_db": 6.0, "cortes_em_paralelo": 2},
+        executar=lambda c: None,
+    )
+
+    assert set(picos) == {"bom"}
+    assert picos["bom"] == (5.0, 11.0)
+
+
+# Picos medidos de verdade em 02/09/2026, Vitoria x Vasco, com o detector
+# rodando sobre a gravacao. Ficam aqui como gabarito: se o consenso mudar de
+# comportamento, e sobre estes numeros que a mudanca tem que ser justificada.
+PICOS_GOL_1 = {
+    "arena-rubro-negra": (-54.5, 18.0),
+    "fantico-vascano": (12.5, 7.4),
+    "ateno-vascanos": (8.5, 7.2),
+}
+PICOS_GOL_2 = {
+    "arena-rubro-negra": (29.5, 11.2),
+    "ateno-vascanos": (10.0, 8.5),
+    "fantico-vascano": (11.5, 6.6),
+    "complexo-vascano": (13.5, 5.8),   # abaixo do limiar: sem voto
+    "canto-rubro-negro": (-64.5, 5.2), # abaixo do limiar: sem voto
+}
+
+
+def test_gabarito_o_gol_1_da_consenso_mas_avisa_que_e_frouxo():
+    """O canal mais alto do gol 1 foi o que estava mais fora - 54s antes."""
+    c = alinhamento.medir(PICOS_GOL_1, limiar_db=6.0)
+
+    assert c is not None
+    assert c.referencia == 8.5, "a mediana ficou com os dois que concordam"
+    assert not c.confiavel, "67s de espalhamento tem que acender a luz amarela"
+
+
+def test_gabarito_o_gol_2_da_consenso_confiavel():
+    """Tres canais dentro de 20s: e a medida boa das duas."""
+    c = alinhamento.medir(PICOS_GOL_2, limiar_db=6.0)
+
+    assert c.referencia == 11.5
+    assert c.confiavel and c.espalhamento <= 20.0
+    assert set(c.participantes) == {
+        "arena-rubro-negra", "ateno-vascanos", "fantico-vascano"
+    }, "quem ficou abaixo de 6 dB nao vota"
+
+
+def test_gabarito_a_referencia_bate_com_o_que_se_ve_no_video():
+    """No clipe do gol 1 a reacao aparece por volta de +2s do horario marcado.
+
+    A regua da spec pede menos de 10s de erro; medido, deu 6,5s.
+    """
+    c = alinhamento.medir(PICOS_GOL_1, limiar_db=6.0)
+    visto_no_video = 2.0
+
+    assert abs(c.referencia - visto_no_video) < 10.0
