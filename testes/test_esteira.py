@@ -596,3 +596,58 @@ def test_o_catalogo_conta_que_o_clipe_saiu_largo(tmp_path: Path, monkeypatch):
     clipe = catalogo.carregar(tmp_path / jogo)["clipes"][0]
     assert clipe["largo"] is True and clipe["duracao"] == 240.0
     assert clipe["parcial"] is False
+
+
+def _jogo_com_um_canal(tmp_path: Path, jogo: str, nome: str = "canal") -> Path:
+    pasta = tmp_path / jogo / "bruto" / nome
+    pasta.mkdir(parents=True)
+    (pasta / "gravacao.json").write_text(
+        json.dumps({"url": "u", "sessoes": [{"numero": 1, "t0": "2026-09-02T23:00:00"}]}),
+        encoding="utf-8",
+    )
+    (pasta / "s01-parte-000.ts").write_bytes(b"x")
+    (pasta / "s01-segmentos.csv").write_text(
+        "s01-parte-000.ts,0.0,3600.0\n", encoding="utf-8"
+    )
+    return tmp_path / jogo
+
+
+def test_cortar_gols_e_o_mesmo_caminho_do_corte_a_mao(tmp_path: Path, monkeypatch):
+    """Gol marcado durante o jogo corta igual a gol digitado depois."""
+    pasta_jogo = _jogo_com_um_canal(tmp_path, "j")
+    monkeypatch.setattr(esteira, "ancorar_t0", lambda sessao, pasta: sessao)
+    monkeypatch.setattr(esteira.cortador, "executar", lambda c: None)
+    cfg = {
+        "biblioteca": str(tmp_path), "segundos_antes": 60, "segundos_depois": 60,
+        "margem_sem_alinhamento": 0, "minimo_do_clipe": 15,
+        "caminho_ffmpeg": "ffmpeg", "caminho_ffprobe": "ffprobe",
+        "limiar_confianca_db": 6.0, "cortes_em_paralelo": 1,
+    }
+
+    dados = esteira.cortar_gols(
+        pasta_jogo, [(1, datetime(2026, 9, 2, 23, 12, 36))], cfg, avisar=lambda t: None
+    )
+
+    assert [c["canal"] for c in dados["clipes"]] == ["canal"]
+    assert dados["gols"][0]["numero"] == 1
+
+
+def test_cortar_um_gol_nao_mexe_nos_clipes_dos_outros(tmp_path: Path, monkeypatch):
+    """O corte automatico roda gol a gol; nao pode apagar o que ja foi cortado."""
+    pasta_jogo = _jogo_com_um_canal(tmp_path, "j")
+    monkeypatch.setattr(esteira, "ancorar_t0", lambda sessao, pasta: sessao)
+    monkeypatch.setattr(esteira.cortador, "executar", lambda c: None)
+    cfg = {
+        "biblioteca": str(tmp_path), "segundos_antes": 60, "segundos_depois": 60,
+        "margem_sem_alinhamento": 0, "minimo_do_clipe": 15,
+        "caminho_ffmpeg": "ffmpeg", "caminho_ffprobe": "ffprobe",
+        "limiar_confianca_db": 6.0, "cortes_em_paralelo": 1,
+    }
+
+    esteira.cortar_gols(pasta_jogo, [(1, datetime(2026, 9, 2, 23, 12, 36))], cfg, lambda t: None)
+    dados = esteira.cortar_gols(
+        pasta_jogo, [(2, datetime(2026, 9, 2, 23, 29, 3))], cfg, lambda t: None
+    )
+
+    assert sorted(g["numero"] for g in dados["gols"]) == [1, 2]
+    assert sorted(c["gol"] for c in dados["clipes"]) == [1, 2]

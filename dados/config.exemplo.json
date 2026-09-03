@@ -18,5 +18,6 @@
   "max_tentativas": 60,
   "cortes_em_paralelo": 3,
   "margem_sem_alinhamento": 60,
-  "minimo_do_clipe": 15
+  "minimo_do_clipe": 15,
+  "espera_para_cortar": 240
 }

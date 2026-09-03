@@ -119,6 +119,10 @@ def etapa_gravar(argv=None) -> int:
         "--liga", default="",
         help="acompanha o placar e marca os gols sozinho, ex: copa-do-brasil",
     )
+    p.add_argument(
+        "--sem-cortar", action="store_true",
+        help="com --liga, marca os gols mas nao corta sozinho",
+    )
     args = p.parse_args(argv)
     cfg = config.carregar()
 
@@ -150,10 +154,32 @@ def etapa_gravar(argv=None) -> int:
         # os canais nao podem ficar sem quem os supervisione.
         import threading
 
+        espera = float(cfg.get("espera_para_cortar", 240))
+        falar = lambda t: print(t, flush=True)  # noqa: E731
+
+        def cortar_quando_der(numero: int, momento: datetime) -> None:
+            """Corta o gol depois que o material dele tiver chegado ao disco.
+
+            Cortar na hora nao daria certo: no instante em que o placar muda, os
+            segundos DEPOIS do gol ainda estao sendo baixados - e sao eles que
+            trazem a reacao.
+            """
+            def rodar():
+                try:
+                    cortar_gols(pasta_jogo, [(numero, momento)], cfg, falar)
+                except Exception as erro:  # cortar nunca derruba a gravacao
+                    falar(f"corte automatico do gol {numero} falhou: {erro}")
+
+            falar(f"gol {numero}: corte automatico em {espera / 60:.0f} min")
+            threading.Timer(espera, rodar).start()
+
         threading.Thread(
             target=vigia.vigiar,
             args=(args.liga, args.mandante, args.visitante, pasta_jogo),
-            kwargs={"avisar": lambda t: print(t, flush=True)},
+            kwargs={
+                "avisar": falar,
+                "ao_marcar": cortar_quando_der if not args.sem_cortar else None,
+            },
             daemon=True,
         ).start()
         print(f"Acompanhando o placar em {args.liga}.", flush=True)
@@ -465,6 +491,35 @@ def etapa_cortar(argv=None) -> int:
         )
         return 1
 
+    cortar_gols(pasta_jogo, marcados, cfg, avisar=lambda t: print(t, flush=True))
+    return 0
+
+
+def cortar_gols(
+    pasta_jogo: Path, marcados: list, cfg: dict, avisar=print
+) -> dict:
+    """Corta uma lista de (numero, momento) em todos os canais do jogo.
+
+    Separado de `etapa_cortar` para o corte automatico poder chamar o mesmo
+    caminho: um gol marcado durante o jogo corta exatamente como um gol
+    digitado depois.
+    """
+    pasta_jogo = Path(pasta_jogo)
+    pasta_bruto = pasta_jogo / "bruto"
+    dados = catalogo.carregar(pasta_jogo)
+    por_canal = {
+        pasta.name: _sessoes_do_canal(pasta, cfg)
+        for pasta in sorted(pasta_bruto.iterdir())
+        if (pasta / "gravacao.json").is_file()
+    }
+    torcidas = {nome: _torcida_do_canal(pasta_bruto / nome) for nome in por_canal}
+    deslocamentos = alinhamento.deslocamentos_do_jogo(pasta_bruto)
+    if deslocamentos:
+        avisar(
+            "alinhamento em uso: "
+            + ", ".join(f"{c} {v:+.1f}s" for c, v in sorted(deslocamentos.items()))
+        )
+
     for numero, momento in marcados:
         dados = catalogo.registrar_gol(dados, numero, momento.isoformat(), "")
         destino = pasta_jogo / "clipes" / f"gol-{numero:02d}"
@@ -485,10 +540,9 @@ def etapa_cortar(argv=None) -> int:
                     f"{de:%H:%M:%S}-{ate:%H:%M:%S}"
                     for de, ate in relogio.cobertura(sessoes)
                 ) or "nada"
-                print(
+                avisar(
                     f"gol {numero}: {nome} SEM MATERIAL em {momento:%H:%M:%S} "
-                    f"({plano.duracao:.0f}s no disco) - gravado: {gravado}",
-                    flush=True,
+                    f"({plano.duracao:.0f}s no disco) - gravado: {gravado}"
                 )
                 continue
             a_cortar.append(plano)
@@ -510,7 +564,7 @@ def etapa_cortar(argv=None) -> int:
                 try:
                     prontos[nome] = futuro.result()
                 except Exception as erro:
-                    print(f"gol {numero}: {nome} falhou no corte - {erro}", flush=True)
+                    avisar(f"gol {numero}: {nome} falhou no corte - {erro}")
 
         for plano in a_cortar:
             if plano.nome not in prontos:
@@ -529,14 +583,13 @@ def etapa_cortar(argv=None) -> int:
             if clipe.parcial:
                 marcas.append("PARCIAL")
             recado = f"  [{', '.join(marcas)}]" if marcas else ""
-            print(
+            avisar(
                 f"gol {numero}: {plano.nome} -> {clipe.arquivo.name}  "
-                f"({clipe.duracao:.0f}s, reacao {clipe.forca_db:+.1f} dB){recado}",
-                flush=True,
+                f"({clipe.duracao:.0f}s, reacao {clipe.forca_db:+.1f} dB){recado}"
             )
 
     catalogo.salvar(pasta_jogo, dados)
-    return 0
+    return dados
 
 
 def etapa_estudio(argv=None) -> int:

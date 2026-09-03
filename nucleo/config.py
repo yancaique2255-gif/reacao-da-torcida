@@ -29,6 +29,10 @@ PADROES = {
     # vao confirmando o atraso daquele canal.
     "margem_sem_alinhamento": 60,
     "minimo_do_clipe": 15,      # abaixo disso o trecho nao ajuda ninguem
+    # Quanto esperar, depois do gol, para o corte automatico rodar. No instante
+    # em que o placar muda, os segundos DEPOIS do gol ainda estao sendo
+    # baixados - e sao eles que trazem a reacao.
+    "espera_para_cortar": 240,
     "caminho_ytdlp": r"C:\yt-dlp\yt-dlp.exe",
     "caminho_ffmpeg": r"C:\yt-dlp\ffmpeg.exe",
     # Conferido na maquina: o ffprobe NAO mora junto do ffmpeg do C:\yt-dlp.
