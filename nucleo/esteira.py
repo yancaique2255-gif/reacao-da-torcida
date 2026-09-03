@@ -8,7 +8,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from nucleo import canais as mod_canais
-from nucleo import catalogo, config, cortador, detector, gravador, importar, relogio
+from nucleo import alinhamento, catalogo, config, cortador, detector, gravador
+from nucleo import importar, relogio
 
 
 def listar_jogos(biblioteca: Path) -> list[str]:
@@ -372,6 +373,13 @@ def etapa_cortar(argv=None) -> int:
     # data do horario por ele jogaria todos os gols para fora do gravado.
     referencia = [sessao for sessoes in por_canal.values() for sessao in sessoes]
     torcidas = {nome: _torcida_do_canal(pasta_bruto / nome) for nome in por_canal}
+    deslocamentos = alinhamento.deslocamentos_do_jogo(pasta_bruto)
+    if deslocamentos:
+        print(
+            "alinhamento em uso: "
+            + ", ".join(f"{c} {v:+.1f}s" for c, v in sorted(deslocamentos.items())),
+            flush=True,
+        )
 
     marcados = _gols_a_cortar(args.gols, dados, referencia, data_jogo)
     if not marcados:
@@ -391,7 +399,10 @@ def etapa_cortar(argv=None) -> int:
 
         a_cortar = []
         for nome, sessoes in por_canal.items():
-            recortes = relogio.trechos(sessoes, inicio, fim)
+            # Cada canal procura no relogio dele: a mesma jogada aparece em
+            # instantes diferentes conforme o atraso da transmissao.
+            ajuste = timedelta(seconds=deslocamentos.get(nome, 0.0))
+            recortes = relogio.trechos(sessoes, inicio + ajuste, fim + ajuste)
             duracao_coberta = sum(t.fim - t.inicio for t in recortes)
             if not recortes or duracao_coberta < tamanho - 0.05:
                 gravado = ", ".join(

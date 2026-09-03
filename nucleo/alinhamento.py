@@ -8,6 +8,7 @@ Isso e invisivel para qualquer medida de disco; so o conteudo revela. E a
 medida cai de graca no colo: quando sai um gol, todo canal que o transmite
 explode, e a diferenca entre os picos E o atraso entre eles.
 """
+import json
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -143,3 +144,79 @@ def picos_do_gol(
             if medida is not None:
                 picos[nome] = medida
     return picos
+
+
+ARQUIVO_DO_CANAL = "gravacao.json"
+
+
+def ler_deslocamento(pasta_canal: Path) -> tuple[float, str, int]:
+    """(segundos, de onde veio, quantas medidas ja entraram)."""
+    arquivo = Path(pasta_canal) / ARQUIVO_DO_CANAL
+    if not arquivo.is_file():
+        return 0.0, "", 0
+    dados = json.loads(arquivo.read_text(encoding="utf-8"))
+    return (
+        float(dados.get("deslocamento") or 0.0),
+        dados.get("deslocamento_de", ""),
+        int(dados.get("deslocamento_medidas") or 0),
+    )
+
+
+def gravar_deslocamento(
+    pasta_canal: Path, segundos: float, origem: str = "consenso"
+) -> float:
+    """Guarda o deslocamento no arquivo do canal, sem perder o que ja estava la.
+
+    Deslocamento MANUAL vence o de consenso: o operador viu, o algoritmo
+    estimou. Uma medida nova nunca sobrescreve o que ele digitou.
+    """
+    arquivo = Path(pasta_canal) / ARQUIVO_DO_CANAL
+    if not arquivo.is_file():
+        return 0.0
+    dados = json.loads(arquivo.read_text(encoding="utf-8"))
+
+    if origem == "consenso" and dados.get("deslocamento_de") == "manual":
+        return float(dados.get("deslocamento") or 0.0)
+
+    if origem == "manual":
+        valor, medidas = round(float(segundos), 2), 0
+    else:
+        antigo = dados.get("deslocamento")
+        medidas = int(dados.get("deslocamento_medidas") or 0)
+        valor = combinar(
+            None if not medidas else float(antigo), segundos, peso_do_antigo=medidas
+        )
+        medidas += 1
+
+    dados["deslocamento"] = valor
+    dados["deslocamento_de"] = origem
+    dados["deslocamento_medidas"] = medidas
+    arquivo.write_text(
+        json.dumps(dados, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return valor
+
+
+def deslocamentos_do_jogo(pasta_bruto: Path) -> dict[str, float]:
+    """O que cada canal do jogo tem guardado. Canal sem medida nao entra."""
+    raiz = Path(pasta_bruto)
+    if not raiz.is_dir():
+        return {}
+    achados = {}
+    for pasta in sorted(raiz.iterdir()):
+        if not pasta.is_dir():
+            continue
+        valor, origem, _ = ler_deslocamento(pasta)
+        if origem:
+            achados[pasta.name] = valor
+    return achados
+
+
+def guardar_consenso(pasta_bruto: Path, consenso: Consenso) -> dict[str, float]:
+    """Escreve os deslocamentos de um consenso, canal por canal."""
+    gravados = {}
+    for canal, valor in consenso.deslocamentos.items():
+        pasta = Path(pasta_bruto) / canal
+        if pasta.is_dir():
+            gravados[canal] = gravar_deslocamento(pasta, valor, "consenso")
+    return gravados

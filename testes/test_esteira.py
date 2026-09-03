@@ -394,3 +394,46 @@ def test_medir_reacao_devolve_zero_quando_o_audio_nao_da_para_ler(tmp_path: Path
 
     assert forca == 0.0 and tem_pico is False
     assert not (tmp_path / "peixao.wav").exists(), "o wav de medicao nao pode ficar"
+
+
+def test_cada_canal_corta_no_relogio_dele(tmp_path: Path, monkeypatch):
+    """A mesma jogada aparece em instantes diferentes conforme o atraso do canal.
+
+    Dois canais gravando o mesmo jogo, um deles 30s atras do outro: o corte
+    tem que buscar 30s adiante naquele, senao sai o lance errado.
+    """
+    jogo = "2026-09-02 vitoria x vasco"
+    bruto = tmp_path / jogo / "bruto"
+    for nome, deslocamento in (("na-hora", None), ("atrasado", 30.0)):
+        pasta = bruto / nome
+        pasta.mkdir(parents=True)
+        (pasta / "gravacao.json").write_text(
+            json.dumps({
+                "url": "u",
+                "sessoes": [{"numero": 1, "t0": "2026-09-02T23:00:00"}],
+                **({"deslocamento": deslocamento, "deslocamento_de": "consenso"}
+                   if deslocamento else {}),
+            }),
+            encoding="utf-8",
+        )
+        (pasta / "s01-parte-000.ts").write_bytes(b"x")
+        (pasta / "s01-segmentos.csv").write_text(
+            "s01-parte-000.ts,0.0,3600.0\n", encoding="utf-8"
+        )
+
+    cfg = {
+        "biblioteca": str(tmp_path), "segundos_antes": 10, "segundos_depois": 10,
+        "caminho_ffmpeg": "ffmpeg", "caminho_ffprobe": "ffprobe",
+        "limiar_confianca_db": 6.0, "cortes_em_paralelo": 1,
+    }
+    monkeypatch.setattr(esteira.config, "carregar", lambda: cfg)
+    monkeypatch.setattr(esteira, "ancorar_t0", lambda sessao, pasta: sessao)
+    chamadas = []
+    monkeypatch.setattr(esteira.cortador, "executar", chamadas.append)
+
+    esteira.etapa_cortar([jogo, "--gols", "23:10:00"])
+
+    # 23:10:00 e 600s depois do t0; menos 10s da janela = 590 no canal em dia.
+    cortes = [c for c in chamadas if "-c:v" in c]
+    posicoes = sorted(float(c[c.index("-ss") + 1]) for c in cortes)
+    assert posicoes == [590.0, 620.0], "o atrasado busca 30s adiante"

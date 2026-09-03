@@ -254,3 +254,94 @@ def test_gabarito_a_referencia_bate_com_o_que_se_ve_no_video():
     visto_no_video = 2.0
 
     assert abs(c.referencia - visto_no_video) < 10.0
+
+
+def _canal_no_disco(pasta: Path, **extra) -> Path:
+    import json as _json
+    pasta.mkdir(parents=True, exist_ok=True)
+    dados = {"url": "https://y/1", "sessoes": [{"numero": 1, "t0": "2026-09-02T21:30:00"}]}
+    dados.update(extra)
+    (pasta / "gravacao.json").write_text(_json.dumps(dados), encoding="utf-8")
+    return pasta
+
+
+def test_deslocamento_gravado_volta_na_leitura(tmp_path: Path):
+    _canal_no_disco(tmp_path / "peixao")
+
+    alinhamento.gravar_deslocamento(tmp_path / "peixao", 12.5, "consenso")
+
+    valor, origem, medidas = alinhamento.ler_deslocamento(tmp_path / "peixao")
+    assert valor == 12.5 and origem == "consenso" and medidas == 1
+
+
+def test_gravar_nao_apaga_o_resto_do_arquivo(tmp_path: Path):
+    """O gravacao.json e lido por _sessoes_do_canal: perder as sessoes seria fatal."""
+    import json as _json
+    _canal_no_disco(tmp_path / "peixao", torcida="santos")
+
+    alinhamento.gravar_deslocamento(tmp_path / "peixao", 8.0)
+
+    dados = _json.loads((tmp_path / "peixao" / "gravacao.json").read_text(encoding="utf-8"))
+    assert dados["sessoes"] == [{"numero": 1, "t0": "2026-09-02T21:30:00"}]
+    assert dados["torcida"] == "santos"
+    assert dados["url"] == "https://y/1"
+
+
+def test_o_que_o_operador_digitou_nao_e_sobrescrito_pelo_algoritmo(tmp_path: Path):
+    """Ele viu; o algoritmo estimou. Manual vence consenso, sempre."""
+    _canal_no_disco(tmp_path / "peixao")
+    alinhamento.gravar_deslocamento(tmp_path / "peixao", 30.0, "manual")
+
+    alinhamento.gravar_deslocamento(tmp_path / "peixao", 5.0, "consenso")
+
+    valor, origem, _ = alinhamento.ler_deslocamento(tmp_path / "peixao")
+    assert valor == 30.0 and origem == "manual"
+
+
+def test_o_operador_pode_corrigir_o_que_o_algoritmo_mediu(tmp_path: Path):
+    _canal_no_disco(tmp_path / "peixao")
+    alinhamento.gravar_deslocamento(tmp_path / "peixao", 5.0, "consenso")
+
+    alinhamento.gravar_deslocamento(tmp_path / "peixao", 30.0, "manual")
+
+    valor, origem, _ = alinhamento.ler_deslocamento(tmp_path / "peixao")
+    assert valor == 30.0 and origem == "manual"
+
+
+def test_cada_gol_novo_puxa_a_media_do_canal(tmp_path: Path):
+    _canal_no_disco(tmp_path / "peixao")
+
+    alinhamento.gravar_deslocamento(tmp_path / "peixao", 10.0)
+    alinhamento.gravar_deslocamento(tmp_path / "peixao", 20.0)
+
+    valor, _, medidas = alinhamento.ler_deslocamento(tmp_path / "peixao")
+    assert valor == 15.0 and medidas == 2
+
+
+def test_canal_sem_medida_nenhuma_nao_entra_na_lista(tmp_path: Path):
+    """Sem medida o corte usa o horario cru; poluir a lista com zeros esconde isso."""
+    _canal_no_disco(tmp_path / "medido")
+    _canal_no_disco(tmp_path / "virgem")
+    alinhamento.gravar_deslocamento(tmp_path / "medido", 7.0)
+
+    assert alinhamento.deslocamentos_do_jogo(tmp_path) == {"medido": 7.0}
+
+
+def test_guardar_consenso_escreve_todos_os_canais_de_uma_vez(tmp_path: Path):
+    for nome in ("a", "b"):
+        _canal_no_disco(tmp_path / nome)
+    consenso = alinhamento.medir({"a": (100.0, 9.0), "b": (110.0, 9.0)})
+
+    gravados = alinhamento.guardar_consenso(tmp_path, consenso)
+
+    assert gravados == {"a": -5.0, "b": 5.0}
+    assert alinhamento.deslocamentos_do_jogo(tmp_path) == {"a": -5.0, "b": 5.0}
+
+
+def test_consenso_de_canal_que_sumiu_do_disco_e_ignorado(tmp_path: Path):
+    _canal_no_disco(tmp_path / "a")
+    consenso = alinhamento.medir({"a": (100.0, 9.0), "apagado": (110.0, 9.0)})
+
+    gravados = alinhamento.guardar_consenso(tmp_path, consenso)
+
+    assert set(gravados) == {"a"}
