@@ -125,3 +125,70 @@ def test_estados_que_significam_fim_de_jogo():
     assert _partida(estado="STATUS_POSTPONED").acabou
     assert not _partida(estado="STATUS_SECOND_HALF").acabou
     assert not _partida(estado="STATUS_HALFTIME").acabou
+
+
+def test_o_gol_traz_o_segundo_exato_do_jogo():
+    """4810s = 80:10. O displayValue arredonda para 81', o value nao."""
+    partidas = placar.interpretar(AMOSTRA.read_text(encoding="utf-8"))
+    vitoria = placar.achar(partidas, "vitoria", "vasco")
+
+    assert vitoria.lances[0]["segundo_de_jogo"] == 4810.0
+    assert vitoria.lances[0]["minuto"] == "81'"
+
+
+def test_gol_no_acrescimo_e_lido_pelo_texto():
+    """Aos 90'+7' a ESPN trava o value em 5400; so o texto continua andando."""
+    partidas = placar.interpretar(AMOSTRA.read_text(encoding="utf-8"))
+    vitoria = placar.achar(partidas, "vitoria", "vasco")
+
+    assert vitoria.lances[1]["segundo_de_jogo"] == 5820.0
+
+
+def test_a_partida_diz_em_que_segundo_de_jogo_esta():
+    partidas = placar.interpretar(AMOSTRA.read_text(encoding="utf-8"))
+    vitoria = placar.achar(partidas, "vitoria", "vasco")
+
+    assert vitoria.segundo_de_jogo == 5880.0, "90'+8'"
+
+
+def test_lances_novos_entrega_o_gol_com_o_minuto():
+    antes = placar.Partida("1", "V", "V", 0, 0, "STATUS_SECOND_HALF", lances=[])
+    agora = placar.Partida(
+        "1", "V", "V", 0, 1, "STATUS_SECOND_HALF",
+        lances=[{"segundo_de_jogo": 4810.0, "quem": "Gómez"}],
+    )
+
+    novos = placar.lances_novos(antes, agora)
+
+    assert len(novos) == 1 and novos[0]["segundo_de_jogo"] == 4810.0
+
+
+def test_placar_que_muda_antes_da_espn_listar_o_lance():
+    """Acontece: o gol existe, mas ainda sem minuto. Quem acha o instante e o audio."""
+    antes = placar.Partida("1", "V", "V", 0, 0, "STATUS_SECOND_HALF", lances=[])
+    agora = placar.Partida("1", "V", "V", 0, 1, "STATUS_SECOND_HALF", lances=[])
+
+    novos = placar.lances_novos(antes, agora)
+
+    assert novos == [{}], "um gol, sem minuto"
+
+
+def test_so_o_lance_novo_e_devolvido():
+    antes = placar.Partida(
+        "1", "V", "V", 0, 1, "STATUS_SECOND_HALF",
+        lances=[{"segundo_de_jogo": 4810.0}],
+    )
+    agora = placar.Partida(
+        "1", "V", "V", 0, 2, "STATUS_SECOND_HALF",
+        lances=[{"segundo_de_jogo": 4810.0}, {"segundo_de_jogo": 5820.0}],
+    )
+
+    novos = placar.lances_novos(antes, agora)
+
+    assert len(novos) == 1 and novos[0]["segundo_de_jogo"] == 5820.0
+
+
+def test_sem_gol_novo_nao_ha_lance_novo():
+    p = placar.Partida("1", "V", "V", 0, 1, "STATUS_SECOND_HALF",
+                       lances=[{"segundo_de_jogo": 4810.0}])
+    assert placar.lances_novos(p, p) == []
