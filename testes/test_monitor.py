@@ -53,3 +53,24 @@ def test_quadro_poe_quem_esta_gravando_em_cima(tmp_path: Path):
 
 def test_sem_pasta_nao_estoura(tmp_path: Path):
     assert monitor.linhas(tmp_path / "nao-existe", time.time())
+
+
+def test_panorama_junta_os_dois_jogos_da_biblioteca(tmp_path: Path):
+    """O painel mostra as duas partidas sem que ninguem lhe diga quais sao."""
+    _canal(tmp_path / "2026-09-02 santos x palmeiras" / "bruto", "peixao", 1, 2)
+    _canal(tmp_path / "2026-09-02 vitoria x vasco" / "bruto", "arena", 1, 2)
+    _canal(tmp_path / "2026-09-02 vitoria x vasco" / "bruto", "canto", 3, 400)
+    (tmp_path / "pasta-solta").mkdir()  # sem bruto: nao e jogo
+
+    visao = monitor.panorama(tmp_path, time.time())
+
+    assert [j["jogo"] for j in visao] == [
+        "2026-09-02 vitoria x vasco",
+        "2026-09-02 santos x palmeiras",
+    ]
+    assert visao[0]["total"] == 2 and visao[0]["gravando"] == 1
+    assert visao[1]["total"] == 1 and visao[1]["gravando"] == 1
+
+
+def test_panorama_sem_biblioteca_devolve_vazio(tmp_path: Path):
+    assert monitor.panorama(tmp_path / "nao-existe", time.time()) == []

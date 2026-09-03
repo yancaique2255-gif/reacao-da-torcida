@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reação da Torcida — gravação</title>
+<style>
+  :root {
+    --fundo: #0f1115;
+    --caixa: #171a21;
+    --linha: #242833;
+    --texto: #e7e9ee;
+    --fraco: #8b93a7;
+    --viva: #35d07f;
+    --morta: #ff5c5c;
+    --alerta: #ffb020;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px;
+    background: var(--fundo); color: var(--texto);
+    font: 15px/1.5 "Segoe UI", system-ui, sans-serif;
+  }
+  h1 { font-size: 20px; margin: 0 0 4px; letter-spacing: .3px; }
+  .aviso { color: var(--fraco); font-size: 13px; margin-bottom: 20px; }
+  .resumo {
+    display: flex; gap: 28px; flex-wrap: wrap;
+    background: var(--caixa); border: 1px solid var(--linha);
+    border-radius: 10px; padding: 14px 18px; margin-bottom: 22px;
+  }
+  .resumo div span { display: block; }
+  .rotulo { color: var(--fraco); font-size: 12px; text-transform: uppercase; letter-spacing: .6px; }
+  .numero { font-size: 24px; font-weight: 600; }
+  .jogo { margin-bottom: 26px; }
+  .jogo h2 { font-size: 16px; margin: 0 0 10px; display: flex; align-items: center; gap: 10px; }
+  .placar { color: var(--fraco); font-weight: 400; font-size: 14px; }
+  table { width: 100%; border-collapse: collapse; background: var(--caixa);
+          border: 1px solid var(--linha); border-radius: 10px; overflow: hidden; }
+  th, td { text-align: left; padding: 9px 14px; border-bottom: 1px solid var(--linha); }
+  th { color: var(--fraco); font-size: 12px; text-transform: uppercase; letter-spacing: .5px; font-weight: 600; }
+  tr:last-child td { border-bottom: none; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .bola { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 8px; }
+  .viva .bola { background: var(--viva); box-shadow: 0 0 8px var(--viva); }
+  .morta .bola { background: var(--morta); }
+  .morta td { color: var(--morta); }
+  .morta .canal { font-weight: 600; }
+  .sessoes-muitas { color: var(--alerta); }
+  .vazio { color: var(--fraco); padding: 18px; }
+</style>
+</head>
+<body>
+<h1>Reação da Torcida — gravação</h1>
+<p class="aviso">Esta página só lê o disco. Fechar aqui <strong>não para a gravação</strong>. Atualiza sozinha a cada 3 segundos.</p>
+
+<div class="resumo">
+  <div><span class="rotulo">Gravando</span><span class="numero" id="r-gravando">—</span></div>
+  <div><span class="rotulo">No disco</span><span class="numero" id="r-mb">—</span></div>
+  <div><span class="rotulo">Jogos</span><span class="numero" id="r-jogos">—</span></div>
+  <div><span class="rotulo">Atualizado</span><span class="numero" id="r-hora">—</span></div>
+</div>
+
+<div id="jogos"></div>
+
+<script>
+const alvo = document.getElementById('jogos');
+
+function mb(v) { return v >= 1000 ? (v / 1000).toFixed(1) + ' GB' : Math.round(v) + ' MB'; }
+
+function silencio(c) {
+  if (c.gravando) return 'gravando';
+  if (c.silencio < 0) return 'sem nada no disco';
+  const s = c.silencio;
+  return s < 120 ? `PAROU há ${s}s` : `PAROU há ${Math.floor(s / 60)} min`;
+}
+
+async function atualizar() {
+  let d;
+  try {
+    d = await (await fetch('/api/estado', { cache: 'no-store' })).json();
+  } catch (e) {
+    document.getElementById('r-hora').textContent = 'sem resposta';
+    return;
+  }
+  document.getElementById('r-gravando').textContent = d.gravando + ' / ' + d.total;
+  document.getElementById('r-mb').textContent = mb(d.mb);
+  document.getElementById('r-jogos').textContent = d.jogos.length;
+  document.getElementById('r-hora').textContent = d.hora;
+
+  if (!d.jogos.length) {
+    alvo.innerHTML = '<p class="vazio">Nenhuma gravação encontrada ainda.</p>';
+    return;
+  }
+
+  alvo.innerHTML = d.jogos.map(j => {
+    const linhas = j.canais.slice().sort((a, b) =>
+      (b.gravando - a.gravando) || (b.mb - a.mb)
+    ).map(c => `
+      <tr class="${c.gravando ? 'viva' : 'morta'}">
+        <td class="canal"><span class="bola"></span>${c.canal}</td>
+        <td class="num">${mb(c.mb)}</td>
+        <td class="num ${c.sessoes > 3 ? 'sessoes-muitas' : ''}">${c.sessoes}</td>
+        <td>${silencio(c)}</td>
+      </tr>`).join('');
+    return `
+      <div class="jogo">
+        <h2>${j.jogo} <span class="placar">${j.gravando} de ${j.total} gravando · ${mb(j.mb)}</span></h2>
+        <table>
+          <thead><tr><th>Canal</th><th class="num">Gravado</th><th class="num">Sessões</th><th>Situação</th></tr></thead>
+          <tbody>${linhas}</tbody>
+        </table>
+      </div>`;
+  }).join('');
+}
+
+atualizar();
+setInterval(atualizar, 3000);
+</script>
+</body>
+</html>

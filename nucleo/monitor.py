@@ -39,6 +39,31 @@ def estados(pasta_bruto: Path, agora: float) -> list[dict]:
     return [estado_do_canal(d, agora) for d in canais]
 
 
+def panorama(biblioteca: Path, agora: float) -> list[dict]:
+    """Todos os jogos da biblioteca, cada um com seus canais.
+
+    Serve ao painel, que precisa mostrar duas partidas na mesma tela sem que
+    ninguem lhe diga quais sao: quem tem `bruto` dentro e um jogo.
+    """
+    raiz = Path(biblioteca)
+    if not raiz.is_dir():
+        return []
+    jogos = []
+    for pasta in sorted(raiz.iterdir(), reverse=True):
+        bruto = pasta / "bruto"
+        if not bruto.is_dir():
+            continue
+        canais = estados(bruto, agora)
+        jogos.append({
+            "jogo": pasta.name,
+            "canais": canais,
+            "gravando": sum(1 for c in canais if c["gravando"]),
+            "total": len(canais),
+            "mb": sum(c["mb"] for c in canais),
+        })
+    return jogos
+
+
 def linhas(pasta_bruto: Path, agora: float) -> list[str]:
     """O quadro inteiro em texto, pronto para imprimir."""
     tudo = estados(pasta_bruto, agora)
