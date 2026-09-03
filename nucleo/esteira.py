@@ -1,5 +1,6 @@
 """As quatro etapas da esteira; os .bat sao cascas em volta daqui."""
 import argparse
+import os
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -125,8 +126,13 @@ def etapa_gravar(argv=None) -> int:
     processos = gravador.iniciar(
         escolhidos, Path(cfg["biblioteca"]), jogo, cfg
     )
-    print(f"Gravando {len(processos)} canal(is) em {cfg['biblioteca']}\\{jogo}")
-    print("Feche esta janela para parar.")
+    # O botao PARAR do painel precisa saber quem derrubar. Se o processo ja
+    # morreu, o taskkill falha calado e nada acontece - o arquivo velho e inofensivo.
+    pasta_jogo = Path(cfg["biblioteca"]) / jogo
+    pasta_jogo.mkdir(parents=True, exist_ok=True)
+    (pasta_jogo / "supervisor.pid").write_text(str(os.getpid()), encoding="utf-8")
+    print(f"Gravando {len(processos)} canal(is) em {cfg['biblioteca']}\\{jogo}", flush=True)
+    print("Feche esta janela ou aperte PARAR no painel.", flush=True)
     gravador.supervisionar(processos, cfg)  # religa quem cair
     return 0
 

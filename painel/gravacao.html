@@ -90,6 +90,19 @@
                        align-items: center; gap: 7px; }
   .quadro .bola { margin: 0; flex: none; }
   .quadro .nome { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .quadro img { cursor: zoom-in; }
+  .parar { background: #5b1a1f; font-size: 13px; padding: 9px 16px; }
+  .parar:hover { background: #7d2630; }
+  #lupa {
+    position: fixed; inset: 0; background: rgba(6,8,12,.93); display: none;
+    align-items: center; justify-content: center; flex-direction: column;
+    gap: 14px; z-index: 50; cursor: zoom-out; padding: 24px;
+  }
+  #lupa.aberta { display: flex; }
+  #lupa img { max-width: min(1600px, 96vw); max-height: 86vh; border-radius: 10px;
+              image-rendering: auto; }
+  #lupa .legenda { color: var(--texto); font-weight: 600; letter-spacing: .3px; }
+  #lupa .dica { color: var(--fraco); font-size: 13px; }
   #recado {
     position: fixed; right: 20px; bottom: 20px; background: var(--gol);
     color: #fff; font-weight: 700; padding: 13px 20px; border-radius: 10px;
@@ -131,6 +144,12 @@
 </div>
 
 <div id="jogos"></div>
+
+<div id="lupa">
+  <img id="lupa-img" alt="">
+  <div class="legenda" id="lupa-nome"></div>
+  <div class="dica">Clique para fechar · ← → troca de canal · o relógio do jogo na tela diz o atraso deste canal</div>
+</div>
 <div id="recado"></div>
 
 <script>
@@ -271,7 +290,8 @@ async function atualizar() {
       (b.gravando - a.gravando) || a.canal.localeCompare(b.canal)
     ).map(c => `
       <figure class="quadro ${c.gravando ? 'viva' : 'morta'}">
-        <img loading="lazy" alt="${c.canal}"
+        <img loading="lazy" alt="${c.canal}" data-jogo="${j.jogo}" data-canal="${c.canal}"
+             title="Clique para ver grande e ler o relógio do jogo"
              src="/api/quadro?jogo=${encodeURIComponent(j.jogo)}&canal=${encodeURIComponent(c.canal)}&v=${selo}">
         <figcaption><span class="bola"></span><span class="nome">${c.canal}</span></figcaption>
       </figure>`).join('');
@@ -290,6 +310,7 @@ async function atualizar() {
         <div class="barra-gol">
           <button class="marcar" data-acao="marcar" data-jogo="${j.jogo}">⚽ MARCAR GOL AGORA <kbd>${i + 1}</kbd></button>
           <div class="marcas">${marcas}</div>
+          <button class="parar" data-acao="parar" data-jogo="${j.jogo}">■ PARAR ESTE JOGO</button>
         </div>
         <div class="quadros">${quadros}</div>
         <table>
@@ -300,13 +321,55 @@ async function atualizar() {
   }).join('');
 }
 
-alvo.addEventListener('click', (e) => {
+const lupa = document.getElementById('lupa');
+const lupaImg = document.getElementById('lupa-img');
+const lupaNome = document.getElementById('lupa-nome');
+let lupaLista = [], lupaIndice = 0;
+
+function abrirLupa(jogo, canal) {
+  // Do jogo inteiro, para as setas percorrerem os canais daquela partida.
+  const j = (ultimoEstado?.jogos || []).find(x => x.jogo === jogo);
+  lupaLista = j ? j.canais.map(c => ({jogo, canal: c.canal})) : [{jogo, canal}];
+  lupaIndice = Math.max(0, lupaLista.findIndex(x => x.canal === canal));
+  mostrarLupa();
+  lupa.classList.add('aberta');
+}
+
+function mostrarLupa() {
+  const alvoLupa = lupaLista[lupaIndice];
+  if (!alvoLupa) return;
+  // Sem selo de tempo: aqui a foto tem que ser a mais nova possivel, porque e
+  // com ela que se le o relogio do jogo para medir o atraso do canal.
+  lupaImg.src = `/api/quadro?jogo=${encodeURIComponent(alvoLupa.jogo)}&canal=${encodeURIComponent(alvoLupa.canal)}&v=${Date.now()}`;
+  lupaNome.textContent = `${alvoLupa.canal}  (${lupaIndice + 1} de ${lupaLista.length})`;
+}
+
+lupa.addEventListener('click', () => lupa.classList.remove('aberta'));
+document.addEventListener('keydown', (e) => {
+  if (!lupa.classList.contains('aberta')) return;
+  if (e.key === 'Escape') lupa.classList.remove('aberta');
+  if (e.key === 'ArrowRight') { lupaIndice = (lupaIndice + 1) % lupaLista.length; mostrarLupa(); }
+  if (e.key === 'ArrowLeft') { lupaIndice = (lupaIndice - 1 + lupaLista.length) % lupaLista.length; mostrarLupa(); }
+});
+
+alvo.addEventListener('click', async (e) => {
+  const foto = e.target.closest('.quadro img');
+  if (foto) { abrirLupa(foto.dataset.jogo, foto.dataset.canal); return; }
+
   const b = e.target.closest('button');
   if (!b) return;
   const {acao, jogo, n, s} = b.dataset;
   if (acao === 'marcar') marcarGol(jogo);
   if (acao === 'mover') enviar('/api/mover', {jogo, numero: Number(n), segundos: Number(s)});
   if (acao === 'apagar') enviar('/api/apagar', {jogo, numero: Number(n)});
+  if (acao === 'parar') {
+    // Irreversivel no meio do jogo: um clique sem querer nao pode custar o resto.
+    if (!confirm(`PARAR a gravação de "${jogo}"?
+
+O que já foi gravado continua no disco, mas daqui em diante nada mais é gravado.`)) return;
+    const d = await enviar('/api/parar', {jogo});
+    if (d) avisar(`gravação parada (${d.derrubados} processo(s))`);
+  }
 });
 
 atualizar();

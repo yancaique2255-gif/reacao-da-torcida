@@ -5,6 +5,7 @@ serve para o durante, e por isso mora numa porta propria - os dois podem estar
 abertos ao mesmo tempo.
 """
 import json
+import subprocess
 import time
 from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -88,6 +89,48 @@ def gols_do_jogo(biblioteca: Path, jogo: str) -> list[dict]:
     ]
 
 
+def _taskkill(pid: int) -> None:
+    subprocess.run(["taskkill", "/T", "/F", "/PID", str(pid)], capture_output=True)
+
+
+def parar_gravacao(biblioteca: Path, jogo: str, matar=_taskkill) -> dict:
+    """Derruba a gravacao de UM jogo: primeiro o supervisor, depois as arvores.
+
+    A ordem importa. Derrubar os canais antes deixaria o supervisor vivo para
+    religar tudo em seguida - e com max_tentativas em 60 ele insistiria muito.
+
+    Pid de processo ja morto e inofensivo: o taskkill falha calado.
+    """
+    pasta = _pasta_do_jogo(biblioteca, jogo)
+    derrubados = []
+
+    arquivo_pid = pasta / "supervisor.pid"
+    if arquivo_pid.is_file():
+        try:
+            pid = int(arquivo_pid.read_text(encoding="utf-8").strip())
+        except ValueError:
+            pid = 0
+        if pid:
+            matar(pid)
+            derrubados.append(pid)
+        # Sai do disco para o proximo PARAR nao mirar num pid ja reciclado.
+        arquivo_pid.unlink(missing_ok=True)
+
+    bruto = pasta / "bruto"
+    if bruto.is_dir():
+        for canal in sorted(bruto.iterdir()):
+            arquivo = canal / "gravacao.json"
+            if not arquivo.is_file():
+                continue
+            dados = json.loads(arquivo.read_text(encoding="utf-8"))
+            for sessao in dados.get("sessoes") or []:
+                pid = sessao.get("pid")
+                if pid:
+                    matar(pid)
+                    derrubados.append(pid)
+    return {"ok": True, "derrubados": len(set(derrubados))}
+
+
 def quadro_do_canal(biblioteca: Path, jogo: str, canal: str, cfg: dict) -> Path | None:
     """Quadro recente do canal. Guardado fora de `bruto` para nao virar gravacao."""
     pasta_jogo = _pasta_do_jogo(biblioteca, jogo)
@@ -121,6 +164,7 @@ class _Manipulador(BaseHTTPRequestHandler):
             "/api/apagar": lambda c: apagar(
                 self.biblioteca, c["jogo"], int(c["numero"])
             ),
+            "/api/parar": lambda c: parar_gravacao(self.biblioteca, c["jogo"]),
         }
         acao = acoes.get(self.path)
         if acao is None:

@@ -135,3 +135,85 @@ def test_canal_de_outro_jogo_nao_pode_ser_alcancado_por_caminho(tmp_path: Path):
         except (ValueError, OSError):
             continue
         raise AssertionError(f"deveria ter recusado: {canal}")
+
+
+def _gravacao_com_pids(pasta: Path, canal: str, pids: list[int]) -> None:
+    d = pasta / "bruto" / canal
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "gravacao.json").write_text(
+        json.dumps({
+            "url": "u",
+            "sessoes": [{"numero": i + 1, "t0": "2026-09-02T21:30:00", "pid": p}
+                        for i, p in enumerate(pids)],
+        }),
+        encoding="utf-8",
+    )
+
+
+def test_parar_derruba_o_supervisor_antes_dos_canais(tmp_path: Path):
+    """Ao contrario, o supervisor ainda vivo religaria tudo em seguida."""
+    jogo = "2026-09-02 santos x palmeiras"
+    (tmp_path / jogo).mkdir(parents=True)
+    (tmp_path / jogo / "supervisor.pid").write_text("1000", encoding="utf-8")
+    _gravacao_com_pids(tmp_path / jogo, "peixao", [2001, 2002])
+    mortos = []
+
+    r = gravacao.parar_gravacao(tmp_path, jogo, matar=mortos.append)
+
+    assert mortos[0] == 1000, "o supervisor cai primeiro"
+    assert set(mortos[1:]) == {2001, 2002}, "depois todas as sessoes do canal"
+    assert r["derrubados"] == 3
+
+
+def test_parar_um_jogo_nao_encosta_no_outro(tmp_path: Path):
+    """Duas partidas gravam juntas: parar uma nao pode derrubar a outra."""
+    for jogo, pid in (("jogo A", 3001), ("jogo B", 4001)):
+        (tmp_path / jogo).mkdir(parents=True)
+        _gravacao_com_pids(tmp_path / jogo, "canal", [pid])
+    mortos = []
+
+    gravacao.parar_gravacao(tmp_path, "jogo A", matar=mortos.append)
+
+    assert mortos == [3001]
+
+
+def test_parar_gravacao_ja_parada_nao_estoura(tmp_path: Path):
+    jogo = "j"
+    (tmp_path / jogo).mkdir()
+
+    assert gravacao.parar_gravacao(tmp_path, jogo, matar=lambda p: None)["derrubados"] == 0
+
+
+def test_o_arquivo_de_pid_some_depois_de_parar(tmp_path: Path):
+    """Deixar o arquivo faria o proximo PARAR mirar num pid ja reciclado."""
+    jogo = "j"
+    (tmp_path / jogo).mkdir()
+    (tmp_path / jogo / "supervisor.pid").write_text("1000", encoding="utf-8")
+
+    gravacao.parar_gravacao(tmp_path, jogo, matar=lambda p: None)
+
+    assert not (tmp_path / jogo / "supervisor.pid").exists()
+
+
+def test_parar_recusa_jogo_de_fora_da_biblioteca(tmp_path: Path):
+    for nome in ("../fora", r"..\fora"):
+        try:
+            gravacao.parar_gravacao(tmp_path, nome, matar=lambda p: None)
+        except (ValueError, OSError):
+            continue
+        raise AssertionError(f"deveria ter recusado: {nome}")
+
+
+def test_pagina_tem_botao_de_parar_com_confirmacao():
+    """Parar e irreversivel no meio do jogo: nao pode ser um clique solto."""
+    html = gravacao.PAGINA.read_text(encoding="utf-8")
+    assert "/api/parar" in html
+    assert "confirm(" in html, "um clique sem querer nao pode derrubar a gravacao"
+
+
+def test_pagina_abre_o_quadro_grande_para_ler_o_relogio_do_jogo():
+    """A miniatura nao deixa ler o cronometro; e ele que revela o atraso do canal."""
+    html = gravacao.PAGINA.read_text(encoding="utf-8")
+    assert "abrirLupa" in html and "lupa-img" in html
+    assert "ArrowRight" in html, "percorrer os canais e o que permite comparar"
+    assert "v=${Date.now()}" in html, "no grande a foto tem que ser a mais nova"
