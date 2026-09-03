@@ -101,7 +101,9 @@ def ajustar(biblioteca: Path, jogo: str, canal: str, segundos: float) -> dict:
     return {"ok": True, "canal": canal, "deslocamento": valor}
 
 
-def medir_alinhamento(biblioteca: Path, jogo: str, numero: int, cfg: dict) -> dict:
+def medir_alinhamento(
+    biblioteca: Path, jogo: str, numero: int, cfg: dict, forcar: bool = False
+) -> dict:
     """Roda o consenso sobre um gol ja marcado e guarda o que achou.
 
     E o caminho automatico do que `ajustar` faz na mao: em vez de o operador
@@ -129,9 +131,10 @@ def medir_alinhamento(biblioteca: Path, jogo: str, numero: int, cfg: dict) -> di
             "picos": {c: round(f, 1) for c, (_, f) in picos.items()},
         }
 
-    gravados = alinhamento.guardar_consenso(bruto, consenso)
+    gravados = alinhamento.guardar_consenso(bruto, consenso, forcar)
     return {
         "ok": True,
+        "gravado": bool(gravados),
         "deslocamentos": gravados,
         "espalhamento": consenso.espalhamento,
         "confiavel": consenso.confiavel,
@@ -219,7 +222,8 @@ class _Manipulador(BaseHTTPRequestHandler):
                 self.biblioteca, c["jogo"], c["canal"], float(c["segundos"])
             ),
             "/api/alinhar": lambda c: medir_alinhamento(
-                self.biblioteca, c["jogo"], int(c["numero"]), self.cfg
+                self.biblioteca, c["jogo"], int(c["numero"]), self.cfg,
+                bool(c.get("forcar")),
             ),
         }
         acao = acoes.get(self.path)

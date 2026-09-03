@@ -19,6 +19,9 @@ from nucleo import cortador, detector, relogio
 
 MINIMO_PARA_CONSENSO = 2  # um canal sozinho nao tem com quem concordar
 ESPALHAMENTO_SUSPEITO = 45.0  # segundos entre o primeiro e o ultimo pico
+# Duas medidas do MESMO canal que discordam mais que isto sao ruido, nao atraso:
+# o atraso de um canal nao muda de meio minuto de um gol para o outro.
+DISCORDANCIA_MAXIMA = 15.0
 
 
 @dataclass(frozen=True)
@@ -149,17 +152,31 @@ def picos_do_gol(
 ARQUIVO_DO_CANAL = "gravacao.json"
 
 
-def ler_deslocamento(pasta_canal: Path) -> tuple[float, str, int]:
-    """(segundos, de onde veio, quantas medidas ja entraram)."""
+def ler_deslocamento(pasta_canal: Path) -> tuple[float, str, list]:
+    """(segundos, de onde veio, as medidas cruas que ja entraram)."""
     arquivo = Path(pasta_canal) / ARQUIVO_DO_CANAL
     if not arquivo.is_file():
-        return 0.0, "", 0
+        return 0.0, "", []
     dados = json.loads(arquivo.read_text(encoding="utf-8"))
     return (
         float(dados.get("deslocamento") or 0.0),
         dados.get("deslocamento_de", ""),
-        int(dados.get("deslocamento_medidas") or 0),
+        list(dados.get("deslocamento_medidas") or []),
     )
+
+
+def estavel(medidas: list[float]) -> bool:
+    """As medidas deste canal concordam entre si?
+
+    Medido em 02/09/2026: dois canais deram +8,5/+10,0 e +12,5/+11,5 nos dois
+    gols - estaveis. Um terceiro deu -54,5 e +29,5, oitenta e quatro segundos
+    de diferenca. O atraso de um canal nao muda assim entre dois gols do mesmo
+    jogo: aquilo era o detector achando outra coisa no audio, e aplicar aquele
+    numero jogou o corte para fora do lance.
+    """
+    if len(medidas) < 2:
+        return False  # uma medida sozinha nao se confirma
+    return max(medidas) - min(medidas) <= DISCORDANCIA_MAXIMA
 
 
 def gravar_deslocamento(
@@ -179,18 +196,29 @@ def gravar_deslocamento(
         return float(dados.get("deslocamento") or 0.0)
 
     if origem == "manual":
-        valor, medidas = round(float(segundos), 2), 0
-    else:
-        antigo = dados.get("deslocamento")
-        medidas = int(dados.get("deslocamento_medidas") or 0)
-        valor = combinar(
-            None if not medidas else float(antigo), segundos, peso_do_antigo=medidas
+        # O operador viu: uma palavra dele basta, sem precisar de confirmacao.
+        dados["deslocamento"] = round(float(segundos), 2)
+        dados["deslocamento_de"] = "manual"
+        dados["deslocamento_medidas"] = []
+        arquivo.write_text(
+            json.dumps(dados, ensure_ascii=False, indent=2), encoding="utf-8"
         )
-        medidas += 1
+        return dados["deslocamento"]
 
-    dados["deslocamento"] = valor
-    dados["deslocamento_de"] = origem
-    dados["deslocamento_medidas"] = medidas
+    brutas = list(dados.get("deslocamento_medidas") or [])
+    brutas.append(round(float(segundos), 2))
+    dados["deslocamento_medidas"] = brutas
+
+    if estavel(brutas):
+        valor = round(sum(brutas) / len(brutas), 2)
+        dados["deslocamento"] = valor
+        dados["deslocamento_de"] = "consenso"
+    else:
+        # Sem confirmacao o canal corta no horario cru, que e o certo: e melhor
+        # do que aplicar um numero que pode jogar o clipe para fora do lance.
+        valor = 0.0
+        dados.pop("deslocamento", None)
+        dados["deslocamento_de"] = ""
     arquivo.write_text(
         json.dumps(dados, ensure_ascii=False, indent=2), encoding="utf-8"
     )
@@ -212,11 +240,32 @@ def deslocamentos_do_jogo(pasta_bruto: Path) -> dict[str, float]:
     return achados
 
 
-def guardar_consenso(pasta_bruto: Path, consenso: Consenso) -> dict[str, float]:
-    """Escreve os deslocamentos de um consenso, canal por canal."""
+def guardar_consenso(
+    pasta_bruto: Path, consenso: Consenso, forcar: bool = False
+) -> dict[str, float]:
+    """Escreve os deslocamentos de um consenso, canal por canal.
+
+    Canal que ficou longe demais da referencia nao entra: num consenso frouxo o
+    problema quase nunca e todo mundo, e sim um canal sozinho puxando para
+    longe. Descartar o consenso inteiro jogaria fora a medida boa dos outros.
+
+    Devolve so quem de fato ganhou deslocamento aplicavel - lembrando que uma
+    medida sozinha ainda nao vale: `gravar_deslocamento` exige confirmacao.
+
+    O operador pode mandar gravar tudo mesmo assim (`forcar`), depois de olhar.
+    """
     gravados = {}
     for canal, valor in consenso.deslocamentos.items():
+        # Num consenso frouxo, o problema quase nunca e todo mundo: e um canal
+        # sozinho puxando para longe. Medido em 02/09/2026 - dois canais
+        # concordavam em 4s e o terceiro estava 63s fora. Descartar o consenso
+        # inteiro jogaria fora a medida boa dos outros dois.
+        if not forcar and abs(valor) > ESPALHAMENTO_SUSPEITO:
+            continue
         pasta = Path(pasta_bruto) / canal
         if pasta.is_dir():
-            gravados[canal] = gravar_deslocamento(pasta, valor, "consenso")
+            gravar_deslocamento(pasta, valor, "consenso")
+            atual, origem, _ = ler_deslocamento(pasta)
+            if origem:
+                gravados[canal] = atual
     return gravados

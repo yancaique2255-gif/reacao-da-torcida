@@ -265,13 +265,25 @@ def _canal_no_disco(pasta: Path, **extra) -> Path:
     return pasta
 
 
-def test_deslocamento_gravado_volta_na_leitura(tmp_path: Path):
+def test_uma_medida_sozinha_ainda_nao_vale(tmp_path: Path):
+    """Ela fica guardada esperando confirmacao, mas nao e aplicada."""
     _canal_no_disco(tmp_path / "peixao")
 
     alinhamento.gravar_deslocamento(tmp_path / "peixao", 12.5, "consenso")
 
     valor, origem, medidas = alinhamento.ler_deslocamento(tmp_path / "peixao")
-    assert valor == 12.5 and origem == "consenso" and medidas == 1
+    assert medidas == [12.5], "guardada"
+    assert origem == "" and valor == 0.0, "mas ainda nao aplicada"
+
+
+def test_duas_medidas_que_concordam_viram_deslocamento(tmp_path: Path):
+    _canal_no_disco(tmp_path / "peixao")
+
+    alinhamento.gravar_deslocamento(tmp_path / "peixao", 12.5, "consenso")
+    alinhamento.gravar_deslocamento(tmp_path / "peixao", 14.5, "consenso")
+
+    valor, origem, medidas = alinhamento.ler_deslocamento(tmp_path / "peixao")
+    assert valor == 13.5 and origem == "consenso" and len(medidas) == 2
 
 
 def test_gravar_nao_apaga_o_resto_do_arquivo(tmp_path: Path):
@@ -308,23 +320,46 @@ def test_o_operador_pode_corrigir_o_que_o_algoritmo_mediu(tmp_path: Path):
     assert valor == 30.0 and origem == "manual"
 
 
-def test_cada_gol_novo_puxa_a_media_do_canal(tmp_path: Path):
-    _canal_no_disco(tmp_path / "peixao")
+def test_medidas_do_mesmo_canal_que_discordam_nao_viram_deslocamento(tmp_path: Path):
+    """Defeito real de 02/09/2026: um canal deu -54,5s e +29,5s nos dois gols.
 
-    alinhamento.gravar_deslocamento(tmp_path / "peixao", 10.0)
-    alinhamento.gravar_deslocamento(tmp_path / "peixao", 20.0)
+    O atraso de um canal nao muda oitenta segundos entre dois gols do mesmo
+    jogo. Aquilo era o detector achando outra coisa no audio, e aplicar o
+    numero jogou o corte para fora do lance - conferido no video.
+    """
+    _canal_no_disco(tmp_path / "arena")
 
-    valor, _, medidas = alinhamento.ler_deslocamento(tmp_path / "peixao")
-    assert valor == 15.0 and medidas == 2
+    alinhamento.gravar_deslocamento(tmp_path / "arena", -54.5)
+    alinhamento.gravar_deslocamento(tmp_path / "arena", 29.5)
+
+    valor, origem, medidas = alinhamento.ler_deslocamento(tmp_path / "arena")
+    assert origem == "" and valor == 0.0, "sem confirmacao, corta no horario cru"
+    assert len(medidas) == 2, "as medidas ficam guardadas para o operador ver"
+
+
+def test_medidas_estaveis_dos_canais_reais_de_ontem(tmp_path: Path):
+    """Os dois canais que se comportaram, com os numeros medidos de verdade."""
+    _canal_no_disco(tmp_path / "atencao")
+    _canal_no_disco(tmp_path / "fanatico")
+
+    for valor in (8.5, 10.0):
+        alinhamento.gravar_deslocamento(tmp_path / "atencao", valor)
+    for valor in (12.5, 11.5):
+        alinhamento.gravar_deslocamento(tmp_path / "fanatico", valor)
+
+    assert alinhamento.deslocamentos_do_jogo(tmp_path) == {
+        "atencao": 9.25, "fanatico": 12.0
+    }
 
 
 def test_canal_sem_medida_nenhuma_nao_entra_na_lista(tmp_path: Path):
     """Sem medida o corte usa o horario cru; poluir a lista com zeros esconde isso."""
     _canal_no_disco(tmp_path / "medido")
     _canal_no_disco(tmp_path / "virgem")
-    alinhamento.gravar_deslocamento(tmp_path / "medido", 7.0)
+    for valor in (7.0, 7.5):
+        alinhamento.gravar_deslocamento(tmp_path / "medido", valor)
 
-    assert alinhamento.deslocamentos_do_jogo(tmp_path) == {"medido": 7.0}
+    assert alinhamento.deslocamentos_do_jogo(tmp_path) == {"medido": 7.25}
 
 
 def test_guardar_consenso_escreve_todos_os_canais_de_uma_vez(tmp_path: Path):
@@ -332,7 +367,8 @@ def test_guardar_consenso_escreve_todos_os_canais_de_uma_vez(tmp_path: Path):
         _canal_no_disco(tmp_path / nome)
     consenso = alinhamento.medir({"a": (100.0, 9.0), "b": (110.0, 9.0)})
 
-    gravados = alinhamento.guardar_consenso(tmp_path, consenso)
+    alinhamento.guardar_consenso(tmp_path, consenso)
+    gravados = alinhamento.guardar_consenso(tmp_path, consenso)  # segunda medida confirma
 
     assert gravados == {"a": -5.0, "b": 5.0}
     assert alinhamento.deslocamentos_do_jogo(tmp_path) == {"a": -5.0, "b": 5.0}
@@ -342,6 +378,68 @@ def test_consenso_de_canal_que_sumiu_do_disco_e_ignorado(tmp_path: Path):
     _canal_no_disco(tmp_path / "a")
     consenso = alinhamento.medir({"a": (100.0, 9.0), "apagado": (110.0, 9.0)})
 
-    gravados = alinhamento.guardar_consenso(tmp_path, consenso)
+    for _ in range(2):  # duas medidas confirmam
+        gravados = alinhamento.guardar_consenso(tmp_path, consenso)
 
     assert set(gravados) == {"a"}
+
+
+def test_consenso_frouxo_nao_estraga_a_medida_boa(tmp_path: Path):
+    """Defeito real, pego rodando sobre a gravacao de 02/09/2026.
+
+    O gol 1 teve 67s de espalhamento e o gol 2 teve 19,5s. Somados com peso
+    igual, um canal que a medida boa punha em +18s terminava em -22,5s - pior
+    do que nao ter medida nenhuma.
+    """
+    for nome in ("a", "b"):
+        _canal_no_disco(tmp_path / nome)
+    frouxo = alinhamento.medir({"a": (0.0, 9.0), "b": (120.0, 9.0)})
+    bom = alinhamento.medir({"a": (10.0, 9.0), "b": (14.0, 9.0)})
+
+    assert alinhamento.guardar_consenso(tmp_path, frouxo) == {}, "frouxo nao entra"
+    alinhamento.guardar_consenso(tmp_path, bom)
+    alinhamento.guardar_consenso(tmp_path, bom)  # duas medidas boas confirmam
+
+    assert alinhamento.deslocamentos_do_jogo(tmp_path) == {"a": -2.0, "b": 2.0}
+
+
+def test_o_operador_pode_gravar_um_consenso_frouxo_se_quiser(tmp_path: Path):
+    """Ele olhou os numeros e decidiu; a recusa e automatica, nao teimosa."""
+    _canal_no_disco(tmp_path / "a")
+    _canal_no_disco(tmp_path / "b")
+    frouxo = alinhamento.medir({"a": (0.0, 9.0), "b": (120.0, 9.0)})
+
+    alinhamento.guardar_consenso(tmp_path, frouxo, forcar=True)
+    gravados = alinhamento.guardar_consenso(tmp_path, frouxo, forcar=True)
+
+    assert set(gravados) == {"a", "b"}
+
+
+def test_o_operador_nao_precisa_de_confirmacao_nenhuma(tmp_path: Path):
+    """Ele viu o relogio na tela: uma palavra dele vale mais que duas medidas."""
+    _canal_no_disco(tmp_path / "peixao")
+
+    alinhamento.gravar_deslocamento(tmp_path / "peixao", 25.0, "manual")
+
+    valor, origem, _ = alinhamento.ler_deslocamento(tmp_path / "peixao")
+    assert valor == 25.0 and origem == "manual"
+
+
+def test_consenso_frouxo_ainda_entrega_os_canais_que_concordaram(tmp_path: Path):
+    """No gol 1 de 02/09/2026, dois canais concordavam em 4s e um estava 63s fora.
+
+    Descartar o consenso inteiro jogaria fora a medida boa dos outros dois -
+    e sao justamente eles que se mostraram estaveis no jogo seguinte.
+    """
+    for nome in ("perto-a", "perto-b", "muito-fora"):
+        _canal_no_disco(tmp_path / nome)
+    frouxo = alinhamento.medir({
+        "perto-a": (0.0, 9.0), "perto-b": (4.0, 9.0), "muito-fora": (-63.0, 18.0),
+    })
+    assert not frouxo.confiavel
+
+    for _ in range(2):  # duas medidas iguais confirmam
+        gravados = alinhamento.guardar_consenso(tmp_path, frouxo)
+
+    assert set(gravados) == {"perto-a", "perto-b"}
+    assert "muito-fora" not in alinhamento.deslocamentos_do_jogo(tmp_path)
