@@ -5,6 +5,7 @@ serve para o durante, e por isso mora numa porta propria - os dois podem estar
 abertos ao mesmo tempo.
 """
 import json
+import os
 import subprocess
 import time
 from datetime import datetime, timedelta
@@ -18,13 +19,17 @@ from nucleo import miniatura, monitor, placar, relogio
 
 PAGINA = Path(__file__).resolve().parent / "gravacao.html"
 PORTA_PADRAO = 8771
+# Pasta de corte parada por mais que isto, com o catalogo ainda vazio, nao
+# esta mais trabalhando: o corte morreu no meio. Cinco minutos folgam bem
+# sobre o pior caso medido - onze canais recodificando em fila de tres.
+CORTE_PARADO_APOS = 300.0
 
 
 def estado(biblioteca: Path, agora: float) -> dict:
     """O que a pagina precisa: os jogos, com seus canais, e a hora da medicao."""
     jogos = monitor.panorama(biblioteca, agora)
     for j in jogos:
-        j["gols"] = gols_do_jogo(biblioteca, j["jogo"])
+        j["gols"] = gols_do_jogo(biblioteca, j["jogo"], j["total"], agora)
         medidos = alinhamento.deslocamentos_do_jogo(
             Path(biblioteca) / j["jogo"] / "bruto"
         )
@@ -91,12 +96,76 @@ def apagar(biblioteca: Path, jogo: str, numero: int) -> dict:
     return {"ok": True}
 
 
-def gols_do_jogo(biblioteca: Path, jogo: str) -> list[dict]:
-    dados = catalogo.carregar(_pasta_do_jogo(biblioteca, jogo))
+def pasta_do_corte(pasta_jogo: Path, numero: int) -> Path:
+    return Path(pasta_jogo) / "clipes" / f"gol-{numero:02d}"
+
+
+def estado_do_corte(
+    pasta_jogo: Path, numero: int, total: int, agora: float, dados: dict | None = None
+) -> dict:
+    """Em que pe esta o corte de um gol, lido so do disco.
+
+    O painel nao conversa com quem corta - o corte roda dentro do supervisor da
+    gravacao, noutro processo. O que sobra sao dois rastros: a pasta do gol, que
+    vai enchendo de .mp4, e o catalogo, que so e salvo quando o corte inteiro
+    termina. Um da o andamento, o outro da o fim.
+    """
+    pasta_jogo = Path(pasta_jogo)
+    destino = pasta_do_corte(pasta_jogo, numero)
+    if dados is None:
+        dados = catalogo.carregar(pasta_jogo)
+
+    prontos = [c for c in dados.get("clipes", []) if c.get("gol") == numero]
+    if prontos:
+        # O catalogo fechou: acabou. Se veio menos que o total, canal ficou sem
+        # material - o contador conta essa historia sozinho, sem travar o gol
+        # em "cortando" para sempre.
+        return {"situacao": "pronto", "feitos": len(prontos),
+                "total": total, "pasta": True}
+
+    if not destino.is_dir():
+        return {"situacao": "aguardando", "feitos": 0, "total": total, "pasta": False}
+
+    arquivos = list(destino.glob("*.mp4"))
+    mexeu = max(
+        [destino.stat().st_mtime] + [a.stat().st_mtime for a in arquivos]
+    )
+    situacao = "parou" if agora - mexeu > CORTE_PARADO_APOS else "cortando"
+    return {"situacao": situacao, "feitos": len(arquivos),
+            "total": total, "pasta": True}
+
+
+def gols_do_jogo(
+    biblioteca: Path, jogo: str, total: int = 0, agora: float | None = None
+) -> list[dict]:
+    pasta = _pasta_do_jogo(biblioteca, jogo)
+    dados = catalogo.carregar(pasta)
+    agora = time.time() if agora is None else agora
     return [
-        {"numero": g["numero"], "horario": g["horario"][11:19]}
+        {
+            "numero": g["numero"],
+            "horario": g["horario"][11:19],
+            "corte": estado_do_corte(pasta, g["numero"], total, agora, dados),
+        }
         for g in dados["gols"]
     ]
+
+
+def _no_explorador(pasta: Path) -> None:
+    os.startfile(str(pasta))  # so existe no Windows, que e onde isto roda
+
+
+def abrir_pasta(biblioteca: Path, jogo: str, numero: int, abrir=None) -> dict:
+    """Abre no Explorador a pasta dos clipes de um gol.
+
+    Conferir o corte e olhar o video, e olhar video e no player do sistema, nao
+    no navegador: e por isso que o botao abre a pasta em vez de tocar aqui.
+    """
+    destino = pasta_do_corte(_pasta_do_jogo(biblioteca, jogo), numero)
+    if not destino.is_dir():
+        return {"ok": False, "motivo": "o corte deste gol ainda não saiu"}
+    (abrir or _no_explorador)(destino)
+    return {"ok": True, "pasta": str(destino)}
 
 
 def ajustar(biblioteca: Path, jogo: str, canal: str, segundos: float) -> dict:
@@ -324,6 +393,9 @@ class _Manipulador(BaseHTTPRequestHandler):
             ),
             "/api/ajustar": lambda c: ajustar(
                 self.biblioteca, c["jogo"], c["canal"], float(c["segundos"])
+            ),
+            "/api/abrir": lambda c: abrir_pasta(
+                self.biblioteca, c["jogo"], int(c["numero"])
             ),
             "/api/alinhar": lambda c: medir_alinhamento(
                 self.biblioteca, c["jogo"], int(c["numero"]), self.cfg,

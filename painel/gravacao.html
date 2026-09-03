@@ -66,6 +66,15 @@
   .marca .n { color: var(--fraco); font-size: 12px; }
   .marca button { padding: 3px 8px; font-size: 12px; font-weight: 600; background: #222735; }
   .marca button.x { background: #3a1f22; color: #ff8b8b; }
+  .marca .corte {
+    font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 20px;
+    background: #222735; color: var(--fraco); white-space: nowrap;
+  }
+  .marca .corte.pronto { background: rgba(53,208,127,.16); color: var(--viva); }
+  .marca .corte.cortando { background: rgba(255,176,32,.16); color: var(--alerta); }
+  .marca .corte.parou { background: #3a1f22; color: #ff8b8b; }
+  .marca .corte.falta { background: rgba(255,176,32,.16); color: var(--alerta); }
+  .marca button.abrir { background: #23303a; color: #9fd8ff; }
   table { width: 100%; border-collapse: collapse; background: var(--caixa);
           border: 1px solid var(--linha); border-radius: 10px; overflow: hidden; }
   th, td { text-align: left; padding: 9px 14px; border-bottom: 1px solid var(--linha); }
@@ -254,6 +263,32 @@ function vigiarQuedas(d) {
 
 function mb(v) { return v >= 1000 ? (v / 1000).toFixed(1) + ' GB' : Math.round(v) + ' MB'; }
 
+// O corte roda noutro processo: a pagina so mostra o que o disco ja contou.
+function textoDoCorte(c) {
+  if (!c) return '';
+  if (c.situacao === 'pronto') return `✓ ${c.feitos}/${c.total} cortado`;
+  if (c.situacao === 'cortando') return `⏳ cortando ${c.feitos}/${c.total}`;
+  if (c.situacao === 'parou') return `⚠ parou no meio — confira`;
+  return '⏸ aguardando corte';
+}
+
+function classeDoCorte(c) {
+  if (!c) return '';
+  // Cortou, mas faltou canal: verde mentiria, e sumir com o aviso e pior ainda.
+  if (c.situacao === 'pronto') return c.feitos < c.total ? 'falta' : 'pronto';
+  return c.situacao;
+}
+
+function tituloDoCorte(c) {
+  if (!c) return '';
+  if (c.situacao === 'pronto' && c.feitos < c.total) {
+    return `${c.total - c.feitos} canal(is) ficaram sem material neste gol`;
+  }
+  if (c.situacao === 'parou') return 'a pasta existe mas parou de crescer e o catálogo não fechou';
+  if (c.situacao === 'aguardando') return 'o corte automático espera o material chegar ao disco';
+  return '';
+}
+
 function silencio(c) {
   if (c.gravando) return 'gravando';
   if (c.silencio < 0) return 'sem nada no disco';
@@ -361,6 +396,9 @@ async function atualizar() {
     const marcas = (j.gols || []).map(g => `
       <span class="marca">
         <span class="n">#${g.numero}</span><b>${g.horario}</b>
+        <span class="corte ${classeDoCorte(g.corte)}" title="${tituloDoCorte(g.corte)}">${textoDoCorte(g.corte)}</span>
+        ${g.corte && g.corte.pasta ? `<button class="abrir" data-acao="abrir" data-jogo="${j.jogo}" data-n="${g.numero}"
+                title="Abre a pasta deste gol no Explorador para você conferir os clipes">📂 abrir pasta</button>` : ''}
         <button data-acao="mover" data-jogo="${j.jogo}" data-n="${g.numero}" data-s="-5">−5s</button>
         <button data-acao="mover" data-jogo="${j.jogo}" data-n="${g.numero}" data-s="5">+5s</button>
         <button class="alinhar" data-acao="alinhar" data-jogo="${j.jogo}" data-n="${g.numero}"
@@ -500,6 +538,10 @@ alvo.addEventListener('click', async (e) => {
   if (acao === 'marcar') marcarGol(jogo);
   if (acao === 'mover') enviar('/api/mover', {jogo, numero: Number(n), segundos: Number(s)});
   if (acao === 'apagar') enviar('/api/apagar', {jogo, numero: Number(n)});
+  if (acao === 'abrir') {
+    const d = await enviar('/api/abrir', {jogo, numero: Number(n)});
+    if (d && !d.ok) avisar(d.motivo || 'não deu para abrir a pasta');
+  }
   if (acao === 'alinhar') {
     b.disabled = true;
     avisar('medindo o atraso de cada canal...');

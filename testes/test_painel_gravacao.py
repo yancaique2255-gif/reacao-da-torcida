@@ -4,6 +4,7 @@ import os
 import time
 from pathlib import Path
 
+from nucleo import catalogo
 from painel import gravacao
 
 
@@ -106,7 +107,9 @@ def test_estado_traz_as_marcas_de_cada_jogo(tmp_path: Path):
 
     d = gravacao.estado(tmp_path, time.time())
 
-    assert d["jogos"][0]["gols"] == [{"numero": 1, "horario": "21:55:00"}]
+    marcas = d["jogos"][0]["gols"]
+    assert len(marcas) == 1
+    assert marcas[0]["numero"] == 1 and marcas[0]["horario"] == "21:55:00"
 
 
 def test_pagina_avisa_e_apita_quando_um_canal_cai():
@@ -403,3 +406,185 @@ def test_a_marca_de_gol_pode_ser_desfeita_na_hora():
 
     assert "desfazer" in html
     assert "avisar(" in html and "/api/apagar" in html
+
+
+# --- estado do corte de cada gol --------------------------------------------
+# O painel so le o disco. Estas provas descrevem como ele descobre em que pe
+# esta o corte sem perguntar nada a quem corta.
+
+def _gol_marcado(biblioteca: Path, jogo: str, numero: int = 1) -> None:
+    pasta = biblioteca / jogo
+    dados = catalogo.registrar_gol(
+        catalogo.carregar(pasta), numero, "2026-09-02T21:55:00", ""
+    )
+    catalogo.salvar(pasta, dados)
+
+
+def _clipe_no_catalogo(biblioteca: Path, jogo: str, numero: int, canal: str) -> None:
+    pasta = biblioteca / jogo
+    dados = catalogo.registrar_clipe(
+        catalogo.carregar(pasta), numero, canal,
+        f"clipes/gol-{numero:02d}/{canal}.mp4", 0.0, 8.0, True,
+    )
+    catalogo.salvar(pasta, dados)
+
+
+def _mp4_do_corte(biblioteca: Path, jogo: str, numero: int, canal: str,
+                  escrito_ha: float = 0.0) -> Path:
+    destino = biblioteca / jogo / "clipes" / f"gol-{numero:02d}"
+    destino.mkdir(parents=True, exist_ok=True)
+    arquivo = destino / f"{canal}.mp4"
+    arquivo.write_bytes(b"x")
+    marca = time.time() - escrito_ha
+    os.utime(arquivo, (marca, marca))
+    os.utime(destino, (marca, marca))
+    return arquivo
+
+
+def test_corte_aguardando_enquanto_a_pasta_nao_existe(tmp_path: Path):
+    """Gol marcado e pasta ausente: o corte ainda nao comecou."""
+    jogo = "2026-09-02 vitoria x vasco"
+    _canal(tmp_path / jogo / "bruto", "arena", 1)
+    _gol_marcado(tmp_path, jogo)
+
+    corte = gravacao.estado_do_corte(tmp_path / jogo, 1, 6, time.time())
+
+    assert corte["situacao"] == "aguardando"
+    assert corte["feitos"] == 0 and corte["total"] == 6
+    assert corte["pasta"] is False, "sem pasta, o botao de abrir nao pode aparecer"
+
+
+def test_corte_cortando_enquanto_os_mp4_vao_aparecendo(tmp_path: Path):
+    """Arquivos no disco e catalogo ainda vazio: o corte esta em andamento."""
+    jogo = "2026-09-02 vitoria x vasco"
+    _canal(tmp_path / jogo / "bruto", "arena", 1)
+    _gol_marcado(tmp_path, jogo)
+    _mp4_do_corte(tmp_path, jogo, 1, "arena")
+    _mp4_do_corte(tmp_path, jogo, 1, "canto")
+
+    corte = gravacao.estado_do_corte(tmp_path / jogo, 1, 6, time.time())
+
+    assert corte["situacao"] == "cortando"
+    assert corte["feitos"] == 2 and corte["total"] == 6
+    assert corte["pasta"] is True
+
+
+def test_corte_pronto_quando_o_catalogo_registrou_os_clipes(tmp_path: Path):
+    """Quem diz que acabou e o catalogo: ele so e salvo no fim do corte."""
+    jogo = "2026-09-02 vitoria x vasco"
+    _canal(tmp_path / jogo / "bruto", "arena", 1)
+    _gol_marcado(tmp_path, jogo)
+    for canal in ("arena", "canto"):
+        _mp4_do_corte(tmp_path, jogo, 1, canal)
+        _clipe_no_catalogo(tmp_path, jogo, 1, canal)
+
+    corte = gravacao.estado_do_corte(tmp_path / jogo, 1, 2, time.time())
+
+    assert corte["situacao"] == "pronto"
+    assert corte["feitos"] == 2 and corte["total"] == 2
+
+
+def test_corte_pronto_conta_so_os_clipes_do_gol_pedido(tmp_path: Path):
+    """Dois gols no mesmo catalogo nao podem somar os clipes um do outro."""
+    jogo = "2026-09-02 vitoria x vasco"
+    _canal(tmp_path / jogo / "bruto", "arena", 1)
+    _gol_marcado(tmp_path, jogo, 1)
+    _gol_marcado(tmp_path, jogo, 2)
+    _clipe_no_catalogo(tmp_path, jogo, 1, "arena")
+    _clipe_no_catalogo(tmp_path, jogo, 2, "arena")
+    _clipe_no_catalogo(tmp_path, jogo, 2, "canto")
+
+    assert gravacao.estado_do_corte(tmp_path / jogo, 1, 2, time.time())["feitos"] == 1
+    assert gravacao.estado_do_corte(tmp_path / jogo, 2, 2, time.time())["feitos"] == 2
+
+
+def test_corte_pronto_faltando_canal_continua_pronto(tmp_path: Path):
+    """Canal SEM MATERIAL nao trava o gol em 'cortando' para sempre.
+
+    O contador e que conta a historia: 1 de 6 diz que cinco canais nao tinham
+    o trecho no disco. Nunca sumir calado, mas tambem nunca mentir que ainda
+    esta trabalhando.
+    """
+    jogo = "2026-09-02 vitoria x vasco"
+    _canal(tmp_path / jogo / "bruto", "arena", 1)
+    _gol_marcado(tmp_path, jogo)
+    _mp4_do_corte(tmp_path, jogo, 1, "arena")
+    _clipe_no_catalogo(tmp_path, jogo, 1, "arena")
+
+    corte = gravacao.estado_do_corte(tmp_path / jogo, 1, 6, time.time())
+
+    assert corte["situacao"] == "pronto"
+    assert corte["feitos"] == 1 and corte["total"] == 6
+
+
+def test_corte_que_parou_no_meio_nao_finge_que_esta_cortando(tmp_path: Path):
+    """Pasta parada ha muito tempo e catalogo vazio: o corte morreu no meio.
+
+    Sem este estado, um corte que estourou fica 'cortando' para sempre e o
+    operador espera por um arquivo que nunca vem.
+    """
+    jogo = "2026-09-02 vitoria x vasco"
+    _canal(tmp_path / jogo / "bruto", "arena", 1)
+    _gol_marcado(tmp_path, jogo)
+    _mp4_do_corte(tmp_path, jogo, 1, "arena", escrito_ha=gravacao.CORTE_PARADO_APOS + 60)
+
+    corte = gravacao.estado_do_corte(tmp_path / jogo, 1, 6, time.time())
+
+    assert corte["situacao"] == "parou"
+    assert corte["feitos"] == 1 and corte["pasta"] is True
+
+
+def test_estado_traz_o_corte_de_cada_gol(tmp_path: Path):
+    """O painel inteiro, do jeito que a pagina recebe."""
+    jogo = "2026-09-02 vitoria x vasco"
+    _canal(tmp_path / jogo / "bruto", "arena", 1)
+    gravacao.marcar(tmp_path, jogo, datetime(2026, 9, 2, 21, 55, 0))
+
+    d = gravacao.estado(tmp_path, time.time())
+
+    gol = d["jogos"][0]["gols"][0]
+    assert gol["numero"] == 1 and gol["horario"] == "21:55:00"
+    assert gol["corte"]["situacao"] == "aguardando"
+    assert gol["corte"]["total"] == 1, "o total vem de quantos canais o jogo tem"
+
+
+# --- abrir a pasta do corte no Explorador ------------------------------------
+
+def test_abrir_pasta_chama_o_explorador_com_a_pasta_do_gol(tmp_path: Path):
+    jogo = "2026-09-02 vitoria x vasco"
+    _canal(tmp_path / jogo / "bruto", "arena", 1)
+    _mp4_do_corte(tmp_path, jogo, 2, "arena")
+    abertas = []
+
+    r = gravacao.abrir_pasta(tmp_path, jogo, 2, abrir=abertas.append)
+
+    assert r["ok"] is True
+    assert abertas == [tmp_path / jogo / "clipes" / "gol-02"]
+
+
+def test_abrir_pasta_avisa_quando_o_corte_ainda_nao_saiu(tmp_path: Path):
+    """Sem pasta nao ha o que abrir - e um recado, nao um estouro."""
+    jogo = "2026-09-02 vitoria x vasco"
+    _canal(tmp_path / jogo / "bruto", "arena", 1)
+    abertas = []
+
+    r = gravacao.abrir_pasta(tmp_path, jogo, 1, abrir=abertas.append)
+
+    assert r["ok"] is False and r["motivo"]
+    assert abertas == [], "nada pode ser aberto quando a pasta nao existe"
+
+
+def test_abrir_pasta_recusa_jogo_de_fora_da_biblioteca(tmp_path: Path):
+    """O nome do jogo vem da pagina; nome nenhum pode virar caminho de fuga."""
+    for nome in ("../fora", r"..\fora", r"C:\Windows"):
+        try:
+            gravacao.abrir_pasta(tmp_path, nome, 1, abrir=lambda p: None)
+        except (ValueError, OSError):
+            continue
+        raise AssertionError(f"deveria ter recusado: {nome}")
+
+
+def test_pagina_mostra_o_corte_e_o_botao_de_abrir():
+    html = gravacao.PAGINA.read_text(encoding="utf-8")
+    assert "/api/abrir" in html
+    assert "corte" in html
