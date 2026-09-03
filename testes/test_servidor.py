@@ -72,3 +72,16 @@ def test_estudio_ordena_pelo_mais_explosivo_e_separa_por_torcida():
     assert "confianca_db) || 0) - (Number(a.confianca_db)" in html, "mais forte primeiro"
     assert "torcidaEscolhida" in html and "desenharFiltros" in html
     assert "Reação fraca" in html, "o clipe fraco tem que se explicar"
+
+
+def test_estudio_avisa_qual_clipe_pede_aparo():
+    """Clipe largo tem a reacao dentro, mas com folga: o operador precisa saber."""
+    from painel import servidor
+
+    html = (Path(servidor.__file__).resolve().parent / "pagina.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert "Janela larga" in html and "apare no seu editor" in html
+    assert "Parcial" in html, "cobertura incompleta tambem se explica"
+    assert "clipe.duracao" in html, "a duracao na tela e o que denuncia o clipe longo"

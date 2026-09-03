@@ -23,6 +23,12 @@ PADROES = {
     "atraso_maximo": 300,
     "carencia_do_arranque": 120,
     "cortes_em_paralelo": 3,    # o corte recodifica; nao adianta passar dos nucleos
+    # Canal sem alinhamento confirmado corta com esta margem a mais de cada
+    # lado: clipe longo demais o operador apara no estudio, clipe que corta o
+    # lance ao meio nao tem conserto. A margem some sozinha conforme os gols
+    # vao confirmando o atraso daquele canal.
+    "margem_sem_alinhamento": 60,
+    "minimo_do_clipe": 15,      # abaixo disso o trecho nao ajuda ninguem
     "caminho_ytdlp": r"C:\yt-dlp\yt-dlp.exe",
     "caminho_ffmpeg": r"C:\yt-dlp\ffmpeg.exe",
     # Conferido na maquina: o ffprobe NAO mora junto do ffmpeg do C:\yt-dlp.

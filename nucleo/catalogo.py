@@ -83,6 +83,9 @@ def registrar_clipe(
     confianca_db: float,
     tem_pico: bool,
     torcida: str = "",
+    duracao: float = 0.0,
+    largo: bool = False,
+    parcial: bool = False,
 ) -> dict:
     existente = _achar_clipe(dados, gol, canal)
     campos = {
@@ -93,6 +96,9 @@ def registrar_clipe(
         "confianca_db": confianca_db,
         "tem_pico": tem_pico,
         "torcida": torcida,
+        "duracao": round(float(duracao), 1),
+        "largo": largo,      # saiu com margem: a reacao esta dentro, mas sobra video
+        "parcial": parcial,  # o gravado nao cobria a janela inteira
     }
     if existente is not None:
         existente.update(campos)

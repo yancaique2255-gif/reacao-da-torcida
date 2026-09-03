@@ -270,15 +270,62 @@ def resolver_horario(
 
 
 @dataclass(frozen=True)
+class PlanoDoCanal:
+    """Onde cortar e quanto, neste canal, para este gol."""
+    nome: str
+    recortes: list
+    duracao: float
+    largo: bool    # ganhou margem por nao ter alinhamento confirmado
+    parcial: bool  # o gravado nao cobre a janela inteira pedida
+
+
+def planejar_corte(
+    nome: str, sessoes: list, momento: datetime, cfg: dict,
+    deslocamento: float | None = None,
+) -> PlanoDoCanal:
+    """Canal sem alinhamento confirmado ganha margem dos dois lados.
+
+    Nao se sabe exatamente onde a reacao esta naquele canal, e as duas falhas
+    nao custam a mesma coisa: clipe longo demais o operador apara no estudio,
+    clipe que corta o lance ao meio nao tem conserto.
+
+    A margem some sozinha conforme o alinhamento do canal vai sendo confirmado
+    pelos gols - entao os clipes apertam com o tempo, sem ninguem mexer.
+    """
+    margem = 0.0 if deslocamento is not None else float(
+        cfg.get("margem_sem_alinhamento", 60)
+    )
+    antes = cfg["segundos_antes"] + margem
+    depois = cfg["segundos_depois"] + margem
+    alvo_momento = momento + timedelta(seconds=deslocamento or 0.0)
+    inicio, fim = relogio.janela(alvo_momento, antes, depois)
+
+    recortes = relogio.trechos(sessoes, inicio, fim)
+    coberto = sum(t.fim - t.inicio for t in recortes)
+    return PlanoDoCanal(
+        nome=nome,
+        recortes=recortes,
+        duracao=round(coberto, 2),
+        largo=margem > 0,
+        parcial=coberto < (antes + depois) - 0.05,
+    )
+
+
+@dataclass(frozen=True)
 class ClipeCortado:
     canal: str
     arquivo: Path
     deslocamento: float
     forca_db: float   # quanto o audio subiu acima da linha de base
     tem_pico: bool
+    duracao: float = 0.0
+    largo: bool = False
+    parcial: bool = False
 
 
-def medir_reacao(clipe: Path, cfg: dict, executar=None) -> tuple[float, bool]:
+def medir_reacao(
+    clipe: Path, cfg: dict, executar=None, duracao: float | None = None
+) -> tuple[float, bool]:
     """Quanto o audio explodiu acima da linha de base, em dB.
 
     Nao serve para achar o gol - o horario ja veio do operador. Serve para
@@ -291,7 +338,10 @@ def medir_reacao(clipe: Path, cfg: dict, executar=None) -> tuple[float, bool]:
     try:
         executar(
             cortador.comando_audio(
-                clipe, 0, cfg["segundos_antes"] + cfg["segundos_depois"],
+                # O clipe nem sempre tem o tamanho da janela pedida: canal sem
+                # alinhamento sai maior, canal com cobertura parcial sai menor.
+                clipe, 0,
+                duracao or (cfg["segundos_antes"] + cfg["segundos_depois"]),
                 wav, cfg["caminho_ffmpeg"],
             )
         )
@@ -304,9 +354,9 @@ def medir_reacao(clipe: Path, cfg: dict, executar=None) -> tuple[float, bool]:
 
 
 def cortar_um_canal(
-    nome: str, pasta_canal: Path, recortes, numero: int, destino: Path,
-    tamanho: float, cfg: dict, executar=None,
-) -> tuple[str, Path, float]:
+    plano: PlanoDoCanal, pasta_canal: Path, numero: int, destino: Path,
+    cfg: dict, executar=None,
+) -> ClipeCortado:
     """Recorta o clipe de um canal. Nao toca no catalogo: quem grava e o laco.
 
     Separado justamente para poder rodar varios canais ao mesmo tempo - o
@@ -316,18 +366,21 @@ def cortar_um_canal(
     executar = executar or cortador.executar
     temporaria = pasta_canal / f"janela-manual-{numero:02d}.ts"
     fonte, deslocamento = cortador.preparar_fonte(
-        recortes, pasta_canal, temporaria, cfg["caminho_ffmpeg"], executar
+        plano.recortes, pasta_canal, temporaria, cfg["caminho_ffmpeg"], executar
     )
-    saida = destino / f"{nome}.mp4"
+    saida = destino / f"{plano.nome}.mp4"
     executar(
         cortador.comando_corte(
-            fonte, deslocamento, tamanho, saida, cfg["caminho_ffmpeg"]
+            fonte, deslocamento, plano.duracao, saida, cfg["caminho_ffmpeg"]
         )
     )
     temporaria.unlink(missing_ok=True)  # a juncao, quando houve
     temporaria.with_suffix(".txt").unlink(missing_ok=True)
-    forca, tem_pico = medir_reacao(saida, cfg, executar)
-    return ClipeCortado(nome, saida, deslocamento, forca, tem_pico)
+    forca, tem_pico = medir_reacao(saida, cfg, executar, plano.duracao)
+    return ClipeCortado(
+        plano.nome, saida, deslocamento, forca, tem_pico,
+        plano.duracao, plano.largo, plano.parcial,
+    )
 
 
 def _gols_a_cortar(
@@ -374,7 +427,6 @@ def etapa_cortar(argv=None) -> int:
 
     dados = catalogo.carregar(pasta_jogo)
     data_jogo = _data_da_pasta(jogo)
-    tamanho = float(cfg["segundos_antes"] + cfg["segundos_depois"])
 
     # Le as sessoes de todos os canais uma vez so: alem de evitar reler o disco
     # por gol, e o que permite resolver a data do horario informado.
@@ -409,31 +461,31 @@ def etapa_cortar(argv=None) -> int:
 
     for numero, momento in marcados:
         dados = catalogo.registrar_gol(dados, numero, momento.isoformat(), "")
-        inicio, fim = relogio.janela(
-            momento, cfg["segundos_antes"], cfg["segundos_depois"]
-        )
         destino = pasta_jogo / "clipes" / f"gol-{numero:02d}"
         destino.mkdir(parents=True, exist_ok=True)
 
+        minimo = float(cfg.get("minimo_do_clipe", 15))
         a_cortar = []
         for nome, sessoes in por_canal.items():
             # Cada canal procura no relogio dele: a mesma jogada aparece em
             # instantes diferentes conforme o atraso da transmissao.
-            ajuste = timedelta(seconds=deslocamentos.get(nome, 0.0))
-            recortes = relogio.trechos(sessoes, inicio + ajuste, fim + ajuste)
-            duracao_coberta = sum(t.fim - t.inicio for t in recortes)
-            if not recortes or duracao_coberta < tamanho - 0.05:
+            plano = planejar_corte(
+                nome, sessoes, momento, cfg, deslocamentos.get(nome)
+            )
+            if plano.duracao < minimo:
+                # So aqui se desiste, e por falta de material mesmo: o trecho
+                # nao chegou a ser baixado. Nunca sumir calado.
                 gravado = ", ".join(
                     f"{de:%H:%M:%S}-{ate:%H:%M:%S}"
                     for de, ate in relogio.cobertura(sessoes)
                 ) or "nada"
                 print(
-                    f"gol {numero}: {nome} nao cobre todo o corte em "
-                    f"{momento:%H:%M:%S} - gravado: {gravado}",
+                    f"gol {numero}: {nome} SEM MATERIAL em {momento:%H:%M:%S} "
+                    f"({plano.duracao:.0f}s no disco) - gravado: {gravado}",
                     flush=True,
                 )
                 continue
-            a_cortar.append((nome, recortes))
+            a_cortar.append(plano)
 
         # Em paralelo porque o corte recodifica: onze canais em fila deixavam o
         # operador esperando o dobro do que a maquina precisa.
@@ -441,10 +493,10 @@ def etapa_cortar(argv=None) -> int:
         with ThreadPoolExecutor(max_workers=trabalhadores) as equipe:
             futuros = {
                 equipe.submit(
-                    cortar_um_canal, nome, pasta_bruto / nome, recortes,
-                    numero, destino, tamanho, cfg,
-                ): nome
-                for nome, recortes in a_cortar
+                    cortar_um_canal, plano, pasta_bruto / plano.nome,
+                    numero, destino, cfg,
+                ): plano.nome
+                for plano in a_cortar
             }
             prontos = {}
             for futuro in as_completed(futuros):
@@ -454,19 +506,26 @@ def etapa_cortar(argv=None) -> int:
                 except Exception as erro:
                     print(f"gol {numero}: {nome} falhou no corte - {erro}", flush=True)
 
-        for nome, _ in a_cortar:
-            if nome not in prontos:
+        for plano in a_cortar:
+            if plano.nome not in prontos:
                 continue
-            clipe = prontos[nome]
+            clipe = prontos[plano.nome]
             dados = catalogo.registrar_clipe(
-                dados, numero, nome,
+                dados, numero, plano.nome,
                 str(clipe.arquivo.relative_to(pasta_jogo)).replace("\\", "/"),
                 clipe.deslocamento, clipe.forca_db, clipe.tem_pico,
-                torcidas.get(nome, ""),
+                torcidas.get(plano.nome, ""),
+                duracao=clipe.duracao, largo=clipe.largo, parcial=clipe.parcial,
             )
+            marcas = []
+            if clipe.largo:
+                marcas.append("janela larga: apare no estudio")
+            if clipe.parcial:
+                marcas.append("PARCIAL")
+            recado = f"  [{', '.join(marcas)}]" if marcas else ""
             print(
-                f"gol {numero}: {nome} -> {clipe.arquivo.name}  "
-                f"(reacao {clipe.forca_db:+.1f} dB)",
+                f"gol {numero}: {plano.nome} -> {clipe.arquivo.name}  "
+                f"({clipe.duracao:.0f}s, reacao {clipe.forca_db:+.1f} dB){recado}",
                 flush=True,
             )
 

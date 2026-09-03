@@ -90,6 +90,7 @@ def test_etapa_cortar_usa_o_horario_manual_com_oito_antes_e_doze_depois(
         "segundos_depois": 12,
         "caminho_ffmpeg": "ffmpeg",
         "limiar_confianca_db": 6.0,
+        "margem_sem_alinhamento": 30,
     }
     chamadas = []
     monkeypatch.setattr(esteira.config, "carregar", lambda: cfg)
@@ -100,8 +101,10 @@ def test_etapa_cortar_usa_o_horario_manual_com_oito_antes_e_doze_depois(
     assert codigo == 0
     assert len(chamadas) == 2, "o corte, e depois a extracao de audio que mede a reacao"
     corte, audio = chamadas
-    assert "292.0" in corte, "20:05:00 menos 8 segundos"
-    assert "20.0" in corte
+    # Sem alinhamento confirmado o canal ganha 30s de margem de cada lado:
+    # 20:05:00 menos 8 de janela menos 30 de margem = 262s dentro do pedaco.
+    assert "262.0" in corte
+    assert "80.0" in corte, "20s de janela mais 60s de margem"
     assert "-vn" in audio, "a medicao so precisa do audio"
     dados = catalogo.carregar(tmp_path / jogo)
     # Com o ffmpeg de mentira nenhum wav e escrito, entao a medicao devolve zero -
@@ -351,9 +354,9 @@ def test_cortar_um_canal_apaga_a_juncao_que_criou(tmp_path: Path):
     ]
     rodados = []
 
+    plano = esteira.PlanoDoCanal("peixao", recortes, 120.0, False, False)
     clipe = esteira.cortar_um_canal(
-        "peixao", tmp_path, recortes, 1, destino, 120.0, CFG_CORTE,
-        executar=rodados.append,
+        plano, tmp_path, 1, destino, CFG_CORTE, executar=rodados.append,
     )
 
     assert clipe.canal == "peixao" and clipe.arquivo == destino / "peixao.mp4"
@@ -368,9 +371,11 @@ def test_cortar_um_canal_com_um_trecho_so_nao_junta_nada(tmp_path: Path):
     destino.mkdir()
     rodados = []
 
+    plano = esteira.PlanoDoCanal(
+        "peixao", [relogio.Trecho("a.ts", 42.0, 162.0)], 120.0, False, False
+    )
     clipe = esteira.cortar_um_canal(
-        "peixao", tmp_path, [relogio.Trecho("a.ts", 42.0, 162.0)], 1, destino,
-        120.0, CFG_CORTE, executar=rodados.append,
+        plano, tmp_path, 1, destino, CFG_CORTE, executar=rodados.append,
     )
 
     assert clipe.deslocamento == 42.0, "corta direto do pedaco, no ponto certo"
@@ -425,6 +430,7 @@ def test_cada_canal_corta_no_relogio_dele(tmp_path: Path, monkeypatch):
         "biblioteca": str(tmp_path), "segundos_antes": 10, "segundos_depois": 10,
         "caminho_ffmpeg": "ffmpeg", "caminho_ffprobe": "ffprobe",
         "limiar_confianca_db": 6.0, "cortes_em_paralelo": 1,
+        "margem_sem_alinhamento": 0,  # aqui o que se testa e o deslocamento
     }
     monkeypatch.setattr(esteira.config, "carregar", lambda: cfg)
     monkeypatch.setattr(esteira, "ancorar_t0", lambda sessao, pasta: sessao)
@@ -437,3 +443,156 @@ def test_cada_canal_corta_no_relogio_dele(tmp_path: Path, monkeypatch):
     cortes = [c for c in chamadas if "-c:v" in c]
     posicoes = sorted(float(c[c.index("-ss") + 1]) for c in cortes)
     assert posicoes == [590.0, 620.0], "o atrasado busca 30s adiante"
+
+
+CFG_JANELA = {
+    "segundos_antes": 60, "segundos_depois": 60,
+    "margem_sem_alinhamento": 60, "caminho_ffmpeg": "ffmpeg",
+    "limiar_confianca_db": 6.0,
+}
+
+
+def _sessao_cheia(t0=datetime(2026, 9, 2, 23, 0, 0), duracao=3600.0):
+    return [relogio.Sessao(t0=t0, pedacos=[relogio.Pedaco("a.ts", 0.0, duracao)])]
+
+
+def test_canal_sem_alinhamento_ganha_margem_dos_dois_lados():
+    """Nao se sabe onde a reacao esta nele: melhor sobrar video do que faltar.
+
+    Cortar o lance ao meio nao tem conserto; clipe longo demais o operador
+    apara no estudio.
+    """
+    plano = esteira.planejar_corte(
+        "novato", _sessao_cheia(), datetime(2026, 9, 2, 23, 12, 36), CFG_JANELA
+    )
+
+    assert plano.duracao == 240.0, "120 da janela mais 60 de margem de cada lado"
+    assert plano.largo and not plano.parcial
+
+
+def test_canal_ja_alinhado_corta_justo():
+    """A margem some sozinha conforme o alinhamento e confirmado pelos gols."""
+    plano = esteira.planejar_corte(
+        "conhecido", _sessao_cheia(), datetime(2026, 9, 2, 23, 12, 36),
+        CFG_JANELA, deslocamento=12.0,
+    )
+
+    assert plano.duracao == 120.0 and not plano.largo
+
+
+def test_o_deslocamento_move_a_janela_do_canal():
+    """Canal atrasado procura adiante; a duracao do clipe nao muda por isso."""
+    cedo = esteira.planejar_corte(
+        "c", _sessao_cheia(), datetime(2026, 9, 2, 23, 12, 36), CFG_JANELA,
+        deslocamento=0.0,
+    )
+    tarde = esteira.planejar_corte(
+        "c", _sessao_cheia(), datetime(2026, 9, 2, 23, 12, 36), CFG_JANELA,
+        deslocamento=30.0,
+    )
+
+    assert cedo.duracao == tarde.duracao
+    assert tarde.recortes[0].inicio - cedo.recortes[0].inicio == 30.0
+
+
+def test_cobertura_parcial_nao_e_mais_descartada():
+    """Metade do lance vale mais que nada: o operador decide no estudio."""
+    # gravacao que termina 30s depois do gol, cortando a janela ao meio
+    sessoes = [relogio.Sessao(
+        t0=datetime(2026, 9, 2, 23, 0, 0),
+        pedacos=[relogio.Pedaco("a.ts", 0.0, 786.0)],  # ate 23:13:06
+    )]
+
+    plano = esteira.planejar_corte(
+        "cortado", sessoes, datetime(2026, 9, 2, 23, 12, 36), CFG_JANELA
+    )
+
+    assert plano.parcial, "avisa que faltou pedaco"
+    assert plano.duracao > 0, "mas entrega o que existe"
+    assert plano.recortes, "ha material para cortar"
+
+
+def test_canal_sem_nada_na_janela_nao_tem_o_que_cortar():
+    """Aqui nao ha o que salvar: o trecho nem chegou a ser baixado."""
+    sessoes = [relogio.Sessao(
+        t0=datetime(2026, 9, 2, 21, 0, 0),
+        pedacos=[relogio.Pedaco("a.ts", 0.0, 600.0)],  # so ate 21:10
+    )]
+
+    plano = esteira.planejar_corte(
+        "atrasado", sessoes, datetime(2026, 9, 2, 23, 12, 36), CFG_JANELA
+    )
+
+    assert plano.duracao == 0.0 and plano.recortes == []
+
+
+def test_o_clipe_e_medido_pela_duracao_que_ele_tem(tmp_path: Path):
+    """Clipe largo medido pela janela curta perderia a reacao que esta no fim."""
+    pedidos = []
+    esteira.medir_reacao(tmp_path / "c.mp4", CFG_JANELA, pedidos.append, duracao=240.0)
+
+    comando = pedidos[0]
+    assert comando[comando.index("-t") + 1] == "240.0"
+
+
+def test_canal_com_pouquissimo_material_nao_vira_arquivo(tmp_path: Path, monkeypatch):
+    """Tres segundos de video nao ajudam ninguem; viram ruido na pasta."""
+    jogo = "2026-09-02 vitoria x vasco"
+    bruto = tmp_path / jogo / "bruto"
+    for nome, fim in (("inteiro", 3600.0), ("quase-nada", 700.0)):
+        pasta = bruto / nome
+        pasta.mkdir(parents=True)
+        (pasta / "gravacao.json").write_text(
+            json.dumps({"url": "u", "sessoes": [{"numero": 1, "t0": "2026-09-02T23:00:00"}]}),
+            encoding="utf-8",
+        )
+        (pasta / "s01-parte-000.ts").write_bytes(b"x")
+        (pasta / "s01-segmentos.csv").write_text(
+            f"s01-parte-000.ts,0.0,{fim}\n", encoding="utf-8"
+        )
+
+    cfg = {
+        "biblioteca": str(tmp_path), "segundos_antes": 60, "segundos_depois": 60,
+        "margem_sem_alinhamento": 0, "minimo_do_clipe": 15,
+        "caminho_ffmpeg": "ffmpeg", "caminho_ffprobe": "ffprobe",
+        "limiar_confianca_db": 6.0, "cortes_em_paralelo": 1,
+    }
+    monkeypatch.setattr(esteira.config, "carregar", lambda: cfg)
+    monkeypatch.setattr(esteira, "ancorar_t0", lambda sessao, pasta: sessao)
+    monkeypatch.setattr(esteira.cortador, "executar", lambda c: None)
+
+    esteira.etapa_cortar([jogo, "--gols", "23:12:36"])
+
+    dados = catalogo.carregar(tmp_path / jogo)
+    canais = {c["canal"] for c in dados["clipes"]}
+    assert canais == {"inteiro"}, "o de 4s de cobertura fica de fora"
+
+
+def test_o_catalogo_conta_que_o_clipe_saiu_largo(tmp_path: Path, monkeypatch):
+    """O estudio precisa avisar que aquele clipe pede aparo."""
+    jogo = "j"
+    bruto = tmp_path / jogo / "bruto" / "canal"
+    bruto.mkdir(parents=True)
+    (bruto / "gravacao.json").write_text(
+        json.dumps({"url": "u", "sessoes": [{"numero": 1, "t0": "2026-09-02T23:00:00"}]}),
+        encoding="utf-8",
+    )
+    (bruto / "s01-parte-000.ts").write_bytes(b"x")
+    (bruto / "s01-segmentos.csv").write_text(
+        "s01-parte-000.ts,0.0,3600.0\n", encoding="utf-8"
+    )
+    cfg = {
+        "biblioteca": str(tmp_path), "segundos_antes": 60, "segundos_depois": 60,
+        "margem_sem_alinhamento": 60, "caminho_ffmpeg": "ffmpeg",
+        "caminho_ffprobe": "ffprobe", "limiar_confianca_db": 6.0,
+        "cortes_em_paralelo": 1,
+    }
+    monkeypatch.setattr(esteira.config, "carregar", lambda: cfg)
+    monkeypatch.setattr(esteira, "ancorar_t0", lambda sessao, pasta: sessao)
+    monkeypatch.setattr(esteira.cortador, "executar", lambda c: None)
+
+    esteira.etapa_cortar([jogo, "--gols", "23:12:36"])
+
+    clipe = catalogo.carregar(tmp_path / jogo)["clipes"][0]
+    assert clipe["largo"] is True and clipe["duracao"] == 240.0
+    assert clipe["parcial"] is False

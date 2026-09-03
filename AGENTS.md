@@ -58,6 +58,19 @@ A divisão de trabalho é o coração dele:
 
 Uma cobre exatamente o buraco da outra. Não tente usar só uma.
 
+## Sobrar vídeo é barato; faltar não tem conserto
+
+As duas falhas do corte não custam a mesma coisa, e o sistema é assimétrico de propósito:
+
+- Canal **sem alinhamento confirmado** corta com `margem_sem_alinhamento` a mais de cada
+  lado. O clipe sai longo, o operador apara no editor dele.
+- Canal **com alinhamento confirmado** corta justo. A margem some sozinha conforme os gols
+  vão confirmando o atraso daquele canal — os clipes apertam sem ninguém mexer.
+- Cobertura **parcial** não é mais descartada: vem o que existe, marcado `parcial`. Metade
+  do lance vale mais que nada.
+- Só se desiste quando o material realmente não está no disco (`SEM MATERIAL`), e mesmo aí
+  o canal aparece na saída com a cobertura que tem. **Nunca sumir calado.**
+
 ## Quatro coisas medidas em jogo, não deduzidas
 
 **yt-dlp em dia é requisito, não higiene.** Com a versão de 04/08/2026, a gravação de

@@ -55,6 +55,8 @@
                font-weight: 800; padding: 2px 8px; border-radius: 999px;
                background: rgba(255,255,255,.14); }
     .forte { font-weight: 800; }
+    .duracao { font-size: 11px; color: #8b93a7; font-weight: 600; letter-spacing: .4px; }
+    .duracao.aparar { color: #ffb020; }
     button { border: 0; border-radius: 9px; padding: 10px 14px; font: inherit; font-weight: 800; cursor: pointer; transition: filter .15s, transform .15s; }
     button:hover { filter: brightness(1.12); }
     button:active { transform: translateY(1px); }
@@ -134,6 +136,13 @@
       const nome = elemento('div', 'nome', clipe.canal);
       if (clipe.torcida) nome.appendChild(elemento('span', 'torcida', ' ' + clipe.torcida));
       meta.appendChild(nome);
+      if (clipe.duracao) {
+        const etiqueta = elemento(
+          'span', 'duracao' + (clipe.largo ? ' aparar' : ''),
+          ` ${Math.round(clipe.duracao)}s`
+        );
+        nome.appendChild(etiqueta);
+      }
       const forca = Number(clipe.confianca_db) || 0;
       const sinal = elemento(
         'div',
@@ -143,11 +152,18 @@
       meta.appendChild(sinal);
       caixa.appendChild(meta);
 
-      caixa.appendChild(elemento(
-        'p',
-        'nota',
-        clipe.tem_pico ? '' : 'Reação fraca neste canal: o áudio quase não subiu.'
-      ));
+      const recados = [];
+      if (clipe.largo) recados.push(
+        'Janela larga: este canal ainda não tem alinhamento medido, então o clipe ' +
+        'veio com folga. A reação está aqui dentro — apare no seu editor.'
+      );
+      if (clipe.parcial) recados.push(
+        'Parcial: a gravação deste canal não cobria a janela inteira. Veio o que existia.'
+      );
+      if (!clipe.tem_pico && !recados.length) recados.push(
+        'Reação fraca neste canal: o áudio quase não subiu.'
+      );
+      caixa.appendChild(elemento('p', 'nota', recados.join(' ')));
 
       const acoes = elemento('div', 'acoes');
       const usar = elemento('button', 'sim', '✓ Usar');
