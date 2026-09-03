@@ -44,3 +44,17 @@ def test_montar_sem_escolhidos_avisa_em_vez_de_gerar_vazio(tmp_path: Path):
         assert "nenhum" in str(erro).lower()
     else:
         raise AssertionError("deveria ter recusado montar do nada")
+
+
+def test_todo_clipe_sai_no_mesmo_volume():
+    """Um canal berra e o outro mal se ouve: cortar de um para o outro doi."""
+    cmd = montador.comando_cartela(Path("c.mp4"), "Canal", Path("s.mp4"), "ffmpeg")
+
+    assert "-af" in cmd
+    assert "loudnorm" in cmd[cmd.index("-af") + 1]
+
+
+def test_audio_sai_sempre_na_mesma_taxa_para_o_concat_poder_copiar():
+    cmd = montador.comando_cartela(Path("c.mp4"), "Canal", Path("s.mp4"), "ffmpeg")
+
+    assert cmd[cmd.index("-ar") + 1] == "48000"

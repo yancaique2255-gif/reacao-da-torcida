@@ -107,3 +107,11 @@ def test_estado_traz_as_marcas_de_cada_jogo(tmp_path: Path):
     d = gravacao.estado(tmp_path, time.time())
 
     assert d["jogos"][0]["gols"] == [{"numero": 1, "horario": "21:55:00"}]
+
+
+def test_pagina_avisa_e_apita_quando_um_canal_cai():
+    """Canal caido tem que gritar: o painel fica aberto de canto de olho."""
+    html = gravacao.PAGINA.read_text(encoding="utf-8")
+    assert "apitar" in html and "AudioContext" in html
+    assert "pararam de gravar" in html
+    assert "document.title" in html, "o aviso tem que aparecer na aba tambem"

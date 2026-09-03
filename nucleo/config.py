@@ -16,6 +16,8 @@ PADROES = {
     "segundos_entre_conferencias": 20,
     # Vivo mas sem escrever por tanto tempo: derruba e religa.
     "segundos_sem_crescer": 90,
+    "max_tentativas": 60,       # nunca abandonar um canal no meio do jogo
+    "cortes_em_paralelo": 3,    # o corte recodifica; nao adianta passar dos nucleos
     "caminho_ytdlp": r"C:\yt-dlp\yt-dlp.exe",
     "caminho_ffmpeg": r"C:\yt-dlp\ffmpeg.exe",
     # Conferido na maquina: o ffprobe NAO mora junto do ffmpeg do C:\yt-dlp.

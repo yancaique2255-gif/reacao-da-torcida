@@ -85,6 +85,16 @@
     opacity: 0; transition: opacity .25s; pointer-events: none;
   }
   #recado.aparece { opacity: 1; }
+  #alarme {
+    display: none; align-items: center; gap: 14px; flex-wrap: wrap;
+    background: #3a1116; border: 1px solid #7d2630; color: #ffc9c9;
+    border-radius: 10px; padding: 13px 18px; margin-bottom: 18px;
+    font-weight: 600;
+  }
+  #alarme.aceso { display: flex; animation: pulsa 1.4s ease-in-out infinite; }
+  @keyframes pulsa { 50% { border-color: #ff5c5c; } }
+  #alarme button { background: #7d2630; padding: 6px 12px; font-size: 13px; }
+  #alarme .quem { font-weight: 400; color: #ff9b9b; }
 </style>
 </head>
 <body>
@@ -103,6 +113,12 @@
   </div>
 </div>
 
+<div id="alarme">
+  <span id="alarme-texto"></span>
+  <span class="quem" id="alarme-quem"></span>
+  <button type="button" id="calar">calar o som</button>
+</div>
+
 <div id="jogos"></div>
 <div id="recado"></div>
 
@@ -114,6 +130,57 @@ let ultimoEstado = null;
 
 campoAtraso.value = localStorage.getItem('atraso') || '0';
 campoAtraso.addEventListener('change', () => localStorage.setItem('atraso', campoAtraso.value));
+
+const alarme = document.getElementById('alarme');
+const botaoCalar = document.getElementById('calar');
+let vivosAntes = null;
+let comSom = true;
+botaoCalar.addEventListener('click', () => {
+  comSom = !comSom;
+  botaoCalar.textContent = comSom ? 'calar o som' : 'som desligado';
+});
+
+function apitar() {
+  if (!comSom) return;
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    [0, 0.42].forEach(atraso => {
+      const osc = ctx.createOscillator(), vol = ctx.createGain();
+      osc.type = 'square';
+      osc.frequency.value = 660;
+      vol.gain.setValueAtTime(0.0001, ctx.currentTime + atraso);
+      vol.gain.exponentialRampToValueAtTime(0.22, ctx.currentTime + atraso + 0.02);
+      vol.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + atraso + 0.3);
+      osc.connect(vol).connect(ctx.destination);
+      osc.start(ctx.currentTime + atraso);
+      osc.stop(ctx.currentTime + atraso + 0.32);
+    });
+    setTimeout(() => ctx.close(), 1400);
+  } catch (e) { /* som e um extra: nunca pode quebrar a pagina */ }
+}
+
+function vigiarQuedas(d) {
+  const agora = new Map();
+  d.jogos.forEach(j => j.canais.forEach(c => agora.set(j.jogo + '/' + c.canal, c.gravando)));
+
+  const caidos = [...agora].filter(([, vivo]) => !vivo).map(([chave]) => chave.split('/')[1]);
+  if (caidos.length) {
+    alarme.classList.add('aceso');
+    document.getElementById('alarme-texto').textContent =
+      caidos.length === 1 ? '1 canal parou de gravar' : `${caidos.length} canais pararam de gravar`;
+    document.getElementById('alarme-quem').textContent = caidos.join(' · ');
+    document.title = `(${caidos.length}) parou — Reação da Torcida`;
+  } else {
+    alarme.classList.remove('aceso');
+    document.title = 'Reação da Torcida — gravação';
+  }
+
+  if (vivosAntes) {
+    const novoscaidos = [...agora].some(([chave, vivo]) => !vivo && vivosAntes.get(chave) === true);
+    if (novoscaidos) apitar();
+  }
+  vivosAntes = agora;
+}
 
 function mb(v) { return v >= 1000 ? (v / 1000).toFixed(1) + ' GB' : Math.round(v) + ' MB'; }
 
@@ -163,6 +230,7 @@ async function atualizar() {
     return;
   }
   ultimoEstado = d;
+  vigiarQuedas(d);
   document.getElementById('r-gravando').textContent = d.gravando + ' / ' + d.total;
   document.getElementById('r-mb').textContent = mb(d.mb);
   document.getElementById('r-jogos').textContent = d.jogos.length;

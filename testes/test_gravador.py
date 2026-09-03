@@ -275,3 +275,104 @@ def test_sessao_que_gravou_de_verdade_zera_o_contador_de_quedas(tmp_path: Path):
 
     assert pr.tentativas == 1, "gravou muito antes de cair: recomeca a contagem"
     assert lista == [pr], "canal produtivo nao pode ser abandonado"
+
+
+class TarefaPronta:
+    def __init__(self, valor=None, erro=None):
+        self.valor, self.erro = valor, erro
+
+    def done(self):
+        return True
+
+    def result(self):
+        if self.erro:
+            raise self.erro
+        return self.valor
+
+
+class TarefasFalsas:
+    """Executa na hora, para o teste nao depender de thread nem de relogio."""
+
+    def __init__(self):
+        self.pedidos = []
+
+    def submit(self, funcao, *args):
+        self.pedidos.append(args)
+        try:
+            return TarefaPronta(valor=funcao(*args))
+        except Exception as erro:
+            return TarefaPronta(erro=erro)
+
+
+def test_live_encerrada_faz_o_supervisor_trocar_de_endereco(tmp_path: Path):
+    """Live encerrada nao volta na mesma URL: o canal abre outra."""
+    tarefas = TarefasFalsas()
+    pr = gravador.Processo(
+        canais.Canal("A", "u", True), "https://www.youtube.com/watch?v=VELHA",
+        tmp_path, 1, ProcessoFalso(vive_por=0),
+    )
+    abertos = []
+
+    gravador.supervisionar(
+        [pr], SUPERVISAO,
+        abrir=lambda c, p: abertos.append(c) or ProcessoFalso(vive_por=0),
+        dormir=lambda s: None, voltas=3, tarefas=tarefas,
+        procurar=lambda url, ytdlp, canal: (
+            "https://www.youtube.com/watch?v=NOVA", "https://youtube.com/@a"
+        ),
+    )
+
+    assert pr.url == "https://www.youtube.com/watch?v=NOVA"
+    assert pr.canal_url == "https://youtube.com/@a"
+    assert any("NOVA" in c for c in abertos), "a nova sessao ja usa o endereco novo"
+
+
+def test_a_primeira_queda_nao_manda_procurar_live_nova(tmp_path: Path):
+    """Queda solta e solucao de rede: religar na mesma URL resolve e e barato."""
+    tarefas = TarefasFalsas()
+    pr = gravador.Processo(
+        canais.Canal("A", "u", True), "https://x", tmp_path, 1, ProcessoFalso(vive_por=0)
+    )
+
+    gravador.supervisionar(
+        [pr], SUPERVISAO, abrir=lambda c, p: ProcessoFalso(),
+        dormir=lambda s: None, voltas=1, tarefas=tarefas,
+        procurar=lambda *a: ("", ""),
+    )
+
+    assert tarefas.pedidos == []
+
+
+def test_endereco_do_canal_ja_descoberto_e_reaproveitado(tmp_path: Path):
+    tarefas = TarefasFalsas()
+    pr = gravador.Processo(
+        canais.Canal("A", "u", True), "https://x", tmp_path, 1,
+        ProcessoFalso(vive_por=0), canal_url="https://youtube.com/@ja-sabia",
+    )
+
+    gravador.supervisionar(
+        [pr], SUPERVISAO, abrir=lambda c, p: ProcessoFalso(vive_por=0),
+        dormir=lambda s: None, voltas=3, tarefas=tarefas,
+        procurar=lambda *a: ("", ""),
+    )
+
+    assert all(pedido[2] == "https://youtube.com/@ja-sabia" for pedido in tarefas.pedidos)
+
+
+def test_busca_que_estoura_nao_derruba_a_gravacao(tmp_path: Path):
+    """Procurar e um luxo: falhar nele nao pode custar o jogo."""
+    tarefas = TarefasFalsas()
+    pr = gravador.Processo(
+        canais.Canal("A", "u", True), "https://x", tmp_path, 1, ProcessoFalso(vive_por=0)
+    )
+    lista = [pr]
+
+    def explode(*a):
+        raise RuntimeError("yt-dlp sumiu")
+
+    gravador.supervisionar(
+        lista, SUPERVISAO, abrir=lambda c, p: ProcessoFalso(vive_por=0),
+        dormir=lambda s: None, voltas=4, tarefas=tarefas, procurar=explode,
+    )
+
+    assert pr.url == "https://x" and lista == [pr]

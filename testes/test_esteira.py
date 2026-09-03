@@ -332,3 +332,41 @@ def test_biblioteca_vazia_avisa_e_nao_escolhe(tmp_path: Path):
     ditos = []
     assert esteira.escolher_jogo(tmp_path, ler=lambda _: "1", escrever=ditos.append) is None
     assert any("Nenhum jogo" in d for d in ditos)
+
+
+def test_cortar_um_canal_apaga_a_juncao_que_criou(tmp_path: Path):
+    """Sem isto sobra um .ts do tamanho da janela dentro da pasta do canal."""
+    (tmp_path / "a.ts").write_bytes(b"x")
+    (tmp_path / "b.ts").write_bytes(b"x")
+    destino = tmp_path / "clipes"
+    destino.mkdir()
+    recortes = [
+        relogio.Trecho("a.ts", 0.0, 30.0),
+        relogio.Trecho("b.ts", 0.0, 90.0),
+    ]
+    rodados = []
+
+    nome, saida, deslocamento = esteira.cortar_um_canal(
+        "peixao", tmp_path, recortes, 1, destino, 120.0,
+        {"caminho_ffmpeg": "ffmpeg"}, executar=rodados.append,
+    )
+
+    assert nome == "peixao" and saida == destino / "peixao.mp4"
+    assert deslocamento == 0.0, "com juncao, o corte comeca do zero do arquivo novo"
+    assert not (tmp_path / "janela-manual-01.ts").exists()
+    assert not (tmp_path / "janela-manual-01.txt").exists()
+
+
+def test_cortar_um_canal_com_um_trecho_so_nao_junta_nada(tmp_path: Path):
+    (tmp_path / "a.ts").write_bytes(b"x")
+    destino = tmp_path / "clipes"
+    destino.mkdir()
+    rodados = []
+
+    _, _, deslocamento = esteira.cortar_um_canal(
+        "peixao", tmp_path, [relogio.Trecho("a.ts", 42.0, 162.0)], 1, destino,
+        120.0, {"caminho_ffmpeg": "ffmpeg"}, executar=rodados.append,
+    )
+
+    assert deslocamento == 42.0, "corta direto do pedaco, no ponto certo"
+    assert len(rodados) == 1, "so o corte; nenhuma juncao"

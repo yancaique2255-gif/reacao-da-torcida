@@ -18,10 +18,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
+from concurrent.futures import ThreadPoolExecutor
+
 from nucleo import canais as mod_canais
+from nucleo import religador
 
 
 MAX_TENTATIVAS = 5  # padrao; cfg["max_tentativas"] manda
+QUEDAS_ATE_PROCURAR = 2  # a primeira queda pode ser solucao; a segunda, nao
 MINIMO_PRODUTIVO = 15  # segundos gravados que provam que a live continua de pe
 
 
@@ -34,6 +38,8 @@ class Processo:
     processo: object
     tentativas: int = 0
     inicio: float = field(default_factory=time.time)  # epoch do comeco da sessao
+    canal_url: str = ""   # descoberto na primeira busca e guardado: nunca muda
+    busca: object = None  # procura por live nova em andamento, fora do laco
 
 
 def apelido(nome: str) -> str:
@@ -153,6 +159,28 @@ def _matar(processo) -> None:
     processo.kill()
 
 
+def _colher_buscas(processos: list[Processo]) -> None:
+    """Aplica as procuras que ja terminaram, sem esperar por nenhuma.
+
+    Live encerrada nao volta na mesma URL: o canal abre outra. Trocar o
+    endereco e o que transforma um canal abandonado em canal de volta.
+    """
+    for pr in processos:
+        if pr.busca is None or not pr.busca.done():
+            continue
+        try:
+            nova, canal = pr.busca.result()
+        except Exception:  # procurar nunca pode derrubar a gravacao
+            nova, canal = "", ""
+        pr.busca = None
+        if canal:
+            pr.canal_url = canal
+        if nova:
+            print(f"{pr.canal.nome}: live nova encontrada - {nova}", flush=True)
+            pr.url = nova
+            pr.tentativas = 0
+
+
 def supervisionar(
     processos: list[Processo],
     cfg: dict,
@@ -160,6 +188,8 @@ def supervisionar(
     dormir: Callable[[float], None] = time.sleep,
     agora: Callable[[], datetime] = datetime.now,
     matar: Callable[[object], None] = _matar,
+    procurar: Callable[[str, str, str], tuple[str, str]] = religador.procurar_substituta,
+    tarefas=None,
     voltas: int | None = None,
 ) -> None:
     """Fica de olho nas gravacoes: quem cair volta em nova sessao.
@@ -170,10 +200,13 @@ def supervisionar(
 
     `voltas` existe para o teste rodar um numero finito de conferencias.
     """
+    proprias = tarefas is None
+    tarefas = tarefas or ThreadPoolExecutor(max_workers=4)
     feitas = 0
     while processos and (voltas is None or feitas < voltas):
         dormir(cfg["segundos_entre_conferencias"])
         feitas += 1
+        _colher_buscas(processos)
         limite = cfg.get("segundos_sem_crescer", 120)
         teto = cfg.get("max_tentativas", MAX_TENTATIVAS)
         for pr in list(processos):
@@ -195,8 +228,18 @@ def supervisionar(
                 processos.remove(pr)
                 continue
 
+            if pr.tentativas >= QUEDAS_ATE_PROCURAR and pr.busca is None:
+                # Fora do laco: procurar leva ate um minuto e meio, e nesse
+                # tempo os outros canais nao podem ficar sem quem os olhe.
+                pr.busca = tarefas.submit(
+                    procurar, pr.url, cfg["caminho_ytdlp"], pr.canal_url
+                )
+
             pr.sessao += 1
             pr.inicio = agora().timestamp()
             escrever_gravacao(pr.pasta, pr.url, pr.sessao, agora())
             pr.processo = abrir(comando(pr.url, pr.pasta, pr.sessao, cfg), pr.pasta)
             print(f"{pr.canal.nome}: caiu, religando na sessao {pr.sessao}", flush=True)
+
+    if proprias:
+        tarefas.shutdown(wait=False)

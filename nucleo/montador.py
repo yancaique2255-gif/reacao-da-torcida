@@ -6,6 +6,10 @@ from nucleo import cortador
 
 LARGURA, ALTURA, FPS = 1280, 720, 30
 SEGUNDOS_DE_CARTELA = 3
+# Cada canal grava com o volume que quer: um berra, o outro mal se ouve. Numa
+# compilacao que corta de um para o outro isso e insuportavel, entao todo
+# clipe passa pelo mesmo alvo de volume (a recomendacao de streaming, -16 LUFS).
+VOLUME_ALVO = "loudnorm=I=-16:TP=-1.5:LRA=11"
 
 
 def _escapar(texto: str) -> str:
@@ -33,6 +37,8 @@ def comando_cartela(
         str(clipe),
         "-vf",
         filtro,
+        "-af",
+        VOLUME_ALVO,
         "-c:v",
         "libx264",
         "-preset",

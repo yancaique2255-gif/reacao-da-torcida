@@ -1,6 +1,7 @@
 """As quatro etapas da esteira; os .bat sao cascas em volta daqui."""
 import argparse
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -207,6 +208,32 @@ def resolver_horario(
     return datetime.combine(data_padrao, hora)
 
 
+def cortar_um_canal(
+    nome: str, pasta_canal: Path, recortes, numero: int, destino: Path,
+    tamanho: float, cfg: dict, executar=None,
+) -> tuple[str, Path, float]:
+    """Recorta o clipe de um canal. Nao toca no catalogo: quem grava e o laco.
+
+    Separado justamente para poder rodar varios canais ao mesmo tempo - o
+    corte recodifica, e recodificar onze canais em fila e o passo mais lento
+    da esteira inteira.
+    """
+    executar = executar or cortador.executar
+    temporaria = pasta_canal / f"janela-manual-{numero:02d}.ts"
+    fonte, deslocamento = cortador.preparar_fonte(
+        recortes, pasta_canal, temporaria, cfg["caminho_ffmpeg"], executar
+    )
+    saida = destino / f"{nome}.mp4"
+    executar(
+        cortador.comando_corte(
+            fonte, deslocamento, tamanho, saida, cfg["caminho_ffmpeg"]
+        )
+    )
+    temporaria.unlink(missing_ok=True)  # a juncao, quando houve
+    temporaria.with_suffix(".txt").unlink(missing_ok=True)
+    return nome, saida, deslocamento
+
+
 def _gols_a_cortar(
     digitados, dados: dict, referencia, data_padrao
 ) -> list[tuple[int, datetime]]:
@@ -284,8 +311,8 @@ def etapa_cortar(argv=None) -> int:
         destino = pasta_jogo / "clipes" / f"gol-{numero:02d}"
         destino.mkdir(parents=True, exist_ok=True)
 
+        a_cortar = []
         for nome, sessoes in por_canal.items():
-            pasta_canal = pasta_bruto / nome
             recortes = relogio.trechos(sessoes, inicio, fim)
             duracao_coberta = sum(t.fim - t.inicio for t in recortes)
             if not recortes or duracao_coberta < tamanho - 0.05:
@@ -295,36 +322,41 @@ def etapa_cortar(argv=None) -> int:
                 ) or "nada"
                 print(
                     f"gol {numero}: {nome} nao cobre todo o corte em "
-                    f"{momento:%H:%M:%S} - gravado: {gravado}"
+                    f"{momento:%H:%M:%S} - gravado: {gravado}",
+                    flush=True,
                 )
                 continue
+            a_cortar.append((nome, recortes))
 
-            temporaria = pasta_canal / f"janela-manual-{numero:02d}.ts"
-            fonte, deslocamento = cortador.preparar_fonte(
-                recortes, pasta_canal, temporaria, cfg["caminho_ffmpeg"]
-            )
-            saida = destino / f"{nome}.mp4"
-            cortador.executar(
-                cortador.comando_corte(
-                    fonte,
-                    deslocamento,
-                    tamanho,
-                    saida,
-                    cfg["caminho_ffmpeg"],
-                )
-            )
+        # Em paralelo porque o corte recodifica: onze canais em fila deixavam o
+        # operador esperando o dobro do que a maquina precisa.
+        trabalhadores = max(1, min(cfg.get("cortes_em_paralelo", 3), len(a_cortar) or 1))
+        with ThreadPoolExecutor(max_workers=trabalhadores) as equipe:
+            futuros = {
+                equipe.submit(
+                    cortar_um_canal, nome, pasta_bruto / nome, recortes,
+                    numero, destino, tamanho, cfg,
+                ): nome
+                for nome, recortes in a_cortar
+            }
+            prontos = {}
+            for futuro in as_completed(futuros):
+                nome = futuros[futuro]
+                try:
+                    prontos[nome] = futuro.result()
+                except Exception as erro:
+                    print(f"gol {numero}: {nome} falhou no corte - {erro}", flush=True)
+
+        for nome, _ in a_cortar:
+            if nome not in prontos:
+                continue
+            _, saida, deslocamento = prontos[nome]
             dados = catalogo.registrar_clipe(
-                dados,
-                numero,
-                nome,
+                dados, numero, nome,
                 str(saida.relative_to(pasta_jogo)).replace("\\", "/"),
-                deslocamento,
-                0.0,
-                False,
+                deslocamento, 0.0, False,
             )
-            print(f"gol {numero}: {nome} -> {saida.name}  (CORTE MANUAL)")
-            temporaria.unlink(missing_ok=True)  # a juncao, quando houve
-            temporaria.with_suffix(".txt").unlink(missing_ok=True)
+            print(f"gol {numero}: {nome} -> {saida.name}", flush=True)
 
     catalogo.salvar(pasta_jogo, dados)
     return 0

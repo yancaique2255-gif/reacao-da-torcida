@@ -15,5 +15,6 @@
   "caminho_ffmpeg": "C:\\yt-dlp\\ffmpeg.exe",
   "caminho_ffprobe": "C:\\ffmpeg\\bin\\ffprobe.exe",
   "fonte_cartela": "C:\\Windows\\Fonts\\arialbd.ttf",
-  "max_tentativas": 60
+  "max_tentativas": 60,
+  "cortes_em_paralelo": 3
 }
