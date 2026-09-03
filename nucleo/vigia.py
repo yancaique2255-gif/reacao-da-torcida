@@ -21,6 +21,10 @@ from typing import Callable
 from nucleo import catalogo, cronometro, placar
 
 SEGUNDOS_ENTRE_CONSULTAS = 20  # educado: a API nao e nossa
+# Em jogo de mata-mata, o apito do tempo normal pode nao ser o fim: vem
+# prorrogacao ou penaltis, que sao o melhor material da noite. Sair na hora
+# perderia justamente isso.
+MINUTOS_DEPOIS_DO_APITO = 25
 
 
 def hora_do_lance(
@@ -86,6 +90,7 @@ def vigiar(
     anterior = None
     marcados = []
     feitas = 0
+    fim_visto_em = None
 
     while voltas is None or feitas < voltas:
         if feitas:
@@ -118,7 +123,16 @@ def vigiar(
         anterior = partida
 
         if partida.acabou:
-            avisar(f"fim de jogo: {partida}")
-            break
+            if fim_visto_em is None:
+                fim_visto_em = lido_em
+                avisar(
+                    f"fim do tempo normal: {partida} - seguindo de olho por "
+                    f"{MINUTOS_DEPOIS_DO_APITO} min, caso venha prorrogacao ou penaltis"
+                )
+            elif (lido_em - fim_visto_em).total_seconds() > MINUTOS_DEPOIS_DO_APITO * 60:
+                avisar(f"encerrado: {partida}")
+                break
+        else:
+            fim_visto_em = None  # voltou a rolar: prorrogacao
 
     return marcados

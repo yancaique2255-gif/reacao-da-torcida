@@ -58,3 +58,18 @@ def test_audio_sai_sempre_na_mesma_taxa_para_o_concat_poder_copiar():
     cmd = montador.comando_cartela(Path("c.mp4"), "Canal", Path("s.mp4"), "ffmpeg")
 
     assert cmd[cmd.index("-ar") + 1] == "48000"
+
+
+def test_a_montagem_nao_deixa_copia_no_disco(tmp_path: Path):
+    """Os intermediarios sao uma compilacao inteira: dobravam o espaco por montagem."""
+    clipe = tmp_path / "clipes" / "gol-01" / "canal.mp4"
+    clipe.parent.mkdir(parents=True)
+    clipe.write_bytes(b"x")
+
+    montador.montar(
+        [{"gol": 1, "canal": "canal", "arquivo": "clipes/gol-01/canal.mp4"}],
+        tmp_path, {"caminho_ffmpeg": "ffmpeg"}, executar=lambda c: None,
+    )
+
+    assert not (tmp_path / "temp-montagem").exists()
+    assert (tmp_path / "saida").is_dir(), "a pasta da compilacao continua la"

@@ -657,3 +657,63 @@ def test_adotado_herda_o_t0_verdadeiro_da_sessao(tmp_path: Path):
     )
 
     assert adotado.inicio_sessao == datetime(2026, 9, 2, 21, 30, 0).timestamp()
+
+
+def test_dois_canais_de_nome_parecido_nao_dividem_a_mesma_pasta():
+    """Sem isto os dois gravam por cima um do outro, calados, ate faltar material."""
+    pastas = gravador.apelidos_unicos(["Vasco TV", "Vasco-TV", "VASCO   TV"])
+
+    assert len(set(pastas.values())) == 3
+    assert pastas["Vasco TV"] == "vasco-tv"
+    assert pastas["Vasco-TV"] == "vasco-tv-2"
+
+
+def test_o_acento_nao_e_o_bastante_para_separar_dois_canais():
+    pastas = gravador.apelidos_unicos(["Canal do Léo", "Canal do Leo"])
+
+    assert pastas["Canal do Léo"] != pastas["Canal do Leo"]
+
+
+def test_o_apelido_nao_muda_de_um_jogo_para_o_outro():
+    """O sufixo sai da ordem do cadastro, que e estavel."""
+    uma_vez = gravador.apelidos_unicos(["A TV", "A-TV", "Outro"])
+    de_novo = gravador.apelidos_unicos(["A TV", "A-TV", "Outro"])
+
+    assert uma_vez == de_novo
+
+
+def test_nomes_diferentes_continuam_com_apelido_limpo():
+    pastas = gravador.apelidos_unicos(["Arena Rubro-Negra", "Complexo Vascaíno"])
+
+    assert set(pastas.values()) == {"arena-rubro-negra", "complexo-vascaino"}
+
+
+def test_iniciar_usa_o_apelido_sem_colisao(tmp_path: Path):
+    escolhidos = [
+        (canais.Canal("Vasco TV", "https://a", True), "https://a"),
+        (canais.Canal("Vasco-TV", "https://b", True), "https://b"),
+    ]
+
+    processos = gravador.iniciar(
+        escolhidos, tmp_path, "j", {**CFG, "disco_minimo_gb": 0},
+        abrir=lambda c, p: ProcessoFalso(),
+    )
+
+    pastas = {pr.pasta.name for pr in processos}
+    assert pastas == {"vasco-tv", "vasco-tv-2"}
+
+
+def test_o_comando_nao_cospe_linha_de_progresso():
+    """Numa noite de duas partidas deu 177 MB de log so de progresso."""
+    cmd = gravador.comando("https://x/1", Path("p"), 1, CFG)
+
+    assert "--no-progress" in cmd, "o yt-dlp repete o progresso varias vezes por segundo"
+    assert "-nostats" in cmd, "o ffmpeg tambem"
+
+
+def test_matar_derruba_a_arvore_e_nao_so_o_cmd():
+    """Popen.kill() no Windows mata o cmd.exe e deixa yt-dlp e ffmpeg vivos."""
+    import inspect
+
+    fonte = inspect.getsource(gravador._matar)
+    assert "derrubar_arvore" in fonte

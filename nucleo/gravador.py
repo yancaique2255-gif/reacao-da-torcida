@@ -49,8 +49,31 @@ def apelido(nome: str) -> str:
     return limpo.lower()
 
 
-def pasta_do_canal(biblioteca: Path, jogo: str, canal: mod_canais.Canal) -> Path:
-    return Path(biblioteca) / jogo / "bruto" / apelido(canal.nome)
+def apelidos_unicos(nomes: list[str]) -> dict[str, str]:
+    """Um apelido por nome, sem dois nomes caindo no mesmo.
+
+    "Vasco TV", "Vasco-TV" e "VASCO   TV" viram todos "vasco-tv" - e ai os dois
+    canais gravariam na MESMA pasta, escrevendo por cima um do outro, sem
+    ninguem perceber ate faltar material. Quem repete ganha sufixo, na ordem em
+    que foi cadastrado, para o apelido nao mudar de um jogo para o outro.
+    """
+    escolhidos: dict[str, str] = {}
+    usados: set[str] = set()
+    for nome in nomes:
+        base = apelido(nome)
+        candidato, numero = base, 1
+        while candidato in usados:
+            numero += 1
+            candidato = f"{base}-{numero}"
+        usados.add(candidato)
+        escolhidos[nome] = candidato
+    return escolhidos
+
+
+def pasta_do_canal(
+    biblioteca: Path, jogo: str, canal: mod_canais.Canal, nome_da_pasta: str = ""
+) -> Path:
+    return Path(biblioteca) / jogo / "bruto" / (nome_da_pasta or apelido(canal.nome))
 
 
 def comando(url: str, pasta: Path, sessao: int, cfg: dict) -> str:
@@ -62,11 +85,14 @@ def comando(url: str, pasta: Path, sessao: int, cfg: dict) -> str:
     saida = f"s{sessao:02d}-parte-%03d.ts"
     lista = f"s{sessao:02d}-segmentos.csv"
     return (
-        f'"{cfg["caminho_ytdlp"]}" --js-runtimes node --hls-use-mpegts'
+        # --no-progress e -nostats calam so a linha de progresso, que se repete
+        # varias vezes por segundo: numa noite de duas partidas deu 177 MB de
+        # log. Aviso e erro continuam saindo, que e o que serve para diagnostico.
+        f'"{cfg["caminho_ytdlp"]}" --js-runtimes node --hls-use-mpegts --no-progress'
         f' --retries infinite --fragment-retries infinite'
         f' --retry-sleep 2 --socket-timeout 20'
         f' -f "{formato}" --no-part -o - "{url}"'
-        f' | "{cfg["caminho_ffmpeg"]}" -y -i pipe: -c copy'
+        f' | "{cfg["caminho_ffmpeg"]}" -y -nostats -i pipe: -c copy'
         f' -f segment -segment_time {cfg["duracao_pedaco"]}'
         f" -segment_format mpegts -reset_timestamps 1"
         f' -segment_list "{lista}" -segment_list_type csv'
@@ -299,9 +325,10 @@ def iniciar(
     if ja_no_ar:
         print(f"({ja_no_ar} canal(is) de outro jogo ja estao no ar)", flush=True)
 
+    pastas = apelidos_unicos([canal.nome for canal, _ in escolhidos])
     processos = []
     for canal, url in escolhidos:
-        pasta = pasta_do_canal(biblioteca, jogo, canal)
+        pasta = pasta_do_canal(biblioteca, jogo, canal, pastas[canal.nome])
         pasta.mkdir(parents=True, exist_ok=True)
 
         adotado = adotar(canal, pasta, cfg, agora_epoch)
@@ -345,7 +372,24 @@ def travou(pr: Processo, limite: float, agora_epoch: float) -> bool:
 
 
 def _matar(processo) -> None:
-    processo.kill()
+    """Derruba a arvore, nao so o cmd que a abriu.
+
+    `Popen.kill()` no Windows mata apenas o cmd.exe; o yt-dlp e o ffmpeg
+    continuam vivos, orfaos. E nao ficam quietos: seguem baixando - comendo a
+    banda que e o gargalo do projeto - e seguem escrevendo nos .ts da sessao
+    abandonada, que ainda contam na cobertura. O supervisor entao ve aqueles
+    arquivos crescendo e da o canal como saudavel.
+
+    Medido na noite de 02/09/2026: onze canais deixaram 68 processos vivos no
+    fim do jogo, quando o certo seriam 22.
+    """
+    pid = getattr(processo, "pid", None)
+    if pid:
+        derrubar_arvore(pid)
+    try:
+        processo.kill()
+    except Exception:
+        pass
 
 
 VOLTAS_ENTRE_CONFERIR_DISCO = 30
@@ -446,6 +490,12 @@ def supervisionar(
                     "recomecando na ponta",
                     flush=True,
                 )
+                matar(pr.processo)
+
+            else:
+                # Morreu sozinho, mas o cmd morrer nao garante que os filhos
+                # morreram junto. Sem isto o processo velho continua baixando
+                # e escrevendo por cima da sessao que ficou para tras.
                 matar(pr.processo)
 
             if atrasado:

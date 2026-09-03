@@ -76,17 +76,70 @@ def test_gol_anulado_pelo_var_nao_apaga_nem_inverte(tmp_path: Path):
     assert marcados == [1], "o gol anulado ja tinha sido marcado; some no painel, na mao"
 
 
-def test_o_laco_para_sozinho_no_fim_do_jogo(tmp_path: Path):
-    respostas = iter([[_partida(0, 1)], [_partida(0, 1, "STATUS_FULL_TIME")]])
+def test_o_laco_nao_sai_no_apito_do_tempo_normal(tmp_path: Path):
+    """Em mata-mata pode vir prorrogacao ou penaltis - o melhor material da noite."""
+    acabado = _partida(0, 1, "STATUS_FULL_TIME")
     consultas = []
 
     vigia.vigiar(
-        "copa-do-brasil", "vitoria", "vasco", tmp_path, voltas=50,
-        buscar=lambda liga: consultas.append(1) or next(respostas),
+        "copa-do-brasil", "vitoria", "vasco", tmp_path, voltas=8,
+        buscar=lambda liga: consultas.append(1) or [acabado],
         agora=_relogio(), dormir=lambda s: None, avisar=lambda t: None,
     )
 
-    assert len(consultas) == 2, "parou no apito, sem gastar as 50 voltas"
+    assert len(consultas) == 8, "seguiu de olho depois do apito"
+
+
+def test_o_laco_encerra_quando_o_apito_ja_ficou_para_tras(tmp_path: Path):
+    acabado = _partida(0, 1, "STATUS_FULL_TIME")
+    consultas = []
+    # relogio que anda 10 minutos por consulta: passa dos 25 na terceira
+    inicio = datetime(2026, 9, 2, 23, 0, 0)
+    passos = iter(inicio + timedelta(minutes=10 * i) for i in range(20))
+
+    vigia.vigiar(
+        "copa-do-brasil", "vitoria", "vasco", tmp_path, voltas=50,
+        buscar=lambda liga: consultas.append(1) or [acabado],
+        agora=lambda: next(passos), dormir=lambda s: None, avisar=lambda t: None,
+    )
+
+    assert len(consultas) == 4, "esperou os 25 minutos e saiu"
+
+
+def test_gol_de_penalti_depois_do_apito_ainda_e_marcado(tmp_path: Path):
+    """E o caso que motivou a espera: a disputa acontece depois do FULL_TIME."""
+    respostas = iter([
+        [_partida(0, 1, "STATUS_FULL_TIME")],
+        [_partida(1, 1, "STATUS_FULL_TIME")],
+    ])
+
+    marcados = vigia.vigiar(
+        "copa-do-brasil", "vitoria", "vasco", tmp_path, voltas=2,
+        buscar=lambda liga: next(respostas), agora=_relogio(),
+        dormir=lambda s: None, avisar=lambda t: None,
+    )
+
+    assert marcados == [1]
+
+
+def test_prorrogacao_zera_a_contagem_do_apito(tmp_path: Path):
+    """Se voltou a rolar, os 25 minutos comecam de novo a partir do proximo apito."""
+    respostas = iter([
+        [_partida(0, 1, "STATUS_FULL_TIME")],
+        [_partida(0, 1, "STATUS_OVERTIME")],
+        [_partida(0, 1, "STATUS_FULL_TIME")],
+    ])
+    inicio = datetime(2026, 9, 2, 23, 0, 0)
+    passos = iter(inicio + timedelta(minutes=20 * i) for i in range(20))
+    consultas = []
+
+    vigia.vigiar(
+        "copa-do-brasil", "vitoria", "vasco", tmp_path, voltas=3,
+        buscar=lambda liga: consultas.append(1) or next(respostas),
+        agora=lambda: next(passos), dormir=lambda s: None, avisar=lambda t: None,
+    )
+
+    assert len(consultas) == 3, "os 20 min da primeira parada nao contaram"
 
 
 def test_rede_fora_nao_derruba_o_laco(tmp_path: Path):

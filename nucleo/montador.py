@@ -1,4 +1,5 @@
 """Junta os clipes escolhidos numa compilacao, com o nome do canal na tela."""
+import shutil
 from pathlib import Path
 from typing import Callable
 
@@ -108,4 +109,8 @@ def montar(
     lista = escrever_lista(intermediarios, temp / "lista.txt")
     saida = pasta_saida / "compilacao.mp4"
     executar(comando_concat(lista, saida, cfg["caminho_ffmpeg"]))
+
+    # Os intermediarios sao uma copia inteira da compilacao: deixa-los no disco
+    # dobrava o espaco a cada montagem, e eles nao servem para mais nada.
+    shutil.rmtree(temp, ignore_errors=True)
     return saida
