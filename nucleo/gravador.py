@@ -21,7 +21,7 @@ from typing import Callable
 from concurrent.futures import ThreadPoolExecutor
 
 from nucleo import canais as mod_canais
-from nucleo import religador
+from nucleo import cortador, religador
 
 
 MAX_TENTATIVAS = 5  # padrao; cfg["max_tentativas"] manda
@@ -38,6 +38,7 @@ class Processo:
     processo: object
     tentativas: int = 0
     inicio: float = field(default_factory=time.time)  # epoch do comeco da sessao
+    inicio_sessao: float = field(default_factory=time.time)  # t0 real da sessao
     canal_url: str = ""   # descoberto na primeira busca e guardado: nunca muda
     busca: object = None  # procura por live nova em andamento, fora do laco
 
@@ -182,6 +183,58 @@ def ultima_sessao(pasta: Path) -> tuple[int, str, int | None]:
     return ultima["numero"], dados.get("url", ""), ultima.get("pid")
 
 
+def conteudo_da_sessao(pasta: Path, sessao: int, ffprobe: str) -> float:
+    """Quantos segundos de video a sessao ja tem no disco.
+
+    O CSV so ganha linha quando um pedaco fecha, entao o pedaco aberto - que
+    pode ter varios minutos - precisa ser medido a parte.
+    """
+    pasta = Path(pasta)
+    prefixo = f"s{sessao:02d}"
+    csv = pasta / f"{prefixo}-segmentos.csv"
+    fechados, nomes = 0.0, set()
+    if csv.is_file():
+        for linha in csv.read_text(encoding="utf-8").splitlines():
+            partes = linha.split(",")
+            if len(partes) >= 3:
+                nomes.add(partes[0])
+                try:
+                    fechados = float(partes[2])
+                except ValueError:
+                    pass
+    abertos = sum(
+        cortador.duracao(a, ffprobe)
+        for a in pasta.glob(f"{prefixo}-parte-*.ts")
+        if a.name not in nomes
+    )
+    return fechados + abertos
+
+
+def atraso_do_ao_vivo(pr: Processo, cfg: dict, agora: float) -> float:
+    """Quanto o canal esta atras do ao vivo, em segundos.
+
+    O ffmpeg pode entrar na playlist bem atras da ponta e baixar mais devagar
+    do que o jogo acontece. O canal escreve bytes o tempo todo - entao passa
+    por saudavel em qualquer teste de crescimento - e mesmo assim, quando sai
+    o gol, o trecho simplesmente ainda nao existe no disco.
+
+    Medido em jogo: tres canais de seis chegaram a trinta minutos de conteudo
+    depois de noventa minutos gravando.
+    """
+    passado = agora - pr.inicio_sessao
+    if passado <= 0:
+        return 0.0
+    return passado - conteudo_da_sessao(pr.pasta, pr.sessao, cfg["caminho_ffprobe"])
+
+
+def ficou_para_tras(pr: Processo, cfg: dict, agora: float) -> bool:
+    """So julga depois de a sessao ter idade suficiente para o arranque passar."""
+    carencia = cfg.get("carencia_do_arranque", 120)
+    if agora - pr.inicio_sessao < carencia:
+        return False
+    return atraso_do_ao_vivo(pr, cfg, agora) > cfg.get("atraso_maximo", 300)
+
+
 def esta_gravando(pasta: Path, agora: float, limite: float) -> bool:
     """Pasta que recebeu byte novo ha pouco esta sendo gravada por alguem."""
     ultimo = _ultimo_crescimento(pasta)
@@ -205,7 +258,22 @@ def adotar(
     return Processo(
         canal=canal, url=url or canal.url, pasta=Path(pasta), sessao=sessao,
         processo=Adotado(pid), inicio=agora,
+        inicio_sessao=_t0_da_sessao(pasta, agora),
     )
+
+
+def _t0_da_sessao(pasta: Path, padrao: float) -> float:
+    """Epoch do comeco da sessao que esta rodando, para medir o atraso direito."""
+    arquivo = Path(pasta) / "gravacao.json"
+    if not arquivo.is_file():
+        return padrao
+    sessoes = json.loads(arquivo.read_text(encoding="utf-8")).get("sessoes") or []
+    if not sessoes:
+        return padrao
+    try:
+        return datetime.fromisoformat(sessoes[-1]["t0"]).timestamp()
+    except (KeyError, ValueError):
+        return padrao
 
 
 def _abrir(comando_shell: str, pasta: Path):
@@ -252,7 +320,11 @@ def iniciar(
             pasta, url, sessao, datetime.now(), getattr(processo, "pid", None),
             canal.torcida,
         )
-        processos.append(Processo(canal, url, pasta, sessao, processo))
+        agora_novo = time.time()
+        processos.append(
+            Processo(canal, url, pasta, sessao, processo,
+                     inicio=agora_novo, inicio_sessao=agora_novo)
+        )
     return processos
 
 
@@ -277,6 +349,7 @@ def _matar(processo) -> None:
 
 
 VOLTAS_ENTRE_CONFERIR_DISCO = 30
+VOLTAS_ENTRE_MEDIR_ATRASO = 6  # medir custa um ffprobe por canal; nao e de graca
 
 
 def conferir_disco(processos: list[Processo], cfg: dict, avisar=print) -> bool:
@@ -350,20 +423,42 @@ def supervisionar(
             conferir_disco(processos, cfg, lambda t: print(t, flush=True))
         limite = cfg.get("segundos_sem_crescer", 120)
         teto = cfg.get("max_tentativas", MAX_TENTATIVAS)
+        confere_atraso = feitas % VOLTAS_ENTRE_MEDIR_ATRASO == 1
         for pr in list(processos):
+            agora_epoch = agora().timestamp()
             vivo = pr.processo.poll() is None
-            emperrado = vivo and travou(pr, limite, agora().timestamp())
-            if vivo and not emperrado:
+            emperrado = vivo and travou(pr, limite, agora_epoch)
+            atrasado = (
+                vivo and not emperrado and confere_atraso
+                and ficou_para_tras(pr, cfg, agora_epoch)
+            )
+            if vivo and not emperrado and not atrasado:
                 continue
             if emperrado:
                 print(f"{pr.canal.nome}: parou de gravar sem morrer - derrubando", flush=True)
                 matar(pr.processo)
+            elif atrasado:
+                # Recomecar e o unico jeito de voltar para a ponta: o yt-dlp
+                # entra no ao vivo, e o que ja foi gravado continua no disco.
+                atras = atraso_do_ao_vivo(pr, cfg, agora_epoch)
+                print(
+                    f"{pr.canal.nome}: {atras / 60:.0f} min atras do ao vivo - "
+                    "recomecando na ponta",
+                    flush=True,
+                )
+                matar(pr.processo)
 
-            # Sessao que chegou a gravar de verdade nao conta como queda: o que
-            # o contador procura e a live encerrada, que morre na hora toda vez.
-            if _ultimo_crescimento(pr.pasta) - pr.inicio > MINIMO_PRODUTIVO:
+            if atrasado:
+                # Correcao de rumo nao e queda: o canal esta vivo e saudavel,
+                # so estava longe da ponta. Gastar tentativa por isso acabaria
+                # abandonando justamente quem a rede castiga.
                 pr.tentativas = 0
-            pr.tentativas += 1
+            else:
+                # Sessao que chegou a gravar de verdade tambem nao conta: o que
+                # o contador procura e a live encerrada, que morre toda vez.
+                if _ultimo_crescimento(pr.pasta) - pr.inicio > MINIMO_PRODUTIVO:
+                    pr.tentativas = 0
+                pr.tentativas += 1
             if pr.tentativas > teto:
                 print(f"{pr.canal.nome}: caiu {teto}x seguidas - desistindo", flush=True)
                 processos.remove(pr)
@@ -377,7 +472,7 @@ def supervisionar(
                 )
 
             pr.sessao += 1
-            pr.inicio = agora().timestamp()
+            pr.inicio = pr.inicio_sessao = agora().timestamp()
             pr.processo = abrir(comando(pr.url, pr.pasta, pr.sessao, cfg), pr.pasta)
             escrever_gravacao(
                 pr.pasta, pr.url, pr.sessao, agora(),

@@ -17,6 +17,11 @@ PADROES = {
     # Vivo mas sem escrever por tanto tempo: derruba e religa.
     "segundos_sem_crescer": 90,
     "max_tentativas": 60,       # nunca abandonar um canal no meio do jogo
+    # Canal que baixa mais devagar que o jogo escreve bytes o tempo todo e
+    # mesmo assim nao tem o gol no disco. Medido em jogo: saudavel fica em 0,2
+    # min de atraso; o quebrado, em 60. Cinco minutos separa os dois com folga.
+    "atraso_maximo": 300,
+    "carencia_do_arranque": 120,
     "cortes_em_paralelo": 3,    # o corte recodifica; nao adianta passar dos nucleos
     "caminho_ytdlp": r"C:\yt-dlp\yt-dlp.exe",
     "caminho_ffmpeg": r"C:\yt-dlp\ffmpeg.exe",

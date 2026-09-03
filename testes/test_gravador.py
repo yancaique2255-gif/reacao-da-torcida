@@ -554,3 +554,106 @@ def test_disco_folgado_nao_reclama(tmp_path: Path, monkeypatch):
 
 def test_conferir_disco_sem_canal_nenhum_nao_estoura():
     assert gravador.conferir_disco([], {"disco_minimo_gb": 60}, lambda t: None)
+
+
+CFG_ATRASO = {
+    **CFG, "caminho_ffprobe": "ffprobe", "atraso_maximo": 300,
+    "carencia_do_arranque": 120, "segundos_entre_conferencias": 0,
+    "segundos_sem_crescer": 45, "disco_minimo_gb": 0,
+}
+
+
+def _sessao_no_disco(pasta: Path, sessao: int, fechados: list[tuple[str, float]]) -> None:
+    pasta.mkdir(parents=True, exist_ok=True)
+    prefixo = f"s{sessao:02d}"
+    linhas = [f"{nome},{i * 300.0},{fim}" for i, (nome, fim) in enumerate(fechados)]
+    (pasta / f"{prefixo}-segmentos.csv").write_text("\n".join(linhas) + "\n", encoding="utf-8")
+    for nome, _ in fechados:
+        (pasta / nome).write_bytes(b"x")
+
+
+def test_conteudo_soma_o_csv_com_o_pedaco_ainda_aberto(tmp_path: Path, monkeypatch):
+    """O CSV so ganha linha quando o pedaco fecha; o aberto tem minutos dentro."""
+    _sessao_no_disco(tmp_path, 1, [("s01-parte-000.ts", 300.0), ("s01-parte-001.ts", 600.0)])
+    (tmp_path / "s01-parte-002.ts").write_bytes(b"x")  # aberto, fora do CSV
+    monkeypatch.setattr(gravador.cortador, "duracao", lambda a, f: 137.0)
+
+    assert gravador.conteudo_da_sessao(tmp_path, 1, "ffprobe") == 737.0
+
+
+def test_sessao_sem_nada_no_disco_tem_conteudo_zero(tmp_path: Path):
+    assert gravador.conteudo_da_sessao(tmp_path, 1, "ffprobe") == 0.0
+
+
+def test_canal_que_baixa_mais_devagar_que_o_jogo_e_pego(tmp_path: Path, monkeypatch):
+    """Escreve bytes o tempo todo, passa por saudavel - e nao tem o gol no disco."""
+    _sessao_no_disco(tmp_path, 1, [("s01-parte-000.ts", 1800.0)])
+    monkeypatch.setattr(gravador.cortador, "duracao", lambda a, f: 0.0)
+    agora = time.time()
+    pr = gravador.Processo(
+        canais.Canal("A", "u", True), "u", tmp_path, 1, ProcessoFalso(),
+        inicio_sessao=agora - 5400,  # noventa minutos gravando
+    )
+
+    assert round(gravador.atraso_do_ao_vivo(pr, CFG_ATRASO, agora)) == 3600
+    assert gravador.ficou_para_tras(pr, CFG_ATRASO, agora)
+
+
+def test_canal_no_ritmo_do_jogo_nao_e_acusado(tmp_path: Path, monkeypatch):
+    _sessao_no_disco(tmp_path, 1, [("s01-parte-000.ts", 5400.0)])
+    monkeypatch.setattr(gravador.cortador, "duracao", lambda a, f: 0.0)
+    agora = time.time()
+    pr = gravador.Processo(
+        canais.Canal("A", "u", True), "u", tmp_path, 1, ProcessoFalso(),
+        inicio_sessao=agora - 5460,  # 60s de atraso: o normal do HLS
+    )
+
+    assert not gravador.ficou_para_tras(pr, CFG_ATRASO, agora)
+
+
+def test_sessao_recem_aberta_tem_carencia_para_o_arranque(tmp_path: Path, monkeypatch):
+    """No comeco o yt-dlp ainda negocia: acusar ai derrubaria todo canal saudavel."""
+    monkeypatch.setattr(gravador.cortador, "duracao", lambda a, f: 0.0)
+    agora = time.time()
+    pr = gravador.Processo(
+        canais.Canal("A", "u", True), "u", tmp_path, 1, ProcessoFalso(),
+        inicio_sessao=agora - 30,
+    )
+
+    assert not gravador.ficou_para_tras(pr, CFG_ATRASO, agora)
+
+
+def test_supervisor_recomeca_o_canal_que_ficou_para_tras(tmp_path: Path, monkeypatch):
+    _sessao_no_disco(tmp_path, 1, [("s01-parte-000.ts", 600.0)])
+    monkeypatch.setattr(gravador.cortador, "duracao", lambda a, f: 0.0)
+    travado = ProcessoEmperrado()
+    pr = gravador.Processo(
+        canais.Canal("A", "u", True), "u", tmp_path, 1, travado,
+        inicio=time.time(), inicio_sessao=time.time() - 5400, tentativas=3,
+    )
+    abertos = []
+
+    gravador.supervisionar(
+        [pr], CFG_ATRASO,
+        abrir=lambda c, p: abertos.append(c) or ProcessoFalso(),
+        dormir=lambda s: None, voltas=1, tarefas=TarefasFalsas(),
+        procurar=lambda *a: ("", ""),
+    )
+
+    assert travado.morto, "so recomecando da para voltar a ponta do ao vivo"
+    assert pr.sessao == 2 and len(abertos) == 1
+    assert pr.tentativas == 0, "corrigir o rumo nao e queda: nao gasta tentativa"
+
+
+def test_adotado_herda_o_t0_verdadeiro_da_sessao(tmp_path: Path):
+    """Sem isso, o atraso de um canal adotado seria medido a partir da adocao."""
+    pasta = _pasta_gravando(tmp_path, "peixao", sessao=1, pid=1, idade=2)
+    dados = json.loads((pasta / "gravacao.json").read_text(encoding="utf-8"))
+    dados["sessoes"][0]["t0"] = datetime(2026, 9, 2, 21, 30, 0).isoformat()
+    (pasta / "gravacao.json").write_text(json.dumps(dados), encoding="utf-8")
+
+    adotado = gravador.adotar(
+        canais.Canal("P", "u", True), pasta, {"segundos_sem_crescer": 45}, time.time()
+    )
+
+    assert adotado.inicio_sessao == datetime(2026, 9, 2, 21, 30, 0).timestamp()
