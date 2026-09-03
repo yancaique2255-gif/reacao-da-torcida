@@ -1,25 +1,54 @@
 """Fica de olho no placar e marca o gol sozinho quando ele sai.
 
-Divisao de trabalho, e ela e o ponto todo deste modulo:
+O que a ESPN entrega, e o que ela nao entrega:
 
-  a ESPN sabe QUE houve gol - placar oficial, sem falso positivo
-  o audio sabe QUANDO cada canal reagiu - o consenso de picos
+  ela sabe QUE houve gol, e EM QUE SEGUNDO DE JOGO ele saiu
+  ela nao sabe em que instante aquilo aparece em cada live
 
-Uma cobre exatamente o buraco da outra. A ESPN tem atraso proprio e variavel,
-entao ela nunca serve de relogio: o horario que ela dispara e so um ponto de
-partida, e quem o corrige e o alinhamento.
+A hora em que a consulta percebeu a mudanca nao serve de nada - chega com o
+intervalo entre consultas somado ao atraso da propria ESPN. Mas "aos 4810
+segundos de jogo" e um fato do jogo, e nao da consulta: sabendo em que minuto
+o jogo estava quando se leu, volta-se ao instante em que a bola entrou.
+
+De ali para dentro de cada live, quem leva e o deslocamento do canal - medido
+pelo cronometro na tela (`nucleo/cronometro.py`) ou pelo consenso de audio.
 """
 import time
 from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
-from nucleo import catalogo, placar
+from nucleo import catalogo, cronometro, placar
 
 SEGUNDOS_ENTRE_CONSULTAS = 20  # educado: a API nao e nossa
 
 
-def marcar_gol(pasta_jogo: Path, momento: datetime, origem: str = "espn") -> int:
+def hora_do_lance(
+    partida: placar.Partida, lance: dict, lido_em: datetime
+) -> tuple[datetime, float | None]:
+    """Traduz o minuto do gol em hora de relogio, e diz qual minuto era.
+
+    A consulta so percebe o gol depois - vinte segundos de intervalo, mais o
+    atraso da propria ESPN. Mas "aos 4810 segundos de jogo" e um fato do jogo,
+    nao da consulta: sabendo em que minuto o jogo estava quando se leu, da para
+    voltar ao instante exato em que a bola entrou.
+    """
+    do_gol = lance.get("segundo_de_jogo")
+    agora_no_jogo = partida.segundo_de_jogo
+    if do_gol is None or agora_no_jogo is None:
+        return lido_em, do_gol
+    if not cronometro.mesma_metade(do_gol, agora_no_jogo):
+        # Gol do primeiro tempo percebido no segundo: o intervalo entraria na
+        # conta como se fosse jogo. Melhor a hora da leitura do que uma errada.
+        return lido_em, do_gol
+    ancora = cronometro.ancora_da_espn(lido_em, agora_no_jogo)
+    return cronometro.momento_do_minuto(ancora, do_gol), do_gol
+
+
+def marcar_gol(
+    pasta_jogo: Path, momento: datetime, origem: str = "espn",
+    minuto_do_jogo: float | None = None,
+) -> int:
     """Anota o gol no catalogo e devolve o numero dele."""
     dados = catalogo.carregar(pasta_jogo)
     numero = catalogo.proximo_numero(dados)
@@ -29,7 +58,10 @@ def marcar_gol(pasta_jogo: Path, momento: datetime, origem: str = "espn") -> int
     for gol in dados["gols"]:
         if gol["numero"] == numero:
             gol["origem"] = origem
-            gol["confirmado"] = False  # so o alinhamento acha o instante certo
+            gol["minuto_do_jogo"] = minuto_do_jogo
+            # Com o minuto do jogo a hora ja nasce boa; sem ele, e a hora em
+            # que a consulta percebeu, e quem acerta o instante e o audio.
+            gol["confirmado"] = minuto_do_jogo is not None
     catalogo.salvar(pasta_jogo, dados)
     return numero
 
@@ -45,6 +77,7 @@ def vigiar(
     dormir: Callable[[float], None] = time.sleep,
     avisar: Callable[[str], None] = print,
     intervalo: float = SEGUNDOS_ENTRE_CONSULTAS,
+    ao_marcar: Callable[[int, datetime], None] | None = None,
 ) -> list[int]:
     """Consulta o placar ate o jogo acabar. Devolve os numeros dos gols marcados.
 
@@ -64,11 +97,21 @@ def vigiar(
             # Jogo ainda nao no ar, ou nome que nao bate: nao e erro, e espera.
             continue
 
-        novos = placar.gols_novos(anterior, partida)
-        for _ in range(novos):
-            numero = marcar_gol(pasta_jogo, agora())
+        lido_em = agora()
+        for lance in placar.lances_novos(anterior, partida):
+            momento, minuto = hora_do_lance(partida, lance, lido_em)
+            numero = marcar_gol(pasta_jogo, momento, "espn", minuto)
             marcados.append(numero)
-            avisar(f"GOL detectado pelo placar: {partida} - anotado como #{numero}")
+            quem = lance.get("quem") or ""
+            de_quando = (
+                f"aos {lance['minuto']}" if lance.get("minuto") else "sem minuto"
+            )
+            avisar(
+                f"GOL pelo placar: {partida} ({de_quando}{', ' + quem if quem else ''})"
+                f" - anotado como #{numero} as {momento:%H:%M:%S}"
+            )
+            if ao_marcar is not None:
+                ao_marcar(numero, momento)
 
         if anterior is None:
             avisar(f"acompanhando {partida} ({partida.estado})")

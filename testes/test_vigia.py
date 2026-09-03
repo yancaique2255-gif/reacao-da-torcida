@@ -139,3 +139,96 @@ def test_nao_dorme_antes_da_primeira_consulta(tmp_path: Path):
     )
 
     assert dormidas == []
+
+
+def _com_lances(gc, gf, segundo_agora, lances, estado="STATUS_SECOND_HALF"):
+    return placar.Partida(
+        "1", "Vitória", "Vasco da Gama", gc, gf, estado,
+        segundo_de_jogo=segundo_agora, lances=lances,
+    )
+
+
+def test_o_gol_e_marcado_no_minuto_do_jogo_e_nao_na_hora_da_consulta():
+    """Numeros reais de 02/09/2026: gol aos 4810s, percebido com o jogo em 4900s."""
+    partida = _com_lances(0, 1, 4900.0, [{"segundo_de_jogo": 4810.0}])
+    lido = datetime(2026, 9, 2, 23, 14, 6)
+
+    momento, minuto = vigia.hora_do_lance(partida, partida.lances[0], lido)
+
+    # 90 segundos de jogo separam o gol da leitura, entao a bola entrou 90s antes
+    assert momento == datetime(2026, 9, 2, 23, 12, 36)
+    assert minuto == 4810.0
+
+
+def test_gol_sem_minuto_fica_na_hora_da_consulta():
+    """A ESPN as vezes muda o placar antes de listar o lance."""
+    partida = _com_lances(0, 1, 4900.0, [])
+    lido = datetime(2026, 9, 2, 23, 14, 6)
+
+    momento, minuto = vigia.hora_do_lance(partida, {}, lido)
+
+    assert momento == lido and minuto is None
+
+
+def test_gol_de_outra_metade_nao_atravessa_o_intervalo():
+    """Gol do primeiro tempo so percebido no segundo: os quinze minutos de
+    descanso entrariam na conta como se fossem jogo."""
+    partida = _com_lances(0, 1, 3000.0, [{"segundo_de_jogo": 2000.0}])
+    lido = datetime(2026, 9, 2, 23, 0, 0)
+
+    momento, minuto = vigia.hora_do_lance(partida, partida.lances[0], lido)
+
+    assert momento == lido, "melhor a hora da leitura do que uma hora errada"
+    assert minuto == 2000.0
+
+
+def test_o_gol_marcado_pelo_minuto_ja_nasce_confirmado(tmp_path: Path):
+    respostas = iter([
+        [_com_lances(0, 0, 4700.0, [])],
+        [_com_lances(0, 1, 4900.0, [{"segundo_de_jogo": 4810.0, "minuto": "81'"}])],
+    ])
+
+    vigia.vigiar(
+        "copa-do-brasil", "vitoria", "vasco", tmp_path, voltas=2,
+        buscar=lambda liga: next(respostas),
+        agora=_relogio(datetime(2026, 9, 2, 23, 14, 6)),
+        dormir=lambda s: None, avisar=lambda t: None,
+    )
+
+    gol = catalogo.carregar(tmp_path)["gols"][0]
+    assert gol["confirmado"] is True
+    assert gol["minuto_do_jogo"] == 4810.0
+    assert gol["horario"].endswith("23:12:56"), "a leitura foi 20s depois do primeiro tick"
+
+
+def test_o_gol_sem_minuto_nasce_por_confirmar(tmp_path: Path):
+    respostas = iter([
+        [_com_lances(0, 0, 4700.0, [])],
+        [_com_lances(0, 1, 4900.0, [])],
+    ])
+
+    vigia.vigiar(
+        "copa-do-brasil", "vitoria", "vasco", tmp_path, voltas=2,
+        buscar=lambda liga: next(respostas), agora=_relogio(),
+        dormir=lambda s: None, avisar=lambda t: None,
+    )
+
+    assert catalogo.carregar(tmp_path)["gols"][0]["confirmado"] is False
+
+
+def test_quem_quiser_pode_ser_avisado_de_cada_gol(tmp_path: Path):
+    """E o gancho do corte automatico: o gol sai, o corte roda."""
+    respostas = iter([
+        [_com_lances(0, 0, 4700.0, [])],
+        [_com_lances(0, 1, 4900.0, [{"segundo_de_jogo": 4810.0}])],
+    ])
+    recados = []
+
+    vigia.vigiar(
+        "copa-do-brasil", "vitoria", "vasco", tmp_path, voltas=2,
+        buscar=lambda liga: next(respostas), agora=_relogio(),
+        dormir=lambda s: None, avisar=lambda t: None,
+        ao_marcar=lambda numero, momento: recados.append((numero, momento)),
+    )
+
+    assert len(recados) == 1 and recados[0][0] == 1
