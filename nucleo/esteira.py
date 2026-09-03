@@ -9,7 +9,7 @@ from pathlib import Path
 
 from nucleo import canais as mod_canais
 from nucleo import alinhamento, catalogo, config, cortador, detector, gravador
-from nucleo import importar, relogio
+from nucleo import importar, relogio, vigia
 
 
 def listar_jogos(biblioteca: Path) -> list[str]:
@@ -115,6 +115,10 @@ def etapa_gravar(argv=None) -> int:
     p.add_argument("time")
     p.add_argument("mandante")
     p.add_argument("visitante")
+    p.add_argument(
+        "--liga", default="",
+        help="acompanha o placar e marca os gols sozinho, ex: copa-do-brasil",
+    )
     args = p.parse_args(argv)
     cfg = config.carregar()
 
@@ -134,6 +138,20 @@ def etapa_gravar(argv=None) -> int:
     (pasta_jogo / "supervisor.pid").write_text(str(os.getpid()), encoding="utf-8")
     print(f"Gravando {len(processos)} canal(is) em {cfg['biblioteca']}\\{jogo}", flush=True)
     print("Feche esta janela ou aperte PARAR no painel.", flush=True)
+
+    if args.liga:
+        # Em thread separada: consultar o placar leva segundos, e nesse tempo
+        # os canais nao podem ficar sem quem os supervisione.
+        import threading
+
+        threading.Thread(
+            target=vigia.vigiar,
+            args=(args.liga, args.mandante, args.visitante, pasta_jogo),
+            kwargs={"avisar": lambda t: print(t, flush=True)},
+            daemon=True,
+        ).start()
+        print(f"Acompanhando o placar em {args.liga}.", flush=True)
+
     gravador.supervisionar(processos, cfg)  # religa quem cair
     return 0
 
