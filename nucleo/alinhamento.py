@@ -151,6 +151,12 @@ def picos_do_gol(
 
 ARQUIVO_DO_CANAL = "gravacao.json"
 
+# Quem manda quando duas fontes discordam. O operador viu com os proprios olhos;
+# o cronometro e uma leitura direta contra uma referencia absoluta; o consenso
+# de audio e uma inferencia, e so vale quando dois gols concordam.
+FORCA_DA_ORIGEM = {"": 0, "consenso": 1, "cronometro": 2, "manual": 3}
+PRECISA_CONFIRMAR = {"consenso"}
+
 
 def ler_deslocamento(pasta_canal: Path) -> tuple[float, str, list]:
     """(segundos, de onde veio, as medidas cruas que ja entraram)."""
@@ -184,21 +190,23 @@ def gravar_deslocamento(
 ) -> float:
     """Guarda o deslocamento no arquivo do canal, sem perder o que ja estava la.
 
-    Deslocamento MANUAL vence o de consenso: o operador viu, o algoritmo
-    estimou. Uma medida nova nunca sobrescreve o que ele digitou.
+    Fonte mais fraca nunca sobrescreve fonte mais forte: o consenso de audio nao
+    apaga o que foi lido no cronometro, e nem um nem outro apagam o que o
+    operador digitou.
     """
     arquivo = Path(pasta_canal) / ARQUIVO_DO_CANAL
     if not arquivo.is_file():
         return 0.0
     dados = json.loads(arquivo.read_text(encoding="utf-8"))
 
-    if origem == "consenso" and dados.get("deslocamento_de") == "manual":
+    ja_tinha = dados.get("deslocamento_de", "")
+    if FORCA_DA_ORIGEM.get(origem, 0) < FORCA_DA_ORIGEM.get(ja_tinha, 0):
         return float(dados.get("deslocamento") or 0.0)
 
-    if origem == "manual":
-        # O operador viu: uma palavra dele basta, sem precisar de confirmacao.
+    if origem not in PRECISA_CONFIRMAR:
+        # Leitura direta: uma so basta, sem esperar um segundo gol confirmar.
         dados["deslocamento"] = round(float(segundos), 2)
-        dados["deslocamento_de"] = "manual"
+        dados["deslocamento_de"] = origem
         dados["deslocamento_medidas"] = []
         arquivo.write_text(
             json.dumps(dados, ensure_ascii=False, indent=2), encoding="utf-8"

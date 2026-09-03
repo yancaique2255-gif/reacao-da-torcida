@@ -13,7 +13,8 @@ from pathlib import Path
 
 from urllib.parse import parse_qs, urlparse
 
-from nucleo import alinhamento, catalogo, config, esteira, miniatura, monitor
+from nucleo import alinhamento, catalogo, config, cronometro, esteira
+from nucleo import miniatura, monitor, placar, relogio
 
 PAGINA = Path(__file__).resolve().parent / "gravacao.html"
 PORTA_PADRAO = 8771
@@ -29,6 +30,10 @@ def estado(biblioteca: Path, agora: float) -> dict:
         )
         for canal in j["canais"]:
             canal["deslocamento"] = medidos.get(canal["canal"])
+        try:
+            j["espn"] = espn_do_jogo(biblioteca, j["jogo"], agora)
+        except Exception:
+            j["espn"] = None  # placar e um extra: nunca derruba o painel
     return {
         "hora": time.strftime("%H:%M:%S", time.localtime(agora)),
         "jogos": jogos,
@@ -142,6 +147,101 @@ def medir_alinhamento(
     }
 
 
+_ESPN_EM_CACHE: dict[str, tuple[float, object]] = {}
+SEGUNDOS_DE_CACHE_DA_ESPN = 15  # a pagina atualiza a cada 3s; a API nao e nossa
+
+
+def espn_do_jogo(biblioteca: Path, jogo: str, agora: float | None = None) -> dict | None:
+    """O que a ESPN diz desta partida agora, com o instante da consulta.
+
+    O instante importa tanto quanto o placar: o cronometro anda um segundo por
+    segundo, entao saber QUANDO se leu permite calcular o minuto do jogo em
+    qualquer outro momento.
+    """
+    agora = time.time() if agora is None else agora
+    dados = catalogo.carregar(_pasta_do_jogo(biblioteca, jogo))
+    partida_de = dados.get("partida") or {}
+    liga = partida_de.get("liga")
+    if not liga:
+        return None
+
+    quando, guardado = _ESPN_EM_CACHE.get(jogo, (0.0, None))
+    if agora - quando > SEGUNDOS_DE_CACHE_DA_ESPN:
+        guardado = placar.achar(
+            placar.buscar(liga), partida_de["mandante"], partida_de["visitante"]
+        )
+        _ESPN_EM_CACHE[jogo] = (agora, guardado)
+        quando = agora
+    if guardado is None:
+        return None
+    return {
+        "placar": str(guardado),
+        "relogio": guardado.relogio,
+        "segundo_de_jogo": guardado.segundo_de_jogo,
+        "estado": guardado.estado,
+        "lido_em": datetime.fromtimestamp(quando).isoformat(timespec="seconds"),
+        "acabou": guardado.acabou,
+    }
+
+
+def instante_do_quadro(
+    biblioteca: Path, jogo: str, canal: str, cfg: dict
+) -> datetime | None:
+    """Hora de relogio do quadro que a miniatura mostra.
+
+    O quadro sai de seis segundos antes do fim do arquivo, entao ele mostra o
+    fim da cobertura menos esse recuo. Sem esta hora nao da para comparar o
+    cronometro da tela com o da ESPN: os dois andam.
+    """
+    pasta = _dentro(_pasta_do_jogo(biblioteca, jogo) / "bruto", canal)
+    if not (pasta / "gravacao.json").is_file():
+        return None
+    intervalos = relogio.cobertura(esteira._sessoes_do_canal(pasta, cfg))
+    if not intervalos:
+        return None
+    return intervalos[-1][1] - timedelta(seconds=miniatura.RECUO)
+
+
+def cronometrar(
+    biblioteca: Path, jogo: str, canal: str, texto: str, tempo: int,
+    instante: str, cfg: dict,
+) -> dict:
+    """Compara o cronometro que a tela mostrava com o da ESPN naquele instante.
+
+    E o alinhamento que nao depende de gol nenhum: qualquer quadro da partida
+    serve, porque os dois relogios marcam a mesma coisa.
+    """
+    do_canal = cronometro.segundos_do_texto(texto, tempo)
+    if do_canal is None:
+        raise ValueError(f"nao entendi o cronometro: {texto!r}")
+
+    espn = espn_do_jogo(biblioteca, jogo)
+    if espn is None or espn.get("segundo_de_jogo") is None:
+        raise ValueError(
+            "a ESPN nao esta dando o cronometro desta partida agora - "
+            "use o campo de atraso na mao"
+        )
+
+    visto_em = datetime.fromisoformat(instante)
+    lido_em = datetime.fromisoformat(espn["lido_em"])
+    # O cronometro anda junto com o relogio: leva-se o minuto da ESPN de volta
+    # ao instante do quadro para comparar as duas leituras no mesmo momento.
+    espn_no_quadro = espn["segundo_de_jogo"] - (lido_em - visto_em).total_seconds()
+
+    if not cronometro.mesma_metade(espn_no_quadro, do_canal):
+        raise ValueError(
+            "o cronometro digitado esta na outra metade do jogo - confira o tempo"
+        )
+
+    segundos = cronometro.atraso(espn_no_quadro, do_canal)
+    pasta = _dentro(_pasta_do_jogo(biblioteca, jogo) / "bruto", canal)
+    valor = alinhamento.gravar_deslocamento(pasta, segundos, "cronometro")
+    return {
+        "ok": True, "canal": canal, "deslocamento": valor,
+        "espn_no_quadro": round(espn_no_quadro, 1), "no_canal": do_canal,
+    }
+
+
 def _taskkill(pid: int) -> None:
     subprocess.run(["taskkill", "/T", "/F", "/PID", str(pid)], capture_output=True)
 
@@ -218,6 +318,10 @@ class _Manipulador(BaseHTTPRequestHandler):
                 self.biblioteca, c["jogo"], int(c["numero"])
             ),
             "/api/parar": lambda c: parar_gravacao(self.biblioteca, c["jogo"]),
+            "/api/cronometrar": lambda c: cronometrar(
+                self.biblioteca, c["jogo"], c["canal"], c["relogio"],
+                int(c.get("tempo", 0)), c["instante"], self.cfg,
+            ),
             "/api/ajustar": lambda c: ajustar(
                 self.biblioteca, c["jogo"], c["canal"], float(c["segundos"])
             ),
@@ -242,6 +346,7 @@ class _Manipulador(BaseHTTPRequestHandler):
         self.wfile.write(dados)
 
     def do_GET(self):
+        extras: dict[str, str] = {}
         if self.path.startswith("/api/estado"):
             corpo = json.dumps(
                 estado(self.biblioteca, time.time()), ensure_ascii=False
@@ -263,6 +368,18 @@ class _Manipulador(BaseHTTPRequestHandler):
                 self.send_error(404)
                 return
             corpo, tipo = arquivo.read_bytes(), "image/jpeg"
+            try:
+                quando = instante_do_quadro(
+                    self.biblioteca, campos.get("jogo", [""])[0],
+                    campos.get("canal", [""])[0], self.cfg,
+                )
+            except Exception:
+                quando = None
+            if quando:
+                # A pagina precisa saber de QUE momento e o quadro que ela
+                # esta mostrando: e contra esse instante que o cronometro da
+                # tela vai ser comparado com o da ESPN.
+                extras["X-Instante"] = quando.isoformat()
         elif self.path in ("/", "/index.html"):
             corpo = PAGINA.read_bytes()
             tipo = "text/html; charset=utf-8"
@@ -273,6 +390,8 @@ class _Manipulador(BaseHTTPRequestHandler):
         self.send_header("Content-Type", tipo)
         self.send_header("Content-Length", str(len(corpo)))
         self.send_header("Cache-Control", "no-store")
+        for nome, valor in extras.items():
+            self.send_header(nome, valor)
         self.end_headers()
         self.wfile.write(corpo)
 

@@ -136,6 +136,12 @@ def etapa_gravar(argv=None) -> int:
     pasta_jogo = Path(cfg["biblioteca"]) / jogo
     pasta_jogo.mkdir(parents=True, exist_ok=True)
     (pasta_jogo / "supervisor.pid").write_text(str(os.getpid()), encoding="utf-8")
+    catalogo.salvar(
+        pasta_jogo,
+        catalogo.registrar_partida(
+            catalogo.carregar(pasta_jogo), args.liga, args.mandante, args.visitante
+        ),
+    )
     print(f"Gravando {len(processos)} canal(is) em {cfg['biblioteca']}\\{jogo}", flush=True)
     print("Feche esta janela ou aperte PARAR no painel.", flush=True)
 

@@ -27,6 +27,16 @@ def salvar(pasta_jogo: Path, dados: dict) -> None:
     )
 
 
+def registrar_partida(
+    dados: dict, liga: str, mandante: str, visitante: str
+) -> dict:
+    """Guarda de que partida se trata, para o painel saber o que perguntar a ESPN."""
+    dados["partida"] = {
+        "liga": liga, "mandante": mandante, "visitante": visitante,
+    }
+    return dados
+
+
 def registrar_gol(dados: dict, numero: int, horario: str, descricao: str) -> dict:
     dados["gols"] = [g for g in dados["gols"] if g["numero"] != numero]
     dados["gols"].append(

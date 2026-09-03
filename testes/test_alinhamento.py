@@ -443,3 +443,55 @@ def test_consenso_frouxo_ainda_entrega_os_canais_que_concordaram(tmp_path: Path)
 
     assert set(gravados) == {"perto-a", "perto-b"}
     assert "muito-fora" not in alinhamento.deslocamentos_do_jogo(tmp_path)
+
+
+def test_o_cronometro_vence_o_consenso_de_audio(tmp_path: Path):
+    """Um e leitura direta contra referencia absoluta; o outro e inferencia."""
+    _canal_no_disco(tmp_path / "c")
+    for valor in (5.0, 5.5):
+        alinhamento.gravar_deslocamento(tmp_path / "c", valor, "consenso")
+
+    alinhamento.gravar_deslocamento(tmp_path / "c", 21.0, "cronometro")
+
+    valor, origem, _ = alinhamento.ler_deslocamento(tmp_path / "c")
+    assert valor == 21.0 and origem == "cronometro"
+
+
+def test_o_consenso_nao_apaga_o_que_foi_lido_no_cronometro(tmp_path: Path):
+    _canal_no_disco(tmp_path / "c")
+    alinhamento.gravar_deslocamento(tmp_path / "c", 21.0, "cronometro")
+
+    for valor in (5.0, 5.5):
+        alinhamento.gravar_deslocamento(tmp_path / "c", valor, "consenso")
+
+    valor, origem, _ = alinhamento.ler_deslocamento(tmp_path / "c")
+    assert valor == 21.0 and origem == "cronometro"
+
+
+def test_o_operador_vence_ate_o_cronometro(tmp_path: Path):
+    _canal_no_disco(tmp_path / "c")
+    alinhamento.gravar_deslocamento(tmp_path / "c", 21.0, "cronometro")
+
+    alinhamento.gravar_deslocamento(tmp_path / "c", 30.0, "manual")
+
+    valor, origem, _ = alinhamento.ler_deslocamento(tmp_path / "c")
+    assert valor == 30.0 and origem == "manual"
+
+
+def test_uma_leitura_de_cronometro_ja_vale(tmp_path: Path):
+    """Leitura direta nao precisa de segundo gol para confirmar."""
+    _canal_no_disco(tmp_path / "c")
+
+    alinhamento.gravar_deslocamento(tmp_path / "c", -6.0, "cronometro")
+
+    assert alinhamento.deslocamentos_do_jogo(tmp_path) == {"c": -6.0}
+
+
+def test_uma_leitura_nova_do_cronometro_corrige_a_anterior(tmp_path: Path):
+    """O canal pode mudar de atraso no meio do jogo; a leitura nova manda."""
+    _canal_no_disco(tmp_path / "c")
+    alinhamento.gravar_deslocamento(tmp_path / "c", -6.0, "cronometro")
+
+    alinhamento.gravar_deslocamento(tmp_path / "c", 14.0, "cronometro")
+
+    assert alinhamento.deslocamentos_do_jogo(tmp_path) == {"c": 14.0}

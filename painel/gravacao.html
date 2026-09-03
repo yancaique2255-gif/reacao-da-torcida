@@ -113,6 +113,22 @@
               image-rendering: auto; }
   #lupa .legenda { color: var(--texto); font-weight: 600; letter-spacing: .3px; }
   #lupa .dica { color: var(--fraco); font-size: 13px; }
+  #lupa .sincronizar {
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+    background: var(--caixa); border: 1px solid var(--linha);
+    border-radius: 10px; padding: 12px 16px; cursor: default;
+  }
+  #lupa .sincronizar input {
+    width: 96px; background: var(--fundo); color: var(--texto); font: inherit;
+    border: 1px solid var(--linha); border-radius: 7px; padding: 7px 9px;
+    text-align: center; letter-spacing: 1px;
+  }
+  #lupa .sincronizar select {
+    background: var(--fundo); color: var(--texto); font: inherit;
+    border: 1px solid var(--linha); border-radius: 7px; padding: 7px;
+  }
+  #lupa .espn { color: var(--viva); font-weight: 700; font-variant-numeric: tabular-nums; }
+  #lupa .sem-espn { color: var(--alerta); font-size: 13px; }
   #recado {
     position: fixed; right: 20px; bottom: 20px; background: var(--gol);
     color: #fff; font-weight: 700; padding: 13px 20px; border-radius: 10px;
@@ -158,7 +174,17 @@
 <div id="lupa">
   <img id="lupa-img" alt="">
   <div class="legenda" id="lupa-nome"></div>
-  <div class="dica">Clique para fechar · ← → troca de canal · o relógio do jogo na tela diz o atraso deste canal</div>
+  <div class="sincronizar" id="lupa-sync">
+    <span>Cronômetro nesta tela:</span>
+    <select id="lupa-tempo">
+      <option value="1">1º tempo</option>
+      <option value="2" selected>2º tempo</option>
+    </select>
+    <input id="lupa-relogio" placeholder="35:22" autocomplete="off">
+    <button type="button" id="lupa-usar">sincronizar</button>
+    <span id="lupa-espn"></span>
+  </div>
+  <div class="dica">Clique no fundo para fechar · ← → troca de canal</div>
 </div>
 <div id="recado"></div>
 
@@ -353,16 +379,79 @@ function abrirLupa(jogo, canal) {
   lupa.classList.add('aberta');
 }
 
-function mostrarLupa() {
-  const alvoLupa = lupaLista[lupaIndice];
-  if (!alvoLupa) return;
-  // Sem selo de tempo: aqui a foto tem que ser a mais nova possivel, porque e
-  // com ela que se le o relogio do jogo para medir o atraso do canal.
-  lupaImg.src = `/api/quadro?jogo=${encodeURIComponent(alvoLupa.jogo)}&canal=${encodeURIComponent(alvoLupa.canal)}&v=${Date.now()}`;
-  lupaNome.textContent = `${alvoLupa.canal}  (${lupaIndice + 1} de ${lupaLista.length})`;
+const lupaEspn = document.getElementById('lupa-espn');
+const lupaRelogio = document.getElementById('lupa-relogio');
+const lupaTempo = document.getElementById('lupa-tempo');
+let instanteDoQuadro = null;
+
+function comoRelogio(segundos) {
+  if (segundos == null) return '—';
+  const s = Math.max(0, Math.round(segundos));
+  const metade = s >= 2700 ? '2T' : '1T';
+  const dentro = s >= 2700 ? s - 2700 : s;
+  return `${metade} ${String(Math.floor(dentro / 60)).padStart(2, '0')}:${String(dentro % 60).padStart(2, '0')}`;
 }
 
-lupa.addEventListener('click', () => lupa.classList.remove('aberta'));
+async function mostrarLupa() {
+  const alvoLupa = lupaLista[lupaIndice];
+  if (!alvoLupa) return;
+  lupaNome.textContent = `${alvoLupa.canal}  (${lupaIndice + 1} de ${lupaLista.length})`;
+  lupaEspn.textContent = '';
+  instanteDoQuadro = null;
+
+  // Sem selo de tempo: aqui a foto tem que ser a mais nova possivel, porque e
+  // com ela que se le o relogio do jogo para medir o atraso do canal.
+  const endereco = `/api/quadro?jogo=${encodeURIComponent(alvoLupa.jogo)}&canal=${encodeURIComponent(alvoLupa.canal)}&v=${Date.now()}`;
+  try {
+    const r = await fetch(endereco, {cache: 'no-store'});
+    if (!r.ok) throw new Error('sem quadro');
+    // O instante do quadro vem no cabecalho: e contra ele que o cronometro
+    // da tela sera comparado com o da ESPN, que nao para de andar.
+    instanteDoQuadro = r.headers.get('X-Instante');
+    lupaImg.src = URL.createObjectURL(await r.blob());
+  } catch (e) {
+    lupaImg.removeAttribute('src');
+  }
+
+  const jogo = (ultimoEstado?.jogos || []).find(x => x.jogo === alvoLupa.jogo);
+  const espn = jogo?.espn;
+  if (!espn || espn.segundo_de_jogo == null) {
+    lupaEspn.className = 'sem-espn';
+    lupaEspn.textContent = 'ESPN sem cronômetro para este jogo — use o campo de atraso';
+    return;
+  }
+  let noQuadro = espn.segundo_de_jogo;
+  if (instanteDoQuadro) {
+    noQuadro -= (new Date(espn.lido_em) - new Date(instanteDoQuadro)) / 1000;
+  }
+  lupaEspn.className = 'espn';
+  lupaEspn.textContent = `ESPN neste instante: ${comoRelogio(noQuadro)}`;
+  lupaTempo.value = noQuadro >= 2700 ? '2' : '1';
+}
+
+async function sincronizarCanal() {
+  const alvoLupa = lupaLista[lupaIndice];
+  if (!alvoLupa || !instanteDoQuadro) { avisar('sem quadro para comparar'); return; }
+  const d = await enviar('/api/cronometrar', {
+    jogo: alvoLupa.jogo, canal: alvoLupa.canal,
+    relogio: lupaRelogio.value, tempo: Number(lupaTempo.value),
+    instante: instanteDoQuadro,
+  });
+  if (d && d.ok) {
+    avisar(`${d.canal}: ${d.deslocamento > 0 ? 'atrasado' : 'adiantado'} ${Math.abs(d.deslocamento)}s`);
+    lupaRelogio.value = '';
+  }
+}
+
+lupa.addEventListener('click', (e) => {
+  // Fechar so no fundo: clicar no campo de sincronizar nao pode fechar a tela.
+  if (e.target === lupa || e.target === lupaImg) lupa.classList.remove('aberta');
+});
+document.getElementById('lupa-usar').addEventListener('click', sincronizarCanal);
+lupaRelogio.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') sincronizarCanal();
+  e.stopPropagation();  // as setas aqui movem o cursor, nao o canal
+});
 document.addEventListener('keydown', (e) => {
   if (!lupa.classList.contains('aberta')) return;
   if (e.key === 'Escape') lupa.classList.remove('aberta');

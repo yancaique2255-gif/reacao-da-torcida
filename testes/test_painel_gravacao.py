@@ -273,3 +273,121 @@ def test_pagina_tem_o_campo_de_atraso_e_o_botao_de_alinhar():
     assert "/api/ajustar" in html and "/api/alinhar" in html
     assert "s de atraso" in html
     assert "discordaram em" in html, "espalhamento alto tem que virar aviso na tela"
+
+
+def _partida_no_catalogo(pasta: Path, liga="copa-do-brasil") -> None:
+    from nucleo import catalogo as cat
+    dados = cat.registrar_partida(cat.carregar(pasta), liga, "vitoria", "vasco")
+    cat.salvar(pasta, dados)
+
+
+def test_cronometrar_mede_o_atraso_comparando_os_dois_relogios(tmp_path: Path, monkeypatch):
+    """O caso que o operador descreveu: ESPN em 12:53 e a live em 12:59."""
+    jogo = "2026-09-02 vitoria x vasco"
+    _canal(tmp_path / jogo / "bruto", "arena", 1)
+    _partida_no_catalogo(tmp_path / jogo)
+    monkeypatch.setattr(gravacao, "espn_do_jogo", lambda *a, **k: {
+        "segundo_de_jogo": 773.0,             # 12:53
+        "lido_em": "2026-09-02T22:00:00",
+    })
+
+    r = gravacao.cronometrar(
+        tmp_path, jogo, "arena", "12:59", 1, "2026-09-02T22:00:00",
+        {"caminho_ffmpeg": "ffmpeg"},
+    )
+
+    assert r["deslocamento"] == -6.0, "a live esta seis segundos adiantada"
+
+
+def test_cronometrar_leva_a_espn_de_volta_ao_instante_do_quadro(tmp_path: Path, monkeypatch):
+    """O quadro e de segundos atras; comparar com a ESPN de agora erraria por isso."""
+    jogo = "j"
+    _canal(tmp_path / jogo / "bruto", "arena", 1)
+    _partida_no_catalogo(tmp_path / jogo)
+    monkeypatch.setattr(gravacao, "espn_do_jogo", lambda *a, **k: {
+        "segundo_de_jogo": 800.0,
+        "lido_em": "2026-09-02T22:00:30",     # lido 30s depois do quadro
+    })
+
+    r = gravacao.cronometrar(
+        tmp_path, jogo, "arena", "12:50", 1, "2026-09-02T22:00:00",
+        {"caminho_ffmpeg": "ffmpeg"},
+    )
+
+    # no instante do quadro a ESPN estava em 800-30 = 770s; a tela, em 770s
+    assert r["espn_no_quadro"] == 770.0
+    assert r["deslocamento"] == 0.0
+
+
+def test_cronometro_da_outra_metade_e_recusado(tmp_path: Path, monkeypatch):
+    """Entre uma metade e outra ha o intervalo, que nao e tempo de jogo."""
+    jogo = "j"
+    _canal(tmp_path / jogo / "bruto", "arena", 1)
+    _partida_no_catalogo(tmp_path / jogo)
+    monkeypatch.setattr(gravacao, "espn_do_jogo", lambda *a, **k: {
+        "segundo_de_jogo": 4800.0,            # segundo tempo
+        "lido_em": "2026-09-02T23:00:00",
+    })
+
+    try:
+        gravacao.cronometrar(
+            tmp_path, jogo, "arena", "12:50", 1, "2026-09-02T23:00:00",
+            {"caminho_ffmpeg": "ffmpeg"},
+        )
+    except ValueError as erro:
+        assert "metade" in str(erro)
+        return
+    raise AssertionError("deveria ter recusado")
+
+
+def test_cronometro_ilegivel_e_recusado(tmp_path: Path, monkeypatch):
+    jogo = "j"
+    _canal(tmp_path / jogo / "bruto", "arena", 1)
+    _partida_no_catalogo(tmp_path / jogo)
+    monkeypatch.setattr(gravacao, "espn_do_jogo", lambda *a, **k: {
+        "segundo_de_jogo": 773.0, "lido_em": "2026-09-02T22:00:00",
+    })
+
+    try:
+        gravacao.cronometrar(
+            tmp_path, jogo, "arena", "banana", 1, "2026-09-02T22:00:00",
+            {"caminho_ffmpeg": "ffmpeg"},
+        )
+    except ValueError as erro:
+        assert "cronometro" in str(erro)
+        return
+    raise AssertionError("deveria ter recusado")
+
+
+def test_sem_espn_o_cronometro_manda_usar_o_campo_na_mao(tmp_path: Path, monkeypatch):
+    jogo = "j"
+    _canal(tmp_path / jogo / "bruto", "arena", 1)
+    monkeypatch.setattr(gravacao, "espn_do_jogo", lambda *a, **k: None)
+
+    try:
+        gravacao.cronometrar(
+            tmp_path, jogo, "arena", "12:50", 1, "2026-09-02T22:00:00",
+            {"caminho_ffmpeg": "ffmpeg"},
+        )
+    except ValueError as erro:
+        assert "na mao" in str(erro)
+        return
+    raise AssertionError("deveria ter recusado")
+
+
+def test_jogo_sem_liga_cadastrada_nao_pergunta_a_espn(tmp_path: Path):
+    """Jogo gravado sem informar a liga simplesmente nao tem placar."""
+    jogo = "j"
+    (tmp_path / jogo).mkdir()
+
+    assert gravacao.espn_do_jogo(tmp_path, jogo) is None
+
+
+def test_a_lupa_compara_o_cronometro_da_tela_com_o_da_espn():
+    """E o alinhamento que nao depende de gol: qualquer quadro da partida serve."""
+    html = gravacao.PAGINA.read_text(encoding="utf-8")
+
+    assert "/api/cronometrar" in html
+    assert "X-Instante" in html, "sem o instante do quadro a comparacao erra"
+    assert "ESPN neste instante" in html
+    assert "lido_em" in html, "a ESPN precisa voltar ao instante do quadro"
