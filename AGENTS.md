@@ -46,7 +46,13 @@ Conferido nesta máquina em 02/09/2026:
 - Português no código, nos commits e na interface. Nomes de módulo em português, como
   na spec.
 
-## Duas coisas medidas em jogo, não deduzidas
+## Próxima etapa, já especificada
+
+`docs/superpowers/specs/2026-09-02-alinhamento-e-gatilho-automatico.md` — alinhar os
+canais pelo consenso de áudio e disparar o corte pelo placar da ESPN. Escrita depois da
+primeira transmissão de verdade, com os números medidos nela.
+
+## Três coisas medidas em jogo, não deduzidas
 
 **yt-dlp em dia é requisito, não higiene.** Com a versão de 04/08/2026, a gravação de
 qualquer live morria entre 31 e 35 segundos: o YouTube passava a responder 403 em todo
@@ -56,6 +62,13 @@ para 30/08/2026, os mesmos canais gravaram 110 segundos seguidos sem um único e
 gravação voltar a morrer em meio minuto, rode `yt-dlp -U` antes de investigar qualquer
 outra coisa. Passe sempre `--js-runtimes node`: o node já está na máquina e sem ele o
 yt-dlp avisa que a extração está obsoleta.
+
+**Canal pode baixar mais devagar do que o jogo acontece.** O ffmpeg entra na playlist
+atrás da ponta e não alcança. O canal escreve bytes sem parar — passa por saudável em
+qualquer teste de crescimento — e mesmo assim, quando sai o gol, o trecho ainda não
+existe no disco. Medido em 02/09/2026: os saudáveis ficaram em 0,2 min de atraso e cinco
+canais de onze em 60 min. `gravador.ficou_para_tras` compara conteúdo no disco contra
+tempo decorrido e recomeça quem passou de cinco minutos.
 
 **O t0 não é a hora em que o processo subiu.** Entre subir e o primeiro frame cabem o
 arranque do yt-dlp e o trecho velho que ele puxa acelerado até alcançar o ao vivo. Medido:
