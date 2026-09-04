@@ -721,15 +721,7 @@ def estado(pasta_jogo: Path, vivo=None) -> dict:
     que ele esta rodando. Estado travado que nunca resolve e pior do que erro:
     o operador fica esperando um arquivo que nunca vem.
     """
-    padrao = {"rodando": False, "feito": 0, "total": 0, "mensagem": "",
-              "saida": "", "pid": 0, "pid_em": 0.0}
-    arquivo = Path(pasta_jogo) / NOME_ESTADO
-    if not arquivo.is_file():
-        return padrao
-    try:
-        atual = {**padrao, **json.loads(arquivo.read_text(encoding="utf-8"))}
-    except json.JSONDecodeError:
-        return padrao
+    atual = _ler_cru(pasta_jogo)
     if not (atual["rodando"] and atual["pid"]):
         return atual
     # Carencia: o `tasklist` nao enxerga na hora um PID recem-criado, e sem
@@ -752,6 +744,19 @@ def estado(pasta_jogo: Path, vivo=None) -> dict:
     return morto
 
 
+def _ler_cru(pasta_jogo: Path) -> dict:
+    """O que esta no arquivo, sem julgar se o processo ainda vive."""
+    padrao = {"rodando": False, "feito": 0, "total": 0, "mensagem": "",
+              "saida": "", "pid": 0, "pid_em": 0.0}
+    arquivo = Path(pasta_jogo) / NOME_ESTADO
+    if not arquivo.is_file():
+        return padrao
+    try:
+        return {**padrao, **json.loads(arquivo.read_text(encoding="utf-8"))}
+    except json.JSONDecodeError:
+        return padrao
+
+
 def _gravar(pasta_jogo: Path, estado_novo: dict) -> None:
     Path(pasta_jogo).mkdir(parents=True, exist_ok=True)
     (Path(pasta_jogo) / NOME_ESTADO).write_text(
@@ -760,7 +765,12 @@ def _gravar(pasta_jogo: Path, estado_novo: dict) -> None:
 
 
 def anotar(pasta_jogo: Path, **campos) -> dict:
-    atual = estado(pasta_jogo)
+    # Le o arquivo CRU, e nao o `estado`: a leitura do estado corrige render
+    # morto, e anotar o PID novo por cima dessa correcao gravava um render que
+    # acabou de nascer como render que ja morreu. Era o aviso falso que o
+    # operador lia ao clicar RENDER - o dono do estado que se grava aqui e
+    # quem esta anotando, e nao o processo de ontem.
+    atual = _ler_cru(pasta_jogo)
     atual.update(campos)
     # Quem anota um PID esta anotando um processo que acabou de nascer: a hora
     # vem junto, e e dela que sai a carencia da leitura.

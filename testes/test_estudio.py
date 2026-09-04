@@ -765,6 +765,25 @@ def test_o_nome_do_canal_e_a_torcida_vao_em_pilulas_separadas(tmp_path: Path):
     assert "torcida do inter" not in texto, "a segunda linha da tarja velha saiu"
 
 
+def test_anotar_um_pid_novo_nao_herda_a_morte_do_pid_velho(tmp_path: Path):
+    """Achado na prova no jogo de verdade: o aviso falso voltou pelos fundos.
+
+    O `anotar` le o estado antes de gravar, e essa leitura CORRIGE - se o PID
+    que estava no arquivo tinha morrido, ela devolve `rodando: false`. Anotar o
+    PID novo por cima disso gravava um render que acabou de nascer como render
+    que ja morreu, e a primeira coisa que o operador lia ao clicar RENDER era
+    "o render parou sozinho antes de terminar".
+    """
+    _render_no_disco(tmp_path, pid=111, pid_em=0.0)  # o render de ontem, morto
+
+    estudio.anotar(tmp_path, rodando=True, feito=0, total=16, mensagem="na fila")
+    depois = estudio.anotar(tmp_path, pid=222)
+
+    assert depois["rodando"] is True
+    assert depois["pid"] == 222
+    assert estudio.estado(tmp_path, vivo=lambda p: False)["rodando"] is True
+
+
 def test_estado_de_render_vivo_nao_reescreve_o_disco(tmp_path: Path):
     """Ler nao pode escrever a toa: o render em andamento escreve o tempo todo."""
     _render_no_disco(tmp_path, pid_em=0.0)
