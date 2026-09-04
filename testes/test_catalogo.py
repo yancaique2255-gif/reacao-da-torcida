@@ -94,3 +94,30 @@ def test_mover_gol_que_nao_existe_reclama():
         pass
     else:
         raise AssertionError("deveria ter reclamado")
+
+
+def test_placar_final_fica_gravado_junto_da_partida():
+    """O estudio edita dias depois, quando a ESPN ja nao responde por este jogo.
+
+    Sem o placar em disco nao ha como saber quem perdeu, e quem perdeu e a
+    regra que decide o video inteiro.
+    """
+    dados = catalogo.registrar_partida(
+        catalogo.novo("jogo"), "copa-do-brasil", "Grêmio", "Internacional"
+    )
+
+    dados = catalogo.registrar_placar(dados, 3, 1)
+
+    assert dados["partida"]["gols_mandante"] == 3
+    assert dados["partida"]["gols_visitante"] == 1
+    assert dados["partida"]["mandante"] == "Grêmio"
+
+
+def test_placar_pode_ser_corrigido_depois():
+    """Prorrogacao, penaltis, gol anulado: o ultimo numero e o que vale."""
+    dados = catalogo.registrar_placar(catalogo.novo("jogo"), 1, 0)
+
+    dados = catalogo.registrar_placar(dados, 1, 2)
+
+    assert dados["partida"]["gols_mandante"] == 1
+    assert dados["partida"]["gols_visitante"] == 2

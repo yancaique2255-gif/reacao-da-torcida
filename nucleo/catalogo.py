@@ -37,6 +37,19 @@ def registrar_partida(
     return dados
 
 
+def registrar_placar(dados: dict, gols_mandante: int, gols_visitante: int) -> dict:
+    """Guarda o placar, porque a ESPN so responde enquanto o jogo esta no ar.
+
+    O estudio de edicao edita dias depois e precisa saber quem perdeu - e quem
+    perdeu decide o video inteiro. O ultimo numero gravado e o que vale:
+    prorrogacao, penaltis e gol anulado mudam o placar depois do apito.
+    """
+    partida = dados.setdefault("partida", {})
+    partida["gols_mandante"] = int(gols_mandante)
+    partida["gols_visitante"] = int(gols_visitante)
+    return dados
+
+
 def registrar_gol(dados: dict, numero: int, horario: str, descricao: str) -> dict:
     dados["gols"] = [g for g in dados["gols"] if g["numero"] != numero]
     dados["gols"].append(

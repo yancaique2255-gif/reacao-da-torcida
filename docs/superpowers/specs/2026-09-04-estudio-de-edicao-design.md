@@ -1,8 +1,9 @@
 # Estúdio de edição — desenho
 
 Data: 2026-09-04
-Estado: **passo 1 da seção 14 aplicado** (`torcida` obrigatória). Do passo 2
-em diante, nada deste documento está no código ainda.
+Estado: **passos 1 e 2 da seção 14 aplicados** (`torcida` obrigatória;
+`perdedor` e `melhor`). Do passo 3 em diante, nada deste documento está no
+código ainda.
 
 O par deste arquivo é o `DESIGN.md` (como a tela se parece) e o `AGENTS.md`
 (como o código se escreve). Este aqui diz **o que o estúdio faz**.
@@ -543,8 +544,13 @@ Cada passo entrega algo que funciona sozinho:
    e `python -m nucleo.esteira torcida <jogo>` conserta os jogos velhos. Os
    três canais em branco do jogo de 03/09 foram preenchidos: `bage-tv` gremio,
    `baldasso-tv` inter, `gaucha-esportes` neutro. `nucleo/torcidas.py`.
-2. **`perdedor` + `melhor`** — as duas decisões automáticas, puro Python, cem
-   por cento testável.
+2. ~~**`perdedor` + `melhor`**~~ — **feito.** `nucleo/perdedor.py` (quem
+   perdeu, quais clipes entram, a troca do operador gravada em `rindo_de`) e
+   `nucleo/melhor.py` (a janela de N segundos, com pico e sem pico). Nenhum
+   dos dois abre vídeo: 26 testes novos, 378 no total. O placar final passou a
+   caber no catálogo (`catalogo.registrar_placar`), porque a ESPN só responde
+   enquanto o jogo está no ar e o estúdio edita dias depois — **falta quem
+   escreva esse placar**, e isso vem com o painel do passo 5.
 3. **`molde` + `receita`** — a declaração única e o arquivo de edição.
 4. **`estudio` render** — espiar, prévia, final, cache, fila.
 5. **Painel 8772** — a tela em cima do que já funciona.
