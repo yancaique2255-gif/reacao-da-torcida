@@ -24,14 +24,71 @@ PASTA_SAIDA = "saida"
 PASTA_ROSTOS = "rostos"
 MAXIMO_DE_ROSTOS = 5
 
-# x, y, largura, altura - o rosto grande e a grade de quatro, como no desenho.
-CAIXAS = {
-    "grande": (40, 232, 520, 384),
-    "grade": [(600, 232, 316, 186), (924, 232, 316, 186),
-              (600, 430, 316, 186), (924, 430, 316, 186)],
-}
+# x, y, largura, altura - onde os rostos moram na capa.
+REGIAO = (40, 232, 1200, 384)
+VAO = 12  # o ar entre dois rostos
 COR_TEXTO = (255, 255, 255)
 COR_SOMBRA = (0, 0, 0)
+
+
+def caixas(quantos: int, regiao=REGIAO) -> list[tuple[int, int, int, int]]:
+    """Um layout que se adapta a 1, 2, 3, 4 ou 5 rostos, sem sobrar buraco.
+
+    O layout era fixo em 1 rosto grande mais 4 pequenos, cinco canais. No jogo
+    de 03/09 entraram tres: sobrou um quadrante vermelho vazio embaixo a
+    direita, e a composicao saiu torta.
+
+    Quantidade impar ganha um rosto grande a esquerda e os outros numa grade a
+    direita - e a anatomia da capa de referencia, e e o que poe a cara mais
+    forte no lugar maior. Quantidade par divide igual.
+    """
+    quantos = max(1, min(int(quantos), MAXIMO_DE_ROSTOS))
+    if quantos == 1:
+        return [tuple(regiao)]
+    if quantos == 2:
+        return _colunas(regiao, 2)
+    if quantos == 4:
+        return _grade(regiao, colunas=2, linhas=2)
+    grande, resto = _partir(regiao, 0.5 if quantos == 3 else 0.4)
+    if quantos == 3:
+        return [grande] + _linhas(resto, 2)
+    return [grande] + _grade(resto, colunas=2, linhas=2)
+
+
+def _partir(regiao, fracao: float):
+    """Corta a regiao em duas colunas, a primeira com `fracao` da largura util."""
+    x, y, largura, altura = regiao
+    esquerda = round((largura - VAO) * fracao)
+    return (
+        (x, y, esquerda, altura),
+        (x + esquerda + VAO, y, largura - esquerda - VAO, altura),
+    )
+
+
+def _colunas(regiao, quantas: int):
+    x, y, largura, altura = regiao
+    passo = (largura - VAO * (quantas - 1)) / quantas
+    return [
+        (x + round(indice * (passo + VAO)), y, round(passo), altura)
+        for indice in range(quantas)
+    ]
+
+
+def _linhas(regiao, quantas: int):
+    x, y, largura, altura = regiao
+    passo = (altura - VAO * (quantas - 1)) / quantas
+    return [
+        (x, y + round(indice * (passo + VAO)), largura, round(passo))
+        for indice in range(quantas)
+    ]
+
+
+def _grade(regiao, colunas: int, linhas: int):
+    """Na ordem de leitura: a cara mais forte primeiro, em cima e a esquerda."""
+    saida = []
+    for faixa in _linhas(regiao, linhas):
+        saida.extend(_colunas(faixa, colunas))
+    return saida
 
 
 def rostos(
@@ -113,10 +170,8 @@ def gerar(
     _escurecer_bordas(tela)
 
     quadros = rostos(pasta_jogo, dados, dados_receita, cfg, executar)
-    if quadros:
-        _colar(tela, quadros[0], CAIXAS["grande"])
-        for imagem, caixa in zip(quadros[1:], CAIXAS["grade"]):
-            _colar(tela, imagem, caixa)
+    for imagem, caixa in zip(quadros, caixas(len(quadros))):
+        _colar(tela, imagem, caixa)
 
     textos = dados_receita.get("textos") or {}
     _titulo(tela, alvo, fonte)

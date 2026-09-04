@@ -7,6 +7,7 @@ detector ja guardou.
 """
 from pathlib import Path
 
+import pytest
 from PIL import Image
 
 from nucleo import capa, catalogo, receita
@@ -95,7 +96,7 @@ def test_os_rostos_entram_na_capa(tmp_path: Path):
     )
 
     imagem = Image.open(arquivo).convert("RGB")
-    ponto = capa.CAIXAS["grande"]
+    ponto = capa.caixas(2)[0]
     meio = imagem.getpixel((ponto[0] + ponto[2] // 2, ponto[1] + ponto[3] // 2))
     assert meio[1] > meio[0] and meio[1] > meio[2], f"o rosto nao foi colado: {meio}"
 
@@ -134,3 +135,68 @@ def test_o_rosto_de_cada_canal_e_reaproveitado(tmp_path: Path):
     capa.gerar(tmp_path, dados, feita, CFG, TIMES, executar=depois)
 
     assert depois.comandos == []
+
+
+# ------------------------------------------------ a capa se adapta a quantos vem
+
+def _area(caixa) -> int:
+    return caixa[2] * caixa[3]
+
+
+def _cruzam(a, b) -> bool:
+    return (
+        a[0] < b[0] + b[2] and b[0] < a[0] + a[2]
+        and a[1] < b[1] + b[3] and b[1] < a[1] + a[3]
+    )
+
+
+@pytest.mark.parametrize("quantos", [1, 2, 3, 4, 5])
+def test_a_grade_de_rostos_tem_uma_caixa_por_rosto(quantos):
+    assert len(capa.caixas(quantos)) == quantos
+
+
+@pytest.mark.parametrize("quantos", [1, 2, 3, 4, 5])
+def test_as_caixas_nao_se_cruzam_e_nao_saem_da_regiao(quantos):
+    regiao = capa.REGIAO
+    for indice, caixa in enumerate(capa.caixas(quantos)):
+        assert caixa[0] >= regiao[0] and caixa[1] >= regiao[1], caixa
+        assert caixa[0] + caixa[2] <= regiao[0] + regiao[2], caixa
+        assert caixa[1] + caixa[3] <= regiao[1] + regiao[3], caixa
+        for outra in capa.caixas(quantos)[indice + 1:]:
+            assert not _cruzam(caixa, outra), f"{caixa} cruza {outra}"
+
+
+@pytest.mark.parametrize("quantos", [1, 2, 3, 4, 5])
+def test_a_grade_nao_deixa_buraco(quantos):
+    """Tres canais num layout de cinco deixavam um quadrante vermelho vazio.
+
+    Foi o que aconteceu no jogo de 03/09: `CAIXAS` era fixo em 1 rosto grande
+    mais 4 pequenos, entraram tres, e a composicao saiu torta com um buraco
+    embaixo a direita.
+    """
+    ocupado = sum(_area(c) for c in capa.caixas(quantos))
+
+    assert ocupado >= 0.92 * _area(capa.REGIAO), (
+        f"{quantos} rosto(s) cobrem so {ocupado / _area(capa.REGIAO):.0%} da regiao"
+    )
+
+
+def test_com_tres_canais_nenhum_quadrante_fica_vazio(tmp_path: Path):
+    """A prova em pixel: o quadro verde de mentira tem de estar nas tres caixas."""
+    dados = _jogo(tmp_path)
+    dados = catalogo.registrar_clipe(
+        dados, 1, "farid-germano-filho", "clipes/gol-01/farid-germano-filho.mp4",
+        100.0, 12.0, True, "inter", 175.0,
+    )
+    catalogo.salvar(tmp_path, dados)
+
+    arquivo = capa.gerar(
+        tmp_path, dados, receita.padrao(dados), CFG, TIMES, executar=Rostos()
+    )
+
+    imagem = Image.open(arquivo).convert("RGB")
+    for x, y, largura, altura in capa.caixas(3):
+        ponto = imagem.getpixel((x + largura // 2, y + altura // 2))
+        assert ponto[1] > ponto[0] and ponto[1] > ponto[2], (
+            f"a caixa em {x},{y} ficou sem rosto: {ponto}"
+        )
