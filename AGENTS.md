@@ -6,12 +6,8 @@ Leia antes de escrever qualquer linha de código. Isto vale mais do que o hábit
 
 1. `DESIGN.md` — como a tela se parece. Este arquivo diz como o codigo se escreve;
    aquele diz como a interface se veste. Leia antes de mexer em qualquer `.html`.
-2. `docs/DESIGN-DO-VIDEO.md` — como o PRODUTO PUBLICADO se parece: o molde do
-   clipe, a cartela e a capa. Leia antes de mexer em `nucleo/molde.py`,
-   `nucleo/estudio.py` ou `nucleo/capa.py`. O `DESIGN.md` cobre as telas do
-   painel, e nao o video que sai delas.
-3. `docs/superpowers/specs/2026-09-01-reacao-da-torcida-design.md` — o desenho aprovado.
-4. `docs/superpowers/plans/2026-09-01-reacao-da-torcida-plan.md` — as tarefas, em ordem.
+2. `docs/superpowers/specs/2026-09-01-reacao-da-torcida-design.md` — o desenho aprovado.
+3. `docs/superpowers/plans/2026-09-01-reacao-da-torcida-plan.md` — as tarefas, em ordem.
 
 O plano é para ser seguido na ordem. Cada tarefa entrega algo que roda e é testado.
 

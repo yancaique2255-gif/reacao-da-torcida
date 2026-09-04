@@ -36,19 +36,10 @@ PADROES = {
     # em que o placar muda, os segundos DEPOIS do gol ainda estao sendo
     # baixados - e sao eles que trazem a reacao.
     "espera_para_cortar": 240,
-    # Os tres papeis de letra do `docs/DESIGN-DO-VIDEO.md`. Duas das tres sao
-    # exatamente o que o sistema da Ollama manda: `ui-sans-serif` no Windows E
-    # a Segoe UI, e a Consolas esta nomeada na propria cadeia de fallback do
-    # `ui-monospace`. O display e a unica troca: a SF Pro Rounded e da Apple, e
-    # a Bahnschrift (DIN 1451) e a letra de placar de estadio - melhor para um
-    # video de futebol, e ja vem no Windows.
+    # A capa e as etiquetas pedem uma condensada pesada; ate a fonte do
+    # repositorio entrar, e a Arial Bold, que existe em toda maquina Windows.
     # O drawtext no Windows exige fontfile= explicito, senao falha com
     # "Cannot find a valid font".
-    "fonte_display": r"C:\Windows\Fonts\bahnschrift.ttf",
-    "fonte_sans": r"C:\Windows\Fonts\segoeuib.ttf",
-    "fonte_mono": r"C:\Windows\Fonts\consolab.ttf",
-    # Herdada: vale para qualquer dos tres papeis que nao exista na maquina.
-    # Fonte que nao carrega deixa o texto em letra de sistema - feio, legivel.
     "fonte_cartela": r"C:\Windows\Fonts\arialbd.ttf",
     # Os intermediarios do render sao uma copia inteira do video: 1 a 2 GB por
     # jogo. Passando disto o painel avisa, e o operador limpa quando quiser.

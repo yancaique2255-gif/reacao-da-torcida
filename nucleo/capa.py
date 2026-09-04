@@ -1,7 +1,9 @@
 """A capa do video, composta com Pillow.
 
 A capa e metade do clique no YouTube: um video bom com capa fraca rende menos
-que um video medio com capa forte.
+que um video medio com capa forte. A anatomia foi tirada da capa do video de
+referencia - bloco de titulo, um rosto grande, uma grade de rostos menores,
+placar em cima e a frase embaixo.
 
 **Os rostos saem dos proprios clipes**, no instante do pico, que e onde a cara
 esta mais expressiva - e e justamente o numero que o detector ja guardou. Cada
@@ -9,17 +11,12 @@ quadro extraido fica em disco: regerar a capa nao reextrai o que ja existe.
 
 Pillow e nao `drawtext`: compor camadas com PIL e direto, e - o que decide - o
 PIL sabe MEDIR texto. E por isso que a frase encolhe ate caber em vez de sair
-cortada na borda, que e o que acontece no ffmpeg, e por isso as pilulas daqui
-abracam o texto em vez de ter largura fixa.
-
-**O desenho esta em `docs/DESIGN-DO-VIDEO.md`**: a mesma gramatica do video -
-superficie chapada na cor do time, pilula branca com texto preto para toda
-etiqueta, foto em `{rounded.lg}` com fio de cabelo, e nada de degrade.
+cortada na borda, que e o que acontece no ffmpeg.
 """
 from pathlib import Path
 from typing import Callable
 
-from nucleo import cortador, estudio, molde, receita, times as mod_times
+from nucleo import cortador, estudio, receita, times as mod_times
 
 TAMANHO = (1280, 720)
 ARQUIVO = "capa.jpg"
@@ -29,23 +26,9 @@ MAXIMO_DE_ROSTOS = 5
 
 # x, y, largura, altura - onde os rostos moram na capa.
 REGIAO = (40, 232, 1200, 384)
-VAO = 12   # o ar entre dois rostos
-RECUO = 40  # o mesmo recuo dos quatro lados, como no molde do video
-
-# O cromado, traduzido do molde para o RGBA que o Pillow entende.
-CANTOS = 24              # {rounded.lg}, o mesmo canto do quadro do video
-FIO = 3                  # {colors.hairline} em 3 px, que a compressao nao come
-COR_PILULA = (255, 255, 255)
-COR_NA_PILULA = (0, 0, 0)
+VAO = 12  # o ar entre dois rostos
 COR_TEXTO = (255, 255, 255)
-
-# A anatomia do bloco de titulo, do placar e da frase.
-CORPO_DO_SOBRETITULO = 40
-CORPO_DO_TITULO = 92
-CORPO_DO_PLACAR = 54
-CORPO_DA_FRASE = 44
-ALTURA_DA_PILULA = 76
-RECHEIO_DA_PILULA = 26
+COR_SOMBRA = (0, 0, 0)
 
 
 def caixas(quantos: int, regiao=REGIAO) -> list[tuple[int, int, int, int]]:
@@ -72,25 +55,40 @@ def caixas(quantos: int, regiao=REGIAO) -> list[tuple[int, int, int, int]]:
     return [grande] + _grade(resto, colunas=2, linhas=2)
 
 
-def caixa_da_frase() -> tuple[int, int, int, int]:
-    """Onde a pilula da frase comeca. A largura dela abraca o texto.
-
-    Abaixo da faixa de rostos, e nao por cima dela: era o degrade preto que
-    dava legibilidade a frase sobre a foto, e o degrade saiu do sistema.
-    """
-    _, y, _, altura = REGIAO
-    return (RECUO, y + altura + 24, TAMANHO[0] - 2 * RECUO, ALTURA_DA_PILULA)
-
-
-def caixa_do_placar(texto: str, cfg: dict) -> tuple[int, int, int, int]:
-    """A pilula do placar, encostada a direita e medida no texto de verdade."""
-    largura = _largura_da_pilula(texto, CORPO_DO_PLACAR, fontes_de(cfg)["mono"])
-    return (TAMANHO[0] - RECUO - largura, RECUO + 8, largura, ALTURA_DA_PILULA)
+def _partir(regiao, fracao: float):
+    """Corta a regiao em duas colunas, a primeira com `fracao` da largura util."""
+    x, y, largura, altura = regiao
+    esquerda = round((largura - VAO) * fracao)
+    return (
+        (x, y, esquerda, altura),
+        (x + esquerda + VAO, y, largura - esquerda - VAO, altura),
+    )
 
 
-def fontes_de(cfg: dict) -> dict:
-    """Os tres papeis de letra, os mesmos do video."""
-    return estudio.fontes_de(cfg)
+def _colunas(regiao, quantas: int):
+    x, y, largura, altura = regiao
+    passo = (largura - VAO * (quantas - 1)) / quantas
+    return [
+        (x + round(indice * (passo + VAO)), y, round(passo), altura)
+        for indice in range(quantas)
+    ]
+
+
+def _linhas(regiao, quantas: int):
+    x, y, largura, altura = regiao
+    passo = (altura - VAO * (quantas - 1)) / quantas
+    return [
+        (x, y + round(indice * (passo + VAO)), largura, round(passo))
+        for indice in range(quantas)
+    ]
+
+
+def _grade(regiao, colunas: int, linhas: int):
+    """Na ordem de leitura: a cara mais forte primeiro, em cima e a esquerda."""
+    saida = []
+    for faixa in _linhas(regiao, linhas):
+        saida.extend(_colunas(faixa, colunas))
+    return saida
 
 
 def rostos(
@@ -140,7 +138,7 @@ def fonte_que_cabe(texto: str, largura: int, tamanho: int, arquivo: Path | None)
     O PIL mede o texto de verdade, entao aqui nao ha chute: a frase da capa
     encolhe ate caber em vez de sair cortada.
     """
-    from PIL import ImageDraw
+    from PIL import ImageDraw, ImageFont
 
     if not texto:
         return tamanho
@@ -160,23 +158,25 @@ def gerar(
     executar: Callable[[list[str]], None] | None = None,
 ) -> Path:
     """Compoe a `capa.jpg` na pasta de saida do jogo."""
+    from PIL import Image
+
     cadastrados = mod_times.carregar() if cadastrados is None else cadastrados
     pasta_jogo = Path(pasta_jogo)
     partida = dados.get("partida") or {}
     alvo = mod_times.achar(dados_receita.get("torcida_alvo", ""), cadastrados)
-    letras = fontes_de(cfg)
+    fonte = estudio.fonte_de(cfg)
 
-    # Superficie chapada: nada de degrade, nada de vinheta, nada de atmosfera.
     tela = _tela(TAMANHO, _rgb(alvo["cor"]))
+    _escurecer_bordas(tela)
 
     quadros = rostos(pasta_jogo, dados, dados_receita, cfg, executar)
     for imagem, caixa in zip(quadros, caixas(len(quadros))):
         _colar(tela, imagem, caixa)
 
     textos = dados_receita.get("textos") or {}
-    _titulo(tela, alvo, letras)
-    _placar(tela, partida, letras, cfg)
-    _frase(tela, textos.get("frase_da_capa") or "", letras)
+    _titulo(tela, alvo, fonte)
+    _placar(tela, partida, fonte)
+    _frase(tela, textos.get("frase_da_capa") or "", fonte)
 
     pasta = pasta_jogo / PASTA_SAIDA
     pasta.mkdir(parents=True, exist_ok=True)
@@ -203,24 +203,25 @@ def _fonte(arquivo: Path | None, tamanho: int):
 
 
 def _rgb(cor: str) -> tuple[int, int, int]:
-    cor = (cor or molde.COR_FUNDO).lstrip("#")
+    cor = (cor or "#101418").lstrip("#")
     return tuple(int(cor[i:i + 2], 16) for i in (0, 2, 4))
 
 
-def _rgb_do_molde(cor: str) -> tuple[int, int, int]:
-    """`#d4d4d4` do molde no RGB que o Pillow desenha."""
-    limpa = cor.lstrip("#")
-    return tuple(int(limpa[i:i + 2], 16) for i in (0, 2, 4))
+def _escurecer_bordas(tela) -> None:
+    """Degrade escuro de baixo para cima: e o que faz a frase ser legivel."""
+    from PIL import Image, ImageDraw
 
-
-def _fio_rgba() -> tuple[int, int, int, int]:
-    """O `white@0.22` do molde, para a foto ter o mesmo fio que o quadro."""
-    alfa = float(molde.COR_FIO.split("@")[1]) if "@" in molde.COR_FIO else 1.0
-    return (255, 255, 255, round(255 * alfa))
+    largura, altura = tela.size
+    escuro = Image.new("RGBA", tela.size, (0, 0, 0, 0))
+    desenho = ImageDraw.Draw(escuro)
+    for y in range(altura):
+        # Preto quase nada em cima, preto forte embaixo.
+        alfa = int(210 * (y / altura) ** 2)
+        desenho.line([(0, y), (largura, y)], fill=(0, 0, 0, alfa))
+    tela.paste(Image.alpha_composite(tela.convert("RGBA"), escuro).convert("RGB"), (0, 0))
 
 
 def _colar(tela, arquivo: Path, caixa) -> None:
-    """A foto em `{rounded.lg}` com fio de cabelo. Nada de caixilho branco."""
     from PIL import Image, ImageDraw
 
     x, y, largura, altura = caixa
@@ -231,127 +232,43 @@ def _colar(tela, arquivo: Path, caixa) -> None:
     )
     esquerda = (rosto.width - largura) // 2
     topo = (rosto.height - altura) // 2
-    rosto = rosto.crop((esquerda, topo, esquerda + largura, topo + altura))
-
-    mascara = Image.new("L", (largura, altura), 0)
-    ImageDraw.Draw(mascara).rounded_rectangle(
-        (0, 0, largura - 1, altura - 1), radius=CANTOS, fill=255
-    )
-    tela.paste(rosto, (x, y), mascara)
-
-    fio = Image.new("RGBA", (largura, altura), (0, 0, 0, 0))
-    ImageDraw.Draw(fio).rounded_rectangle(
-        (0, 0, largura - 1, altura - 1), radius=CANTOS, outline=_fio_rgba(), width=FIO
-    )
-    tela.paste(
-        Image.alpha_composite(
-            tela.crop((x, y, x + largura, y + altura)).convert("RGBA"), fio
-        ).convert("RGB"),
-        (x, y),
+    tela.paste(rosto.crop((esquerda, topo, esquerda + largura, topo + altura)), (x, y))
+    ImageDraw.Draw(tela).rectangle(
+        (x, y, x + largura - 1, y + altura - 1), outline=(255, 255, 255), width=4
     )
 
 
-def _largura_da_pilula(texto: str, corpo: int, arquivo: Path | None) -> int:
-    """A pilula abraca o texto: o PIL mede, e por isso nao ha largura fixa."""
-    from PIL import ImageDraw
-
-    medidor = ImageDraw.Draw(_tela((10, 10), (0, 0, 0)))
-    largura = medidor.textlength(texto, font=_fonte(arquivo, corpo))
-    return round(largura) + 2 * RECHEIO_DA_PILULA
-
-
-def _pilula(tela, texto: str, caixa, corpo: int, arquivo: Path | None) -> None:
-    """Pilula branca com texto preto - o unico cromado do sistema."""
+def _texto(tela, texto: str, posicao, tamanho: int, fonte, ancora="la") -> None:
     from PIL import ImageDraw
 
     if not texto:
         return
-    x, y, _, altura = caixa
-    largura = _largura_da_pilula(texto, corpo, arquivo)
     desenho = ImageDraw.Draw(tela)
-    # O fio de contorno pelo mesmo motivo do video: a capa vai aparecer sobre
-    # miniatura clara e escura, e pilula branca sem fio se dissolve na clara.
-    desenho.rounded_rectangle(
-        (x, y, x + largura - 1, y + altura - 1),
-        radius=altura // 2, fill=COR_PILULA,
-        outline=_rgb_do_molde(molde.COR_FIO_FORTE), width=FIO,
-    )
-    desenho.text(
-        (x + RECHEIO_DA_PILULA, y + altura // 2), texto,
-        font=_fonte(arquivo, corpo), fill=COR_NA_PILULA, anchor="lm",
-    )
+    letra = _fonte(fonte, tamanho)
+    x, y = posicao
+    # Sombra dura atras: a capa vai aparecer sobre miniatura clara e escura.
+    desenho.text((x + 3, y + 3), texto, font=letra, fill=COR_SOMBRA, anchor=ancora)
+    desenho.text((x, y), texto, font=letra, fill=COR_TEXTO, anchor=ancora)
 
 
-def _texto(tela, texto: str, posicao, corpo: int, arquivo: Path | None, ancora="la"):
-    from PIL import ImageDraw
-
-    if not texto:
-        return
-    ImageDraw.Draw(tela).text(
-        posicao, texto, font=_fonte(arquivo, corpo), fill=COR_TEXTO, anchor=ancora
-    )
+def _titulo(tela, alvo: dict, fonte) -> None:
+    _texto(tela, "REAÇÕES", (44, 40), 58, fonte)
+    _texto(tela, alvo["adjetivo"] or alvo["curto"] or alvo["nome"].upper(),
+           (44, 104), 92, fonte)
 
 
-def _titulo(tela, alvo: dict, letras: dict) -> None:
-    """"REAÇÕES" na sans do sistema; o adjetivo da torcida no display."""
-    _texto(tela, "REAÇÕES", (RECUO, RECUO), CORPO_DO_SOBRETITULO, letras["sans"])
-    _texto(
-        tela,
-        alvo["adjetivo"] or alvo["curto"] or alvo["nome"].upper(),
-        (RECUO, RECUO + CORPO_DO_SOBRETITULO + 18),
-        CORPO_DO_TITULO,
-        letras["display"],
-    )
-
-
-def _placar(tela, partida: dict, letras: dict, cfg: dict) -> None:
+def _placar(tela, partida: dict, fonte) -> None:
     if "gols_mandante" not in partida:
         return
-    texto = f"{partida['gols_mandante']} x {partida['gols_visitante']}"
-    _pilula(tela, texto, caixa_do_placar(texto, cfg), CORPO_DO_PLACAR, letras["mono"])
+    _texto(
+        tela,
+        f"{partida['gols_mandante']} x {partida['gols_visitante']}",
+        (TAMANHO[0] - 44, 48), 84, fonte, ancora="ra",
+    )
 
 
-def _frase(tela, frase: str, letras: dict) -> None:
+def _frase(tela, frase: str, fonte) -> None:
     if not frase:
         return
-    caixa = caixa_da_frase()
-    corpo = fonte_que_cabe(
-        frase, caixa[2] - 2 * RECHEIO_DA_PILULA, CORPO_DA_FRASE, letras["sans"]
-    )
-    _pilula(tela, frase, caixa, corpo, letras["sans"])
-
-
-def _partir(regiao, fracao: float):
-    """Corta a regiao em duas colunas, a primeira com `fracao` da largura util."""
-    x, y, largura, altura = regiao
-    esquerda = round((largura - VAO) * fracao)
-    return (
-        (x, y, esquerda, altura),
-        (x + esquerda + VAO, y, largura - esquerda - VAO, altura),
-    )
-
-
-def _colunas(regiao, quantas: int):
-    x, y, largura, altura = regiao
-    passo = (largura - VAO * (quantas - 1)) / quantas
-    return [
-        (x + round(indice * (passo + VAO)), y, round(passo), altura)
-        for indice in range(quantas)
-    ]
-
-
-def _linhas(regiao, quantas: int):
-    x, y, largura, altura = regiao
-    passo = (altura - VAO * (quantas - 1)) / quantas
-    return [
-        (x, y + round(indice * (passo + VAO)), largura, round(passo))
-        for indice in range(quantas)
-    ]
-
-
-def _grade(regiao, colunas: int, linhas: int):
-    """Na ordem de leitura: a cara mais forte primeiro, em cima e a esquerda."""
-    saida = []
-    for faixa in _linhas(regiao, linhas):
-        saida.extend(_colunas(faixa, colunas))
-    return saida
+    corpo = fonte_que_cabe(frase, TAMANHO[0] - 88, 64, fonte)
+    _texto(tela, frase, (TAMANHO[0] // 2, TAMANHO[1] - 48), corpo, fonte, ancora="ms")

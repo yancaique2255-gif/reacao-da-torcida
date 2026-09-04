@@ -19,20 +19,7 @@ from nucleo import catalogo, cortador, estudio, molde, receita
 
 CFG = {
     "caminho_ffmpeg": r"C:\yt-dlp\ffmpeg.exe",
-    "fonte_display": r"C:\Windows\Fonts\bahnschrift.ttf",
-    "fonte_sans": r"C:\Windows\Fonts\segoeuib.ttf",
-    "fonte_mono": r"C:\Windows\Fonts\consolab.ttf",
     "fonte_cartela": r"C:\Windows\Fonts\arialbd.ttf",
-}
-TIMES = {
-    "gremio": {
-        "nome": "Grêmio", "torcida": "gremio", "apelido": "GREMISTAS",
-        "adjetivo": "GREMISTAS", "curto": "GRÊMIO", "cor": "#0d80bf", "escudo": "",
-    },
-    "internacional": {
-        "nome": "Internacional", "torcida": "inter", "apelido": "COLORADOS",
-        "adjetivo": "COLORADAS", "curto": "INTER", "cor": "#c8102e", "escudo": "",
-    },
 }
 
 
@@ -96,10 +83,8 @@ class Tropecando(Executor):
 
 
 def _jogo(pasta: Path, gols=(1,)) -> dict:
-    # Nome de pasta como o de verdade: a data da cartela sai dele.
     dados = catalogo.registrar_partida(
-        catalogo.novo("2026-09-03 gremio x internacional"),
-        "copa-do-brasil", "Grêmio", "Internacional",
+        catalogo.novo(pasta.name), "copa-do-brasil", "Grêmio", "Internacional"
     )
     dados = catalogo.registrar_placar(dados, 3, 1)
     for numero in gols:
@@ -193,8 +178,8 @@ def test_a_cartela_abre_cada_gol(tmp_path: Path):
 
     estudio.montar(tmp_path, dados, receita.padrao(dados), CFG, executar=executor)
 
-    assert executor.texto().count("GOL 01") == 1
-    assert executor.texto().count("GOL 02") == 1
+    assert executor.texto().count("GOL 1") == 1
+    assert executor.texto().count("GOL 2") == 1
 
 
 def test_o_placar_do_quadro_e_o_do_gol_que_esta_passando(tmp_path: Path):
@@ -291,14 +276,14 @@ def test_limpar_devolve_o_espaco(tmp_path: Path):
     assert estudio.tamanho_do_cache(tmp_path) == 0
 
 
-def test_as_formas_do_quadro_saem_do_tamanho_do_quadro(tmp_path: Path):
+def test_as_mascaras_saem_do_tamanho_do_quadro(tmp_path: Path):
     """Os cantos arredondados e a borda saem do molde, e nao de um numero solto."""
     from PIL import Image
 
-    formas = estudio.formas_do_molde(tmp_path, "deitado")
+    mascara, moldura = estudio.mascaras(tmp_path, "deitado")
 
-    assert Image.open(formas["mascara"]).size == (1728, 972)
-    assert Image.open(formas["moldura"]).size == (1728, 972)
+    assert Image.open(mascara).size == (1728, 972)
+    assert Image.open(moldura).size == (1728, 972)
 
 
 def test_o_render_avisa_quando_o_cache_passa_do_teto(tmp_path: Path):
@@ -339,11 +324,10 @@ def test_o_quadro_mostra_so_os_numeros_do_placar(tmp_path: Path):
         " ".join(c) for c in executor.comandos if "alphamerge" in " ".join(c)
     )
     assert estudio.numeros_do_gol(dados, 1) == "1 x 0"
-    assert "GRÊMIO" not in dos_quadros and "INTER " not in dos_quadros
+    assert "Internacional" not in dos_quadros
     assert dos_quadros.count("1 x 0") == 2, "um em cada quadro"
-    # Na cartela, que e tela cheia, o placar por extenso cabe e fica - com o
-    # nome `curto` do time, que e o que define o corpo do display.
-    assert "GRÊMIO 1 x 0 INTER" in executor.texto()
+    # Na cartela, que e tela cheia, o nome por extenso cabe e fica.
+    assert "Internacional" in executor.texto()
 
 
 def test_nome_de_canal_gigante_nao_estoura_a_etiqueta():
@@ -630,118 +614,10 @@ def test_render_morto_para_de_dizer_rodando_no_disco_tambem(tmp_path: Path):
     assert "parou sozinho" in guardado["mensagem"]
 
 
-# ------------------------------------------- o design do produto publicado
-
-def test_a_cartela_diz_o_placar_por_extenso_com_o_nome_curto(tmp_path: Path):
-    """A cartela saia escrita so "GOL 3". Agora ela e um bloco de quatro papeis.
-
-    O nome que vai nela e o `curto` do dados/times.json - "GRÊMIO 3 x 0 INTER" -
-    e nao o nome por extenso, que estoura a linha no pior caso.
-    """
-    dados = _jogo(tmp_path)
-
-    peca = estudio.cartela_do_gol(dados, 1, TIMES)
-
-    assert peca["marca"] == "GOL 01"
-    assert peca["titulo"] == "GRÊMIO 1 x 0 INTER"
-    assert "COPA DO BRASIL" in peca["meta"]
-    assert "03/09/2026" in peca["meta"]
-
-
-def test_a_cartela_sem_placar_anotado_mostra_os_times_sem_numero(tmp_path: Path):
-    """Dizer o que se sabe, e nunca inventar um numero na tela."""
-    dados = _jogo(tmp_path)
-    for gol in dados["gols"]:
-        gol.pop("placar", None)
-
-    peca = estudio.cartela_do_gol(dados, 1, TIMES)
-
-    assert peca["titulo"] == "GRÊMIO x INTER"
-    assert "0" not in peca["titulo"]
-
-
-def test_a_marca_do_gol_tem_sempre_dois_digitos(tmp_path: Path):
-    """`GOL 03` e nao `GOL 3`: mono com largura fixa nao pode dancar na tela."""
-    dados = _jogo(tmp_path, gols=(1, 2))
-
-    assert estudio.cartela_do_gol(dados, 2, TIMES)["marca"] == "GOL 02"
-
-
-def test_as_tres_letras_saem_da_configuracao():
-    letras = estudio.fontes_de(CFG)
-
-    assert set(letras) == set(molde.LETRAS)
-    assert letras["display"].name == "bahnschrift.ttf"
-    assert letras["sans"].name == "segoeuib.ttf"
-    assert letras["mono"].name == "consolab.ttf"
-
-
-def test_a_letra_que_falta_cai_para_a_herdada():
-    """Fonte que nao existe na maquina nao pode custar o render."""
-    letras = estudio.fontes_de({"fonte_cartela": r"C:\Windows\Fonts\arialbd.ttf"})
-
-    assert {p.name for p in letras.values()} == {"arialbd.ttf"}
-
-
-def test_as_formas_do_molde_saem_uma_vez_e_sao_reaproveitadas(tmp_path: Path):
-    """Canto arredondado no ffmpeg puro daria um `geq` caro e ilegivel."""
-    primeiras = estudio.formas_do_molde(tmp_path, "deitado")
-
-    assert set(primeiras) >= {"mascara", "moldura", "etiqueta", "torcida", "placar"}
-    for arquivo in primeiras.values():
-        assert arquivo.is_file(), arquivo
-    assert estudio.formas_do_molde(tmp_path, "deitado") == primeiras
-
-
-def test_a_pilula_do_png_e_branca_no_meio_e_vazia_no_canto(tmp_path: Path):
-    """`rounded.full` de verdade: o canto da pilula tem de estar transparente."""
-    from PIL import Image
-
-    formas = estudio.formas_do_molde(tmp_path, "deitado")
-    pilula = Image.open(formas["etiqueta"]).convert("RGBA")
-    caixa = molde.caixa("etiqueta", "deitado")
-
-    assert pilula.size == (caixa["largura"], caixa["altura"])
-    assert pilula.getpixel((caixa["largura"] // 2, caixa["altura"] // 2)) == (
-        255, 255, 255, 255
-    )
-    assert pilula.getpixel((0, 0))[3] == 0, "o canto da pilula tem de ser vazio"
-
-
-def test_a_pilula_tem_fio_de_contorno_para_nao_sumir_no_branco(tmp_path: Path):
-    """Transmissao tem cromado branco proprio, e pilula branca sobre ele nao aparece.
-
-    Visto na primeira prova no jogo de verdade: a pilula do placar caiu em cima
-    da barra de patrocinadores do canal, que e branca, e sumiu. O sistema de
-    origem ja tem a resposta - o `button-secondary` dele e branco com fio de
-    `{colors.hairline-strong}`, que e justamente uma superficie branca que
-    precisa se destacar de outra branca.
-    """
-    from PIL import Image
-
-    formas = estudio.formas_do_molde(tmp_path, "deitado")
-    pilula = Image.open(formas["placar"]).convert("RGBA")
-    caixa = molde.caixa("placar", "deitado")
-
-    meio = pilula.getpixel((caixa["largura"] // 2, caixa["altura"] // 2))
-    borda = pilula.getpixel((caixa["largura"] // 2, 1))
-    assert meio == (255, 255, 255, 255)
-    assert borda[3] == 255 and borda[0] < 240, f"o fio da pilula nao apareceu: {borda}"
-
-
-def test_o_item_manda_uma_entrada_de_imagem_por_forma(tmp_path: Path):
-    dados = _jogo(tmp_path)
-    executor = Executor()
-
-    estudio.montar(tmp_path, dados, receita.padrao(dados), CFG, executar=executor)
-
-    do_clipe = executor.comandos[1]
-    assert do_clipe.count("-loop") == len(estudio.ORDEM_DAS_FORMAS)
-
-
 def test_as_entradas_de_imagem_vao_limitadas_por_tempo(tmp_path: Path):
     """Medido em 03/09: limitar as entradas de imagem com `-t` fez 3 de 4
-    passarem, contra 1 de 3 sem isso. E a mitigacao do travamento do ffmpeg."""
+    renders passarem, contra 1 de 3 sem isso. E a mitigacao barata do
+    travamento do ffmpeg que o laudo mediu."""
     dados = _jogo(tmp_path)
     executor = Executor()
 
@@ -749,20 +625,9 @@ def test_as_entradas_de_imagem_vao_limitadas_por_tempo(tmp_path: Path):
 
     do_clipe = executor.comandos[1]
     posicoes = [i for i, arg in enumerate(do_clipe) if arg == "-loop"]
+    assert posicoes, "o clipe tem de mandar as mascaras como entrada de imagem"
     for posicao in posicoes:
         assert "-t" in do_clipe[posicao:posicao + 4], do_clipe[posicao:posicao + 5]
-
-
-def test_o_nome_do_canal_e_a_torcida_vao_em_pilulas_separadas(tmp_path: Path):
-    dados = _jogo(tmp_path)
-    executor = Executor()
-
-    estudio.montar(tmp_path, dados, receita.padrao(dados), CFG, executar=executor)
-
-    texto = executor.texto()
-    assert "FARID GERMANO FILHO" in texto
-    assert "TORCIDA DO INTER" in texto
-    assert "torcida do inter" not in texto, "a segunda linha da tarja velha saiu"
 
 
 def test_anotar_um_pid_novo_nao_herda_a_morte_do_pid_velho(tmp_path: Path):

@@ -10,13 +10,10 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from nucleo import capa, catalogo, molde, receita
+from nucleo import capa, catalogo, receita
 
 CFG = {
     "caminho_ffmpeg": r"C:\yt-dlp\ffmpeg.exe",
-    "fonte_display": r"C:\Windows\Fonts\bahnschrift.ttf",
-    "fonte_sans": r"C:\Windows\Fonts\segoeuib.ttf",
-    "fonte_mono": r"C:\Windows\Fonts\consolab.ttf",
     "fonte_cartela": r"C:\Windows\Fonts\arialbd.ttf",
 }
 TIMES = {
@@ -182,97 +179,6 @@ def test_a_grade_nao_deixa_buraco(quantos):
     assert ocupado >= 0.92 * _area(capa.REGIAO), (
         f"{quantos} rosto(s) cobrem so {ocupado / _area(capa.REGIAO):.0%} da regiao"
     )
-
-
-# ------------------------------------------ o design do produto publicado
-
-def _parecido(achado, esperado, folga: int = 8) -> bool:
-    """A capa e JPEG: comparar pixel exato reprovaria pela compressao.
-
-    A folga de 8 e larga o bastante para o ruido do JPEG e estreita o bastante
-    para acusar o degrade que saiu (ele deixava o rodape quase preto).
-    """
-    return all(abs(a - b) <= folga for a, b in zip(achado, esperado))
-
-
-def _capa(tmp_path: Path, frase: str = "VERGONHA! INTER ELIMINADO EM CASA"):
-    dados = _jogo(tmp_path)
-    feita = receita.definir_textos(receita.padrao(dados), frase_da_capa=frase)
-    arquivo = capa.gerar(tmp_path, dados, feita, CFG, TIMES, executar=Rostos())
-    return Image.open(arquivo).convert("RGB")
-
-
-def test_a_capa_nao_tem_degrade_nenhum(tmp_path: Path):
-    """A regra numero um do sistema: superficie chapada, sem atmosfera.
-
-    A capa tinha um degrade preto de baixo para cima, para dar legibilidade a
-    frase por cima da foto. A frase passou a morar numa pilula branca, e o
-    degrade saiu: o canto de baixo tem de ser exatamente a cor do time, igual
-    ao de cima.
-    """
-    imagem = _capa(tmp_path)
-    cor = capa._rgb(TIMES["internacional"]["cor"])
-
-    for ponto in ((4, 4), (4, capa.TAMANHO[1] - 5),
-                  (capa.TAMANHO[0] - 5, capa.TAMANHO[1] - 5)):
-        assert _parecido(imagem.getpixel(ponto), cor), (ponto, imagem.getpixel(ponto))
-
-
-def test_a_frase_da_capa_mora_numa_pilula_branca(tmp_path: Path):
-    imagem = _capa(tmp_path)
-    caixa = capa.caixa_da_frase()
-
-    meio = imagem.getpixel((caixa[0] + 12, caixa[1] + caixa[3] // 2))
-    assert _parecido(meio, (255, 255, 255)), f"a pilula da frase nao apareceu: {meio}"
-
-
-def test_sem_frase_nenhuma_a_pilula_nao_aparece(tmp_path: Path):
-    """Pilula vazia e enfeite, e enfeite nao entra."""
-    imagem = _capa(tmp_path, frase="")
-    caixa = capa.caixa_da_frase()
-
-    assert _parecido(
-        imagem.getpixel((caixa[0] + 12, caixa[1] + caixa[3] // 2)),
-        capa._rgb(TIMES["internacional"]["cor"]),
-    )
-
-
-def test_o_placar_da_capa_mora_numa_pilula_branca(tmp_path: Path):
-    imagem = _capa(tmp_path)
-    caixa = capa.caixa_do_placar("3 x 1", CFG)
-
-    meio = imagem.getpixel((caixa[0] + 12, caixa[1] + caixa[3] // 2))
-    assert _parecido(meio, (255, 255, 255)), f"a pilula do placar nao apareceu: {meio}"
-
-
-def test_a_pilula_da_capa_tem_fio_para_nao_sumir_no_branco(tmp_path: Path):
-    """Mesma razao do video: a capa vai aparecer sobre miniatura clara e escura."""
-    imagem = _capa(tmp_path)
-    caixa = capa.caixa_da_frase()
-
-    borda = imagem.getpixel((caixa[0] + 40, caixa[1] + 1))
-    assert _parecido(borda, capa._rgb_do_molde(molde.COR_FIO_FORTE), folga=14), borda
-
-
-def test_o_rosto_tem_canto_arredondado_e_nao_caixilho_branco(tmp_path: Path):
-    """`{rounded.lg}` com fio de cabelo - e nao a borda branca de 4 px de antes."""
-    imagem = _capa(tmp_path)
-    x, y, largura, altura = capa.caixas(2)[0]
-    cor = capa._rgb(TIMES["internacional"]["cor"])
-
-    assert _parecido(imagem.getpixel((x + 1, y + 1)), cor), (
-        f"o canto do rosto tem de ser vazado: {imagem.getpixel((x + 1, y + 1))}"
-    )
-    meio = imagem.getpixel((x + largura // 2, y + altura // 2))
-    assert meio[1] > meio[0] and meio[1] > meio[2], f"o rosto nao foi colado: {meio}"
-
-
-def test_a_capa_usa_as_tres_letras_e_nao_a_arial(tmp_path: Path):
-    letras = capa.fontes_de(CFG)
-
-    assert letras["display"].name == "bahnschrift.ttf"
-    assert letras["sans"].name == "segoeuib.ttf"
-    assert letras["mono"].name == "consolab.ttf"
 
 
 def test_com_tres_canais_nenhum_quadrante_fica_vazio(tmp_path: Path):
