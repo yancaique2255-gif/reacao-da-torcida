@@ -6,17 +6,21 @@
 <title>Reação da Torcida — gravação</title>
 <style>
   :root {
-    --fundo: #0f1115;
-    --caixa: #171a21;
-    --caixa-2: #1e222c;
-    --linha: #242833;
-    --texto: #e7e9ee;
-    --fraco: #8b93a7;
-    --viva: #35d07f;
-    --morta: #ff5c5c;
-    --alerta: #ffb020;
-    --info: #63a9ff;
-    --gol: #e5342b;
+    color-scheme: light;
+    /* O sistema da Ollama: uma folha de papel, e o preto como unica marca.
+       O vocabulario inteiro esta no DESIGN.md. */
+    --fundo: #ffffff;
+    --caixa: #ffffff;
+    --caixa-2: #fafafa;
+    --linha: #e5e5e5;
+    --fio-forte: #d4d4d4;
+    --texto: #000000;
+    --fraco: #737373;
+    --escuro: #171717;
+    --viva: #027a48;
+    --morta: #b42318;
+    --alerta: #b54708;
+    --info: #1849a9;
   }
   * { box-sizing: border-box; }
   body {
@@ -43,19 +47,21 @@
   .jogo h2 { font-size: 16px; margin: 0 0 10px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .placar { color: var(--fraco); font-weight: 400; font-size: 14px; }
   .barra-gol { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 12px; flex-wrap: wrap; }
+  /* Pilula para tudo o que se aperta, e o preto so na acao principal. */
   button {
-    border: 0; border-radius: 9px; padding: 10px 16px; font: inherit;
-    font-weight: 700; cursor: pointer; color: #fff; background: var(--linha);
+    border: 1px solid var(--fio-forte); border-radius: 999px;
+    padding: 8px 20px; font: inherit; font-weight: 500; cursor: pointer;
+    color: var(--texto); background: var(--caixa); min-height: 36px;
   }
-  button:hover { filter: brightness(1.15); }
+  button:hover { background: var(--caixa-2); }
   button:active { transform: translateY(1px); }
   .marcar {
-    background: var(--gol); font-size: 17px; padding: 15px 26px;
-    letter-spacing: .4px; box-shadow: 0 3px 0 #8f1f19;
+    background: var(--texto); color: var(--fundo); border-color: var(--texto);
+    font-size: 17px; padding: 14px 28px; min-height: 52px;
   }
-  .marcar:active { box-shadow: 0 1px 0 #8f1f19; }
+  .marcar:hover { background: var(--escuro); }
   .marcar kbd {
-    background: rgba(255,255,255,.22); border-radius: 5px;
+    background: rgba(255,255,255,.22); border-radius: 999px;
     padding: 1px 7px; margin-left: 10px; font: 600 13px/1 "Segoe UI", sans-serif;
   }
   .marcas { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -85,7 +91,7 @@
   tr:last-child td { border-bottom: none; }
   td.num { text-align: right; font-variant-numeric: tabular-nums; }
   .bola { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 8px; }
-  .viva .bola { background: var(--viva); box-shadow: 0 0 8px var(--viva); }
+  .viva .bola { background: var(--viva); }
   .morta .bola { background: var(--morta); }
   .morta td { color: var(--morta); }
   .morta .canal { font-weight: 600; }
@@ -142,8 +148,8 @@
   #lupa .espn { color: var(--viva); font-weight: 700; font-variant-numeric: tabular-nums; }
   #lupa .sem-espn { color: var(--alerta); font-size: 13px; }
   #recado {
-    position: fixed; right: 20px; bottom: 20px; background: var(--gol);
-    color: #fff; font-weight: 700; padding: 13px 20px; border-radius: 10px;
+    position: fixed; right: 20px; bottom: 20px; background: var(--escuro);
+    color: var(--fundo); font-weight: 500; padding: 13px 20px; border-radius: 12px;
     opacity: 0; transition: opacity .25s; pointer-events: none;
   }
   #recado.aparece { opacity: 1; pointer-events: auto; }

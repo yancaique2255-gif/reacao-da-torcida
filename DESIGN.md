@@ -17,6 +17,41 @@ a bateria reprova se um divergir.
 
 ---
 
+---
+
+## 0. EM MIGRAÇÃO — o sistema da Ollama
+
+**Estado em 04/09/2026: começado, não terminado.** As três telas estão migrando
+para o sistema descrito em <https://getdesign.md/ollama/design-md>: folha de
+papel branca, preto como única marca, fio de cabelo no lugar de sombra, pílula
+para tudo o que se aperta, e **uma única superfície invertida por tela**.
+
+O arquivo cru daquele sistema está em
+`https://raw.githubusercontent.com/VoltAgent/awesome-design-md/HEAD/design-md/ollama/DESIGN.md`
+— a página do site é aplicação JS e não serve para ler.
+
+**Já feito:**
+- Os tokens das três telas (`gravacao.html`, `pagina.html`, `edicao.html`) — a
+  tabela da seção 2 abaixo já é a nova.
+- Fundo chapado: saiu o degradê radial das três telas.
+- Saíram as sombras (`box-shadow`) e o brilho da bolinha viva.
+- A letra passou a ser a do sistema (`ui-sans-serif`), sem a Inter na frente.
+- `gravacao.html`: botões viraram pílula; MARCAR GOL virou a pílula preta; o
+  recado flutuante virou a faixa escura.
+
+**Falta:**
+- `edicao.html` e `pagina.html`: botões, `select` e `input` ainda com canto de
+  9 px — têm de virar pílula (`999px`); cartão tem de ir para 12 px.
+- O botão RENDER FINAL do `edicao.html` ainda é âmbar: é a ação principal
+  daquela tela, tem de virar a pílula preta (`--texto` com `--fundo`).
+- Conferir contraste de `--viva`/`--morta`/`--alerta` sobre branco nas três
+  telas (os valores já foram escurecidos para isso, falta olhar).
+- Reescrever as seções 1, 6 e 7 deste documento: o texto ainda argumenta
+  "escuro sempre", que era a decisão anterior.
+- Rodar as três telas e olhar.
+
+---
+
 ## 1. Tema visual e atmosfera
 
 Sala escura, jogo na TV, painel num monitor lateral. Quem olha não está lendo: está
@@ -45,17 +80,18 @@ inventando, não a paleta.
 
 | Token | Valor | Papel |
 | --- | --- | --- |
-| `--fundo` | `#0f1115` | Fundo da página. Nada mais usa. |
-| `--caixa` | `#171a21` | Superfície de cartão, tabela, quadro. |
-| `--caixa-2` | `#1e222c` | Segunda camada: botão dentro de cartão, cabeçalho de tabela. |
-| `--linha` | `#242833` | Toda borda e todo divisor. |
-| `--texto` | `#e7e9ee` | Texto normal. |
-| `--fraco` | `#8b93a7` | Rótulo, unidade, legenda, texto secundário. |
-| `--viva` | `#35d07f` | **Está funcionando**: canal gravando, corte pronto. |
-| `--morta` | `#ff5c5c` | **Parou**: canal caído, corte que morreu no meio. |
-| `--alerta` | `#ffb020` | **Anda, mas confira**: cortando agora, cobertura parcial, medida que discordou. |
-| `--info` | `#63a9ff` | Ação neutra que abre outra coisa (abrir pasta, ver quadro). |
-| `--gol` | `#e5342b` | Só o botão MARCAR GOL. Mais nada no projeto tem direito a este vermelho. |
+| `--fundo` | `#ffffff` | A folha de papel. A página inteira, sem alternância de superfície. |
+| `--caixa` | `#ffffff` | Cartão, tabela, quadro. É a mesma folha: quem separa é o fio, não a cor. |
+| `--caixa-2` | `#fafafa` | Superfície suave: campo, pílula de controle, cabeçalho de tabela. |
+| `--linha` | `#e5e5e5` | O fio de cabelo. Toda borda e todo divisor. |
+| `--fio-forte` | `#d4d4d4` | O fio um pouco mais forte: contorno de botão secundário. |
+| `--texto` | `#000000` | Tinta. Título, texto normal, rótulo de botão. |
+| `--fraco` | `#737373` | Rótulo, unidade, legenda, texto secundário. |
+| `--escuro` | `#171717` | **A única superfície invertida.** Uma por tela, e nada mais. |
+| `--viva` | `#027a48` | **Está funcionando**: canal gravando, corte pronto. |
+| `--morta` | `#b42318` | **Parou**: canal caído, corte que morreu no meio. |
+| `--alerta` | `#b54708` | **Anda, mas confira**: cortando agora, cobertura parcial, medida que discordou. |
+| `--info` | `#1849a9` | Ação neutra que abre outra coisa (abrir pasta, ver quadro). |
 
 **Fundo colorido é a cor a 16% sobre a caixa**, nunca a cor cheia:
 `background: rgba(53,208,127,.16)` com `color: var(--viva)`. Cor cheia com texto por cima
@@ -67,7 +103,8 @@ não passa em contraste e grita mais alto que o gol.
   direito continua verde.
 - Vermelho não quer dizer "erro do usuário", quer dizer **parou**. Erro de digitação é
   âmbar.
-- `--gol` não é o vermelho de erro. São dois vermelhos diferentes de propósito: um chama
+- ~~`--gol` não é o vermelho de erro.~~ O `--gol` saiu na migração: MARCAR GOL passou a ser
+  a pílula preta, que é a ação principal daquela tela. Texto antigo, a reescrever: um chama
   para clicar, o outro avisa que algo caiu.
 
 ---
@@ -100,10 +137,10 @@ a coluna inteira dança a cada 3 segundos — o olho persegue o movimento e não
 
 | Variante | Fundo | Texto | Onde |
 | --- | --- | --- | --- |
-| normal | `--caixa-2` | `--texto` | ações comuns |
+| normal | `--caixa` | `--texto` | ações comuns, com fio `--fio-forte` |
 | perigo | `#3a1f22` | `#ff8b8b` | apagar, parar |
 | abrir | `#23303a` | `#9fd8ff` | abrir pasta, ver quadro |
-| gol | `--gol` | branco | só MARCAR GOL |
+| principal | `--texto` | `--fundo` | a pílula preta: MARCAR GOL, RENDER FINAL |
 
 Altura mínima 28px, `padding: 3px 8px` no compacto e `6px 12px` no normal.
 **Ação irreversível no meio do jogo pede `confirm()`** — parar a gravação por clique sem
