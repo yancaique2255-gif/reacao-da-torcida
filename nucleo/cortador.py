@@ -8,6 +8,15 @@ from typing import Callable
 
 from nucleo import relogio
 
+# Quinze minutos por comando. O item mais caro do render final levou 23 s
+# nesta maquina; um pedaco que passe disto nao esta trabalhando, esta travado -
+# medido em 03/09, com 0% de CPU e ~1,4 GB presos por 11 minutos. Sem
+# `timeout=`, o render espera para sempre e o painel fica "rodando" para sempre.
+TEMPO_LIMITE = 900
+LINHAS_DO_ERRO = 8
+# Travar e falhar doem igual para quem chamou: um `except` so serve aos dois.
+FALHAS = (subprocess.CalledProcessError, subprocess.TimeoutExpired)
+
 
 def _rodar_texto(comando: list[str]) -> str:
     return subprocess.run(comando, capture_output=True, text=True).stdout
@@ -33,8 +42,28 @@ def duracao(
         return 0.0
 
 
-def executar(comando: list[str]) -> None:
-    subprocess.run(comando, check=True, capture_output=True)
+def executar(comando: list[str], timeout: float | None = TEMPO_LIMITE) -> None:
+    subprocess.run(comando, check=True, capture_output=True, timeout=timeout)
+
+
+def motivo(erro: BaseException, linhas: int = LINHAS_DO_ERRO) -> str:
+    """As ultimas linhas do stderr do ffmpeg, em uma frase para o operador.
+
+    O `capture_output=True` engole o stderr, e quando o comando enfim quebrava o
+    console mostrava um traceback de Python - o operador nunca via o motivo. As
+    ultimas linhas sao onde o ffmpeg escreve o que deu errado; as primeiras sao
+    a lista de codecs.
+    """
+    bruto = getattr(erro, "stderr", None) or b""
+    if isinstance(bruto, bytes):
+        bruto = bruto.decode("utf-8", "replace")
+    cauda = "\n".join(bruto.strip().splitlines()[-linhas:]).strip()
+    if isinstance(erro, subprocess.TimeoutExpired):
+        cabeca = f"o ffmpeg travou: passou de {erro.timeout:g}s sem terminar"
+    else:
+        codigo = getattr(erro, "returncode", "?")
+        cabeca = f"o ffmpeg saiu com codigo {codigo}"
+    return f"{cabeca}\n{cauda}".strip() if cauda else cabeca
 
 
 def comando_audio(

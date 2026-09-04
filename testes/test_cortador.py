@@ -77,3 +77,72 @@ def test_duracao_le_o_numero_que_o_ffprobe_devolve():
 def test_duracao_de_arquivo_ilegivel_devolve_zero():
     """Pedaco truncado no fim da gravacao: nao pode estourar."""
     assert cortador.duracao(Path("a.ts"), "ffprobe", rodar=lambda c: "N/A\n") == 0.0
+
+
+# ---------------------------------------------- o ffmpeg que trava e o que ele diz
+
+import subprocess
+
+import pytest
+
+
+def test_executar_poe_tempo_limite_no_ffmpeg(monkeypatch):
+    """Sem `timeout=`, ffmpeg travado deixa o render esperando para sempre.
+
+    Medido em 03/09: travou com 0% de CPU e ~1,4 GB presos, por 11 minutos, ate
+    alguem matar na mao. O painel ficou "rodando" o tempo todo.
+    """
+    pedidos = {}
+
+    def falso(comando, **kwargs):
+        pedidos.update(kwargs)
+        return subprocess.CompletedProcess(comando, 0)
+
+    monkeypatch.setattr(cortador.subprocess, "run", falso)
+    cortador.executar(["ffmpeg", "-i", "a.ts", "b.mp4"])
+
+    assert pedidos["timeout"] == cortador.TEMPO_LIMITE
+    assert pedidos["check"] is True
+
+
+def test_executar_aceita_outro_tempo_limite(monkeypatch):
+    pedidos = {}
+    monkeypatch.setattr(
+        cortador.subprocess, "run",
+        lambda comando, **k: (pedidos.update(k), subprocess.CompletedProcess(comando, 0))[1],
+    )
+
+    cortador.executar(["ffmpeg"], timeout=30)
+
+    assert pedidos["timeout"] == 30
+
+
+def test_o_motivo_mostra_as_ultimas_linhas_do_stderr():
+    """O `capture_output` engolia o stderr, e o operador via um traceback de Python."""
+    erro = subprocess.CalledProcessError(
+        1, ["ffmpeg"],
+        stderr=b"\n".join(f"linha {n}".encode() for n in range(1, 21)),
+    )
+
+    recado = cortador.motivo(erro)
+
+    assert "linha 20" in recado
+    assert "linha 1\n" not in recado, "so as ultimas linhas, senao inunda o console"
+
+
+def test_o_motivo_de_um_travamento_diz_que_travou():
+    erro = subprocess.TimeoutExpired(["ffmpeg"], 900, stderr=b"frame=  120")
+
+    recado = cortador.motivo(erro)
+
+    assert "travou" in recado.lower() and "900" in recado
+
+
+def test_o_motivo_aguenta_erro_sem_stderr_nenhum():
+    assert cortador.motivo(subprocess.CalledProcessError(1, ["ffmpeg"]))
+
+
+def test_as_falhas_do_ffmpeg_pegam_travamento_e_codigo_de_erro():
+    """Quem chama precisa de um `except` so; travar e falhar doem igual."""
+    assert subprocess.CalledProcessError in cortador.FALHAS
+    assert subprocess.TimeoutExpired in cortador.FALHAS

@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from nucleo import catalogo, estudio, molde, receita
+from nucleo import catalogo, cortador, estudio, molde, receita
 
 CFG = {
     "caminho_ffmpeg": r"C:\yt-dlp\ffmpeg.exe",
@@ -56,6 +56,30 @@ class Morrendo(Executor):
         destino.write_bytes(b"\x00" * 48)
         if len(self.comandos) >= self.em:
             raise subprocess.CalledProcessError(1, comando, stderr=b"morri no meio")
+
+
+class Tropecando(Executor):
+    """ffmpeg que falha nas chamadas listadas e vai bem nas outras.
+
+    O travamento medido em 03/09 e intermitente - o mesmo item passou em 1 de
+    cada 3 tentativas. Refazer resolve; desistir na primeira, nao.
+    """
+
+    def __init__(self, falha_em=(), como=None):
+        super().__init__()
+        self.falha_em = set(falha_em)
+        self.como = como
+
+    def __call__(self, comando):
+        self.comandos.append(comando)
+        destino = Path(comando[-1])
+        destino.parent.mkdir(parents=True, exist_ok=True)
+        if len(self.comandos) in self.falha_em:
+            destino.write_bytes(b"\x00" * 48)
+            raise self.como or subprocess.CalledProcessError(
+                1, comando, stderr=b"tropecei"
+            )
+        destino.write_bytes(b"video de mentira")
 
 
 def _jogo(pasta: Path, gols=(1,)) -> dict:
@@ -360,7 +384,9 @@ def test_previa_recusada_pela_apu_sai_pelo_libx264(tmp_path: Path):
 def test_render_que_morreu_no_meio_nao_fica_rodando_para_sempre(tmp_path: Path):
     """Estado travado que nunca resolve e pior que erro: o operador espera um
     arquivo que nunca vem. Se o processo do render sumiu, a tela tem que dizer."""
-    estudio.anotar(tmp_path, rodando=True, feito=1, total=5, pid=999999)
+    # `pid_em` no passado: PID recem-criado tem carencia, porque o `tasklist`
+    # nao o enxerga na hora. O que este teste cobra e o depois da carencia.
+    estudio.anotar(tmp_path, rodando=True, feito=1, total=5, pid=999999, pid_em=0.0)
 
     estado = estudio.estado(tmp_path, vivo=lambda pid: False)
 
@@ -458,3 +484,141 @@ def test_lixo_do_render_antigo_no_cache_nao_conta_como_peca(tmp_path: Path):
     estudio.montar(tmp_path, dados, feita, CFG, executar=executor)
 
     assert len(executor.comandos) == 4, "cartela, dois clipes e a emenda"
+
+
+# ------------------------------------------------- o item que falha e refeito
+
+def test_o_item_que_falha_e_tentado_de_novo(tmp_path: Path):
+    """O travamento do ffmpeg e intermitente: 2 de cada 3 no mesmo item.
+
+    Com uma tentativa so, um travamento derrubava o render inteiro. Refazer o
+    item transforma "painel morto" em "item X falhou, refazendo".
+    """
+    dados = _jogo(tmp_path)
+    tropeco = Tropecando(falha_em=(2,))
+
+    estudio.montar(tmp_path, dados, receita.padrao(dados), CFG, executar=tropeco)
+
+    assert len(tropeco.comandos) == 5, "cartela, clipe que tropecou, ele de novo, clipe 2, emenda"
+    assert len(list(estudio.pasta_das_pecas(tmp_path).glob("*.mp4"))) == 3
+
+
+def test_o_item_que_nao_volta_derruba_o_render_dizendo_por_que(tmp_path: Path):
+    dados = _jogo(tmp_path)
+    ditos = []
+
+    with pytest.raises(cortador.FALHAS):
+        estudio.montar(
+            tmp_path, dados, receita.padrao(dados), CFG,
+            executar=Morrendo(em=1), avisar=ditos.append,
+        )
+
+    recado = "\n".join(ditos)
+    assert recado.count("refazendo") == estudio.TENTATIVAS - 1
+    assert "morri no meio" in recado, "as ultimas linhas do ffmpeg tem de aparecer"
+
+
+def test_render_que_falha_nao_deixa_o_disco_dizendo_que_esta_rodando(tmp_path: Path):
+    """Estado travado que nunca resolve e pior do que erro."""
+    dados = _jogo(tmp_path)
+
+    with pytest.raises(cortador.FALHAS):
+        estudio.montar(
+            tmp_path, dados, receita.padrao(dados), CFG,
+            executar=Morrendo(em=1), avisar=lambda t: None,
+        )
+
+    guardado = json.loads((tmp_path / estudio.NOME_ESTADO).read_text(encoding="utf-8"))
+    assert guardado["rodando"] is False
+    assert "morri no meio" in guardado["mensagem"]
+
+
+def test_o_travamento_tambem_e_tentado_de_novo(tmp_path: Path):
+    dados = _jogo(tmp_path)
+    tropeco = Tropecando(falha_em=(1,), como=subprocess.TimeoutExpired(["ffmpeg"], 900))
+
+    estudio.montar(tmp_path, dados, receita.padrao(dados), CFG, executar=tropeco)
+
+    assert len(list(estudio.pasta_das_pecas(tmp_path).glob("*.mp4"))) == 3
+
+
+def test_previa_que_TRAVA_na_apu_tambem_cai_para_o_libx264(tmp_path: Path):
+    """Encoder de APU nao falha so com codigo de erro - ele tambem trava.
+
+    Ficar sem previa por isso seria bobagem: o libx264 sempre existe e em
+    640x360 da conta.
+    """
+    dados = _jogo(tmp_path)
+    tentados = []
+
+    def executar(comando):
+        tentados.append(comando)
+        if "h264_amf" in comando:
+            raise subprocess.TimeoutExpired(comando, 900)
+        Path(comando[-1]).parent.mkdir(parents=True, exist_ok=True)
+        Path(comando[-1]).write_bytes(b"previa")
+
+    estudio.previa(
+        tmp_path, dados, receita.padrao(dados), 1, "farid-germano-filho",
+        {**CFG, "codec_previa": "h264_amf"}, executar=executar,
+    )
+
+    assert len(tentados) == 2
+    assert "libx264" in tentados[-1]
+
+
+# --------------------------------------------- o PID que acabou de nascer
+
+def test_pid_recem_nascido_nao_e_dado_por_morto(tmp_path: Path):
+    """O `tasklist` ainda nao enxerga o PID recem-criado.
+
+    Ao clicar RENDER, a resposta imediata dizia "o render parou sozinho antes de
+    terminar" - era a primeira coisa que o operador lia. Sumia no refresh
+    seguinte, o que e pior: ensina a ignorar o aviso que um dia sera verdade.
+    """
+    estudio.anotar(tmp_path, rodando=True, pid=4242)
+
+    assert estudio.estado(tmp_path, vivo=lambda p: False)["rodando"] is True
+
+
+def _render_no_disco(pasta: Path, **campos) -> None:
+    """Escreve o `render.json` na mao, sem passar pelo `anotar`.
+
+    E preciso: o `anotar` le o estado antes de gravar, e essa leitura ja
+    corrige. Para provar que a LEITURA grava a correcao, o arquivo tem de
+    chegar sujo ate ela.
+    """
+    (pasta / estudio.NOME_ESTADO).write_text(
+        json.dumps({"rodando": True, "feito": 3, "total": 16, "mensagem": "3 de 16",
+                    "saida": "", "pid": 4242, **campos}),
+        encoding="utf-8",
+    )
+
+
+def test_pid_que_sumiu_depois_da_carencia_e_dado_por_morto(tmp_path: Path):
+    _render_no_disco(tmp_path, pid_em=0.0)  # como se tivesse nascido em 1970
+
+    estado = estudio.estado(tmp_path, vivo=lambda p: False)
+
+    assert estado["rodando"] is False and "parou sozinho" in estado["mensagem"]
+
+
+def test_render_morto_para_de_dizer_rodando_no_disco_tambem(tmp_path: Path):
+    """Quem corrigia isso era so a leitura; o disco continuava mentindo."""
+    _render_no_disco(tmp_path, pid_em=0.0)
+
+    estudio.estado(tmp_path, vivo=lambda p: False)
+
+    guardado = json.loads((tmp_path / estudio.NOME_ESTADO).read_text(encoding="utf-8"))
+    assert guardado["rodando"] is False
+    assert "parou sozinho" in guardado["mensagem"]
+
+
+def test_estado_de_render_vivo_nao_reescreve_o_disco(tmp_path: Path):
+    """Ler nao pode escrever a toa: o render em andamento escreve o tempo todo."""
+    _render_no_disco(tmp_path, pid_em=0.0)
+    antes = (tmp_path / estudio.NOME_ESTADO).read_text(encoding="utf-8")
+
+    estudio.estado(tmp_path, vivo=lambda p: True)
+
+    assert (tmp_path / estudio.NOME_ESTADO).read_text(encoding="utf-8") == antes

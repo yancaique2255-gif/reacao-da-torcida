@@ -24,6 +24,7 @@ import json
 import os
 import shutil
 import subprocess
+import time
 from pathlib import Path
 from typing import Callable
 
@@ -47,6 +48,14 @@ TETO_CACHE_GB = 5
 VOLUME_ALVO = "loudnorm=I=-16:TP=-1.5:LRA=11"
 DURACAO_DA_CARTELA = 2.0
 PREVIA = (640, 360)
+# O travamento do ffmpeg e intermitente: o mesmo item, dez vezes, travou em ~2
+# de cada 3. Tres tentativas e o que faz um travamento virar um recado em vez
+# de um render morto.
+TENTATIVAS = 3
+# Quanto tempo depois de nascer um PID ainda conta como vivo sem o tasklist
+# confirmar. Medido: o `tasklist` demora alguns segundos para enxergar um
+# processo recem-criado.
+CARENCIA_DO_PID = 15.0
 
 _VIDEO_FINAL = [
     "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
@@ -66,7 +75,10 @@ def pasta_das_pecas(pasta_jogo: Path) -> Path:
     return pasta_cache(pasta_jogo) / PASTA_PECAS
 
 
-def fazer_peca(destino: Path, comando_de, executar, avisar, qual: str) -> None:
+def fazer_peca(
+    destino: Path, comando_de, executar, avisar, qual: str,
+    tentativas: int = TENTATIVAS,
+) -> None:
     """Renderiza para um nome temporario e batiza a peca so no fim.
 
     Arquivo truncado tem nome, tamanho e data de arquivo bom - nao ha como
@@ -74,16 +86,31 @@ def fazer_peca(destino: Path, comando_de, executar, avisar, qual: str) -> None:
     quem passou pelo ffmpeg com codigo zero, e e disso que o nome final vira
     prova. Foi o que faltou em 03/09: o `baldasso-tv` do gol 4 morreu no meio,
     e os dois renders seguintes reaproveitaram os 48 bytes que ele deixou.
+
+    Tenta de novo porque o travamento e intermitente: o mesmo item, repetido
+    dez vezes, travou em ~2 de cada 3. Refazer transforma "painel morto" em
+    "item X falhou, refazendo" - e quando nem assim volta, o que sobe para a
+    tela sao as ultimas linhas do ffmpeg, e nao um traceback de Python.
     """
     destino.parent.mkdir(parents=True, exist_ok=True)
     meio = destino.parent.parent / f"parcial-{destino.name}"
-    try:
-        executar(comando_de(meio))
-    except BaseException:
-        meio.unlink(missing_ok=True)
-        raise
-    os.replace(meio, destino)
-    avisar(f"pronto: {qual}")
+    for tentativa in range(1, max(1, tentativas) + 1):
+        try:
+            executar(comando_de(meio))
+        except cortador.FALHAS as erro:
+            meio.unlink(missing_ok=True)
+            recado = cortador.motivo(erro)
+            if tentativa >= max(1, tentativas):
+                avisar(f"FALHOU: {qual} - {recado}")
+                raise
+            avisar(f"{qual}: {recado}\nrefazendo ({tentativa + 1} de {tentativas})")
+            continue
+        except BaseException:
+            meio.unlink(missing_ok=True)
+            raise
+        os.replace(meio, destino)
+        avisar(f"pronto: {qual}")
+        return
 
 
 def identidade(origem: str, de: float, ate: float, filtro: str) -> str:
@@ -327,6 +354,7 @@ def montar(
     cfg: dict,
     executar: Callable[[list[str]], None] | None = None,
     avisar: Callable[[str], None] = print,
+    tentativas: int = TENTATIVAS,
 ) -> Path:
     """O video final. Roda peca por peca, reaproveitando o que nao mudou."""
     executar = executar or cortador.executar
@@ -384,22 +412,29 @@ def montar(
            pid=os.getpid(), mensagem=f"montando {total} peca(s)")
 
     pecas = []
-    for feito, (destino, comando_de, qual) in enumerate(tarefas, start=1):
-        if destino.is_file():
-            avisar(f"reaproveitado: {qual}")
-        else:
-            fazer_peca(destino, comando_de, executar, avisar, qual)
-        pecas.append(destino)
-        anotar(pasta_jogo, feito=feito, total=total,
-               mensagem=f"{feito} de {total}: {qual}")
-
     pasta_saida = pasta_jogo / PASTA_SAIDA
     pasta_saida.mkdir(parents=True, exist_ok=True)
     saida = pasta_saida / f"compilacao-{formato}.mp4"
-    executar(comando_concat(
-        escrever_lista(pecas, pasta_cache(pasta_jogo) / "lista.txt"), saida,
-        cfg["caminho_ffmpeg"],
-    ))
+    try:
+        for feito, (destino, comando_de, qual) in enumerate(tarefas, start=1):
+            if destino.is_file():
+                avisar(f"reaproveitado: {qual}")
+            else:
+                fazer_peca(destino, comando_de, executar, avisar, qual, tentativas)
+            pecas.append(destino)
+            anotar(pasta_jogo, feito=feito, total=total,
+                   mensagem=f"{feito} de {total}: {qual}")
+
+        executar(comando_concat(
+            escrever_lista(pecas, pasta_cache(pasta_jogo) / "lista.txt"), saida,
+            cfg["caminho_ffmpeg"],
+        ))
+    except cortador.FALHAS as erro:
+        # Estado travado que nunca resolve e pior do que erro: o operador fica
+        # esperando um arquivo que nunca vem. Quem corrigia isso era so a
+        # LEITURA do estado, e o disco continuava dizendo "rodando: true".
+        anotar(pasta_jogo, rodando=False, mensagem=cortador.motivo(erro))
+        raise
 
     anotar(pasta_jogo, rodando=False, feito=total, total=total,
            saida=str(saida), mensagem="pronto")
@@ -475,10 +510,11 @@ def previa(
     )
     try:
         executar(fazer(codec))
-    except subprocess.CalledProcessError:
-        # A APU pode estar ocupada, ou o ffmpeg da maquina pode nem ter o
-        # encoder dela. Ficar sem previa por isso seria bobagem: o libx264
-        # sempre existe, e em 640x360 ele da conta.
+    except cortador.FALHAS:
+        # A APU pode estar ocupada, o ffmpeg da maquina pode nem ter o encoder
+        # dela, e ela tambem TRAVA - nao falha so com codigo de erro. Ficar sem
+        # previa por isso seria bobagem: o libx264 sempre existe, e em 640x360
+        # ele da conta.
         if codec == "libx264":
             raise
         executar(fazer("libx264"))
@@ -533,7 +569,7 @@ def estado(pasta_jogo: Path, vivo=None) -> dict:
     o operador fica esperando um arquivo que nunca vem.
     """
     padrao = {"rodando": False, "feito": 0, "total": 0, "mensagem": "",
-              "saida": "", "pid": 0}
+              "saida": "", "pid": 0, "pid_em": 0.0}
     arquivo = Path(pasta_jogo) / NOME_ESTADO
     if not arquivo.is_file():
         return padrao
@@ -541,22 +577,43 @@ def estado(pasta_jogo: Path, vivo=None) -> dict:
         atual = {**padrao, **json.loads(arquivo.read_text(encoding="utf-8"))}
     except json.JSONDecodeError:
         return padrao
-    if atual["rodando"] and atual["pid"] and not (vivo or processo_vivo)(atual["pid"]):
-        return {
-            **atual, "rodando": False,
-            "mensagem": "o render parou sozinho antes de terminar - "
-                        "veja a janela dele e mande de novo",
-        }
-    return atual
+    if not (atual["rodando"] and atual["pid"]):
+        return atual
+    # Carencia: o `tasklist` nao enxerga na hora um PID recem-criado, e sem
+    # isto a resposta imediata ao clique no RENDER dizia "o render parou
+    # sozinho" - a primeira coisa que o operador lia. Sumia no refresh
+    # seguinte, o que e pior: ensina a ignorar o aviso que um dia sera verdade.
+    if time.time() - float(atual.get("pid_em") or 0.0) < CARENCIA_DO_PID:
+        return atual
+    if (vivo or processo_vivo)(atual["pid"]):
+        return atual
+
+    morto = {
+        **atual, "rodando": False,
+        "mensagem": "o render parou sozinho antes de terminar - "
+                    "veja a janela dele e mande de novo",
+    }
+    # Grava a correcao: antes disso quem corrigia era so a leitura, e o disco
+    # continuava dizendo "rodando: true" depois de o processo morrer.
+    _gravar(pasta_jogo, morto)
+    return morto
+
+
+def _gravar(pasta_jogo: Path, estado_novo: dict) -> None:
+    Path(pasta_jogo).mkdir(parents=True, exist_ok=True)
+    (Path(pasta_jogo) / NOME_ESTADO).write_text(
+        json.dumps(estado_novo, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
 
 
 def anotar(pasta_jogo: Path, **campos) -> dict:
     atual = estado(pasta_jogo)
     atual.update(campos)
-    Path(pasta_jogo).mkdir(parents=True, exist_ok=True)
-    (Path(pasta_jogo) / NOME_ESTADO).write_text(
-        json.dumps(atual, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    # Quem anota um PID esta anotando um processo que acabou de nascer: a hora
+    # vem junto, e e dela que sai a carencia da leitura.
+    if "pid" in campos and "pid_em" not in campos:
+        atual["pid_em"] = time.time()
+    _gravar(pasta_jogo, atual)
     return atual
 
 
