@@ -36,6 +36,18 @@ PADROES = {
     # em que o placar muda, os segundos DEPOIS do gol ainda estao sendo
     # baixados - e sao eles que trazem a reacao.
     "espera_para_cortar": 240,
+    # A capa e as etiquetas pedem uma condensada pesada; ate a fonte do
+    # repositorio entrar, e a Arial Bold, que existe em toda maquina Windows.
+    # O drawtext no Windows exige fontfile= explicito, senao falha com
+    # "Cannot find a valid font".
+    "fonte_cartela": r"C:\Windows\Fonts\arialbd.ttf",
+    # Os intermediarios do render sao uma copia inteira do video: 1 a 2 GB por
+    # jogo. Passando disto o painel avisa, e o operador limpa quando quiser.
+    "teto_cache_gb": 5,
+    # A APU encoda: medido nesta maquina, 11x tempo real em 640x360. A
+    # qualidade nao serve para o arquivo final, mas para conferir movimento e
+    # som numa previa e de sobra.
+    "codec_previa": "h264_amf",
     "caminho_ytdlp": r"C:\yt-dlp\yt-dlp.exe",
     "caminho_ffmpeg": r"C:\yt-dlp\ffmpeg.exe",
     # Conferido na maquina: o ffprobe NAO mora junto do ffmpeg do C:\yt-dlp.

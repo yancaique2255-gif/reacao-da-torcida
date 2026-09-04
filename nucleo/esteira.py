@@ -9,7 +9,8 @@ from pathlib import Path
 
 from nucleo import canais as mod_canais
 from nucleo import alinhamento, catalogo, config, cortador, detector
-from nucleo import ficha, gravador
+from nucleo import estudio, ficha, gravador
+from nucleo import receita
 from nucleo import importar, relogio, torcidas, vigia
 
 
@@ -695,6 +696,62 @@ def etapa_torcida(argv=None) -> int:
     return 0
 
 
+def etapa_render(argv=None) -> int:
+    """Monta o video do jogo a partir da receita. Casca fina: quem monta e o estudio.
+
+    Roda em processo proprio de proposito. O render final leva minutos nesta
+    maquina, e o painel precisa poder ser fechado e reaberto sem matar o
+    trabalho - o progresso mora em disco, como o do supervisor de gravacao.
+    """
+    p = argparse.ArgumentParser(description="Monta o video do jogo.")
+    p.add_argument("jogo", nargs="?", help="nome da pasta; sem isto, menu")
+    p.add_argument("--formato", default=None, choices=["deitado", "em-pe"])
+    args = p.parse_args(argv)
+    cfg = config.carregar()
+
+    jogo = args.jogo or escolher_jogo(Path(cfg["biblioteca"]))
+    if not jogo:
+        return 1
+    pasta_jogo = Path(cfg["biblioteca"]) / jogo
+
+    dados = catalogo.carregar(pasta_jogo)
+    edicao = receita.carregar(pasta_jogo, dados)
+    if args.formato and args.formato != edicao.get("formato"):
+        edicao["formato"] = args.formato
+    receita.salvar(pasta_jogo, edicao)
+
+    falar = lambda t: print(t, flush=True)  # noqa: E731
+    try:
+        saida = estudio.montar(pasta_jogo, dados, edicao, cfg, avisar=falar)
+    except ValueError as erro:
+        print(f"Nao montei: {erro}")
+        estudio.anotar(pasta_jogo, rodando=False, mensagem=str(erro))
+        return 2
+    print(f"Pronto: {saida}")
+    if estudio.passou_do_teto(pasta_jogo, cfg):
+        tamanho = estudio.tamanho_do_cache(pasta_jogo) / 1024**3
+        print(
+            f"AVISO: os intermediarios ja somam {tamanho:.1f} GB neste jogo.\n"
+            f'  python -m nucleo.esteira limpar "{jogo}"'
+        )
+    return 0
+
+
+def etapa_limpar(argv=None) -> int:
+    """Apaga os intermediarios de um jogo. Perder o cache custa um render."""
+    p = argparse.ArgumentParser(description="Apaga os intermediarios do render.")
+    p.add_argument("jogo", nargs="?", help="nome da pasta; sem isto, menu")
+    args = p.parse_args(argv)
+    cfg = config.carregar()
+
+    jogo = args.jogo or escolher_jogo(Path(cfg["biblioteca"]))
+    if not jogo:
+        return 1
+    liberado = estudio.limpar(Path(cfg["biblioteca"]) / jogo)
+    print(f"Liberado: {liberado / 1024**2:.1f} MB")
+    return 0
+
+
 def etapa_ficha(argv=None) -> int:
     """Refaz a ficha de um jogo e o indice da biblioteca, lendo tudo do disco."""
     p = argparse.ArgumentParser(description="Refaz JOGO.md e JOGOS.md.")
@@ -716,13 +773,15 @@ if __name__ == "__main__":
         "gravar": etapa_gravar,
         "cortar": etapa_cortar,
         "estudio": etapa_estudio,
+        "render": etapa_render,
+        "limpar": etapa_limpar,
         "ficha": etapa_ficha,
         "torcida": etapa_torcida,
     }
     if len(sys.argv) < 2 or sys.argv[1] not in etapas:
         print(
             "Uso: python -m nucleo.esteira "
-            "canais|gravar|cortar|estudio|ficha|torcida ..."
+            "canais|gravar|cortar|estudio|render|limpar|ficha|torcida ..."
         )
         sys.exit(2)
     sys.exit(etapas[sys.argv[1]](sys.argv[2:]))

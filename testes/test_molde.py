@@ -141,3 +141,21 @@ def test_a_cartela_anuncia_o_gol_na_tela_inteira():
 
     assert "1920x1080" in filtro
     assert "GOL 1 - GREMIO 1 x 0 INTER" in filtro
+
+
+@pytest.mark.parametrize("formato", ["deitado", "em-pe"])
+def test_o_nome_mais_longo_de_canal_cabe_na_etiqueta(formato):
+    """Texto que estoura a caixa vaza por cima do video, e ficou feio no render.
+
+    Medido no primeiro render de verdade: "FARID GERMANO FILHO" passou da borda
+    direita da tarja. O molde e quem tem que garantir que cabe - a fonte e a
+    largura da tarja saem daqui, e o operador nao tem como consertar isso.
+    """
+    etiqueta = molde.caixa("etiqueta", formato)
+
+    assert molde.cabe("X" * molde.MAXIMO_DO_CANAL, etiqueta), formato
+
+
+@pytest.mark.parametrize("formato", ["deitado", "em-pe"])
+def test_o_placar_cabe_na_caixa_dele(formato):
+    assert molde.cabe("10 x 10", molde.caixa("placar", formato)), formato

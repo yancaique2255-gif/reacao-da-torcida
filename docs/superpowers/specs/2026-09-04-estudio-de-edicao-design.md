@@ -1,9 +1,9 @@
 # Estúdio de edição — desenho
 
 Data: 2026-09-04
-Estado: **passos 1 a 3 da seção 14 aplicados** (`torcida` obrigatória;
-`perdedor` e `melhor`; `molde` e `receita`). Do passo 4 em diante, nada deste
-documento está no código ainda.
+Estado: **passos 1 a 4 da seção 14 aplicados** (`torcida` obrigatória;
+`perdedor` e `melhor`; `molde` e `receita`; `estudio`). Do passo 5 em diante,
+nada deste documento está no código ainda.
 
 O par deste arquivo é o `DESIGN.md` (como a tela se parece) e o `AGENTS.md`
 (como o código se escreve). Este aqui diz **o que o estúdio faz**.
@@ -556,7 +556,14 @@ Cada passo entrega algo que funciona sozinho:
    página; o teste lê a geometria de volta do filtro e compara com o da página,
    camada por camada, nos dois formatos. `nucleo/receita.py` nasce derivada do
    catálogo, guarda o que o operador tocou e sobrevive a um corte novo.
-4. **`estudio` render** — espiar, prévia, final, cache, fila.
+4. ~~**`estudio` render**~~ — **feito.** `nucleo/estudio.py` com as três
+   velocidades, cache por item (hash do filtro inteiro: mudou a imagem, mudou o
+   nome do arquivo), progresso em `render.json` e `python -m nucleo.esteira
+   render|limpar`. Renderizado de verdade nesta máquina: saiu 1920×1080 com
+   cantos arredondados, borda, etiqueta e placar. Dois defeitos achados no
+   primeiro quadro e corrigidos — o placar por extenso saía cortado pela borda
+   (no quadro vão só os números; o nome por extenso ficou na cartela) e o nome
+   do canal vazava da tarja (o molde agora garante que cabe).
 5. **Painel 8772** — a tela em cima do que já funciona.
 6. **`capa` + `publicacao`** — as duas peças que acompanham o vídeo.
 7. **Formato em pé** — o curto de 2 min, mesmo molde, outro enquadramento.

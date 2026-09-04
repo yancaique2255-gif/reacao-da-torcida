@@ -52,8 +52,14 @@ def hora_do_lance(
 def marcar_gol(
     pasta_jogo: Path, momento: datetime, origem: str = "espn",
     minuto_do_jogo: float | None = None,
+    placar_agora: tuple[int, int] | None = None,
 ) -> int:
-    """Anota o gol no catalogo e devolve o numero dele."""
+    """Anota o gol no catalogo e devolve o numero dele.
+
+    `placar_agora` e o placar NAQUELE gol, e nao o final: o quadro do gol 1 diz
+    1x0. E o unico momento em que da para saber - depois do apito a ESPN nao
+    responde mais por este jogo.
+    """
     dados = catalogo.carregar(pasta_jogo)
     numero = catalogo.proximo_numero(dados)
     dados = catalogo.registrar_gol(
@@ -66,8 +72,25 @@ def marcar_gol(
             # Com o minuto do jogo a hora ja nasce boa; sem ele, e a hora em
             # que a consulta percebeu, e quem acerta o instante e o audio.
             gol["confirmado"] = minuto_do_jogo is not None
+            if placar_agora is not None:
+                gol["placar"] = list(placar_agora)
     catalogo.salvar(pasta_jogo, dados)
     return numero
+
+
+def anotar_placar(pasta_jogo: Path, partida: placar.Partida) -> None:
+    """Guarda no catalogo o placar visto agora, se ele mudou.
+
+    O estudio de edicao edita dias depois e precisa saber quem perdeu - e a
+    ESPN so responde enquanto o jogo esta no ar. Gravar a cada consulta seria
+    escrever de vinte em vinte segundos por nada; o que importa e o ultimo
+    placar visto sobreviver ao apito.
+    """
+    dados = catalogo.carregar(pasta_jogo)
+    antes = dados.get("partida") or {}
+    if (antes.get("gols_mandante"), antes.get("gols_visitante")) == partida.placar:
+        return
+    catalogo.salvar(pasta_jogo, catalogo.registrar_placar(dados, *partida.placar))
 
 
 def vigiar(
@@ -103,9 +126,10 @@ def vigiar(
             continue
 
         lido_em = agora()
+        anotar_placar(pasta_jogo, partida)
         for lance in placar.lances_novos(anterior, partida):
             momento, minuto = hora_do_lance(partida, lance, lido_em)
-            numero = marcar_gol(pasta_jogo, momento, "espn", minuto)
+            numero = marcar_gol(pasta_jogo, momento, "espn", minuto, partida.placar)
             marcados.append(numero)
             quem = lance.get("quem") or ""
             de_quando = (

@@ -755,3 +755,66 @@ def test_etapa_torcida_recusa_canal_que_nao_existe(monkeypatch, tmp_path, capsys
 
     assert codigo == 2
     assert "fantasma" in capsys.readouterr().out
+
+
+def _jogo_pronto_para_render(pasta: Path) -> dict:
+    """Um jogo com placar, um gol e dois clipes da torcida que perdeu."""
+    from nucleo import catalogo
+
+    dados = catalogo.registrar_partida(
+        catalogo.novo(pasta.name), "copa-do-brasil", "Grêmio", "Internacional"
+    )
+    dados = catalogo.registrar_placar(dados, 3, 1)
+    dados = catalogo.registrar_gol(dados, 1, "2026-09-03T20:13:00", "")
+    dados["gols"][0]["placar"] = [1, 0]
+    for canal, db in [("farid-germano-filho", 15.2), ("paulo-brito", 7.8)]:
+        dados = catalogo.registrar_clipe(
+            dados, 1, canal, f"clipes/gol-01/{canal}.mp4", 100.0, db, True, "inter", 175.0
+        )
+    catalogo.salvar(pasta, dados)
+    return dados
+
+
+def test_etapa_render_monta_o_video_do_jogo(tmp_path: Path, monkeypatch):
+    """A casca e fina: quem monta e o estudio, o comando so escolhe o jogo."""
+    pasta = tmp_path / "2026-09-03 gremio x internacional"
+    pasta.mkdir()
+    _jogo_pronto_para_render(pasta)
+    cfg = {
+        "biblioteca": str(tmp_path),
+        "caminho_ffmpeg": "ffmpeg.exe",
+        "fonte_cartela": r"C:\Windows\Fonts\arialbd.ttf",
+    }
+    monkeypatch.setattr(esteira.config, "carregar", lambda: cfg)
+    comandos = []
+
+    def executar(comando):
+        comandos.append(comando)
+        Path(comando[-1]).parent.mkdir(parents=True, exist_ok=True)
+        Path(comando[-1]).write_bytes(b"x")
+
+    monkeypatch.setattr(esteira.cortador, "executar", executar)
+
+    codigo = esteira.etapa_render([pasta.name])
+
+    from nucleo import estudio
+
+    assert codigo == 0
+    assert (pasta / "receita.json").is_file(), "a receita nasce na primeira montagem"
+    assert estudio.estado(pasta)["rodando"] is False
+    assert len(comandos) == 4
+
+
+def test_etapa_limpar_apaga_os_intermediarios(tmp_path: Path, monkeypatch, capsys):
+    from nucleo import estudio
+
+    pasta = tmp_path / "2026-09-03 gremio x internacional"
+    (pasta / estudio.PASTA_CACHE).mkdir(parents=True)
+    (pasta / estudio.PASTA_CACHE / "peca.mp4").write_bytes(b"x" * 2048)
+    monkeypatch.setattr(esteira.config, "carregar", lambda: {"biblioteca": str(tmp_path)})
+
+    codigo = esteira.etapa_limpar([pasta.name])
+
+    assert codigo == 0
+    assert estudio.tamanho_do_cache(pasta) == 0
+    assert "MB" in capsys.readouterr().out

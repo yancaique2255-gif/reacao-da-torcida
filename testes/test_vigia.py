@@ -285,3 +285,35 @@ def test_quem_quiser_pode_ser_avisado_de_cada_gol(tmp_path: Path):
     )
 
     assert len(recados) == 1 and recados[0][0] == 1
+
+
+def test_o_placar_do_jogo_fica_gravado_no_catalogo(tmp_path: Path):
+    """O estudio edita dias depois, quando a ESPN ja nao responde por este jogo.
+
+    Quem perdeu decide o video inteiro; sem o placar em disco nao ha como saber.
+    """
+    respostas = iter([[_partida(0, 0)], [_partida(3, 1)]])
+
+    vigia.vigiar(
+        "copa-do-brasil", "vitoria", "vasco", tmp_path, voltas=2,
+        buscar=lambda liga: next(respostas), agora=_relogio(),
+        dormir=lambda s: None, avisar=lambda t: None,
+    )
+
+    partida = catalogo.carregar(tmp_path)["partida"]
+    assert (partida["gols_mandante"], partida["gols_visitante"]) == (3, 1)
+
+
+def test_cada_gol_guarda_o_placar_do_momento(tmp_path: Path):
+    """O quadro do gol 1 diz 1x0, e nao o placar final: e o gol que esta passando."""
+    respostas = iter([[_partida(0, 0)], [_partida(1, 0)], [_partida(1, 1)]])
+
+    vigia.vigiar(
+        "copa-do-brasil", "vitoria", "vasco", tmp_path, voltas=3,
+        buscar=lambda liga: next(respostas), agora=_relogio(),
+        dormir=lambda s: None, avisar=lambda t: None,
+    )
+
+    gols = catalogo.carregar(tmp_path)["gols"]
+    assert gols[0]["placar"] == [1, 0]
+    assert gols[1]["placar"] == [1, 1]

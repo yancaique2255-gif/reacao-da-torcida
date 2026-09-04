@@ -20,6 +20,13 @@ COR_FUNDO = "#101418"     # o padrao ate a cor do time perdedor entrar
 COR_CAIXA = "black@0.55"  # atras dos textos, para ler por cima de qualquer cena
 COR_TEXTO = "white"
 
+# Quanto de largura ocupa, em media, um caractere da condensada pesada que o
+# projeto usa, em fracao do tamanho da fonte. Medido no primeiro render: e o
+# bastante para o molde garantir que o texto cabe antes de mandar para o ffmpeg,
+# que nao sabe medir texto nenhum.
+LARGURA_DO_CARACTERE = 0.58
+MAXIMO_DO_CANAL = 22  # nome de canal maior que isso e cortado antes de desenhar
+
 
 @dataclass(frozen=True)
 class Camada:
@@ -52,7 +59,7 @@ _MOLDE = {
     "deitado": [
         Camada("fundo", 0.0, 0.0, 1.0, 1.0),
         Camada("quadro", 0.05, 0.05, 0.90, 0.90, cantos=_CANTOS, borda=_BORDA),
-        Camada("etiqueta", 0.09, 0.72, 0.30, 0.12, fonte=0.045),
+        Camada("etiqueta", 0.09, 0.72, 0.42, 0.12, fonte=0.045),
         Camada("placar", 0.74, 0.07, 0.20, 0.13, fonte=0.05),
         Camada("cartela", 0.0, 0.0, 1.0, 1.0, fonte=0.075),
     ],
@@ -61,7 +68,7 @@ _MOLDE = {
     "em-pe": [
         Camada("fundo", 0.0, 0.0, 1.0, 1.0),
         Camada("quadro", 0.0, 0.25, 1.0, 608 / 1920, cantos=_CANTOS, borda=_BORDA),
-        Camada("etiqueta", 0.06, 0.62, 0.88, 0.10, fonte=0.045),
+        Camada("etiqueta", 0.06, 0.62, 0.88, 0.10, fonte=0.032),
         Camada("placar", 0.05, 0.05, 0.90, 0.12, fonte=0.055),
         Camada("cartela", 0.0, 0.0, 1.0, 1.0, fonte=0.075),
     ],
@@ -218,6 +225,16 @@ def filtro_cartela(
         + _texto(texto, "(w-text_w)/2", "(h-text_h)/2", cartela["fonte"], fonte)
         + "[v]"
     )
+
+
+def cabe(texto: str, caixa_: dict, recheio: float = 0.18) -> bool:
+    """Se aquele texto cabe naquela caixa, no tamanho de fonte da camada.
+
+    O drawtext do ffmpeg nao sabe encolher texto: o que nao cabe vaza por cima
+    do video. Entao quem garante e o molde, e o teste cobra.
+    """
+    sobra = caixa_["largura"] - 2 * round(caixa_["altura"] * recheio)
+    return len(texto) * caixa_["fonte"] * LARGURA_DO_CARACTERE <= sobra
 
 
 def escapar(texto: str) -> str:
