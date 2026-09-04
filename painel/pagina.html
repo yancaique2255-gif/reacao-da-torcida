@@ -36,16 +36,20 @@
     h1 { font-size: clamp(30px, 5vw, 54px); line-height: .98; margin: 8px 0 0; letter-spacing: -.04em; }
     #resumo { color: var(--fraco); text-align: right; font-variant-numeric: tabular-nums; }
     #gols { display: grid; gap: 28px; }
-    .gol { background: color-mix(in srgb, var(--caixa) 92%, transparent); border: 1px solid var(--linha); border-radius: 18px; padding: 20px; }
+    .gol { background: var(--caixa); border: 1px solid var(--linha); border-radius: 12px; padding: 20px; }
     .gol-topo { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
     h2 { margin: 0; font-size: 22px; }
     .horario { color: var(--fraco); font-size: 13px; }
     .canais { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 330px), 1fr)); gap: 16px; }
-    .clipe { border: 1px solid var(--linha); background: var(--caixa-2); border-radius: 14px; padding: 10px; transition: border-color .18s, opacity .18s, transform .18s; }
-    .clipe:hover { transform: translateY(-2px); }
+    .clipe { border: 1px solid var(--linha); background: var(--caixa-2); border-radius: 12px; padding: 10px; transition: border-color .12s, opacity .12s; }
+    .clipe:hover { border-color: var(--fio-forte); }
     .clipe.escolhido { border-color: var(--viva); }
+    .selo { border-radius: 999px; font-size: 11px; font-weight: 700; padding: 2px 10px;
+            text-transform: uppercase; letter-spacing: .5px; white-space: nowrap; }
+    .selo.usando { background: color-mix(in srgb, var(--viva) 12%, var(--caixa)); color: var(--viva); }
+    .selo.fora { background: var(--caixa-2); border: 1px solid var(--linha); color: var(--fraco); }
     .clipe.descartado { opacity: .58; }
-    video { width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 9px; display: block; }
+    video { width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 8px; display: block; }
     .meta { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin: 10px 2px 8px; }
     .nome { font-weight: 750; overflow-wrap: anywhere; }
     .sinal { color: var(--fraco); font-size: 12px; white-space: nowrap; }
@@ -53,30 +57,38 @@
     .nota { min-height: 32px; color: var(--alerta); font-size: 12px; line-height: 1.35; margin: 0 2px 10px; }
     .acoes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     .filtros { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 4px; }
-    .filtros button { padding: 7px 14px; font-weight: 600; opacity: .55; }
-    .filtros button.ativo { opacity: 1; outline: 2px solid currentColor; }
+    .filtros button { padding: 7px 14px; font-weight: 600; color: var(--fraco); min-height: 32px; }
+    .filtros button.ativo { color: var(--texto); border-color: var(--texto); }
     .torcida { font-size: 11px; text-transform: uppercase; letter-spacing: .8px;
-               font-weight: 800; padding: 2px 8px; border-radius: 999px;
-               background: rgba(255,255,255,.14); }
-    .torcida.falta { background: transparent; color: var(--morta);
-                     border: 1px solid var(--morta); }
+               font-weight: 700; padding: 2px 8px; border-radius: 999px;
+               background: var(--caixa-2); border: 1px solid var(--linha);
+               color: var(--fraco); }
+    .torcida.falta { background: color-mix(in srgb, var(--morta) 12%, var(--caixa));
+                     color: var(--morta);
+                     border-color: color-mix(in srgb, var(--morta) 40%, var(--caixa)); }
     .preencher { margin: 0 2px 10px; }
-    .preencher select { width: 100%; background: var(--caixa); color: var(--texto);
-                        border: 1px solid var(--morta); border-radius: 9px;
-                        padding: 9px 10px; font: inherit; font-weight: 700; }
+    .preencher select { width: 100%; background: var(--caixa); color: var(--morta);
+                        border: 1px solid var(--morta); border-radius: 999px;
+                        padding: 9px 14px; font: inherit; font-weight: 600; }
     .forte { font-weight: 800; }
-    .duracao { font-size: 11px; color: #8b93a7; font-weight: 600; letter-spacing: .4px; }
-    .duracao.aparar { color: #ffb020; }
-    button { border: 0; border-radius: 9px; padding: 10px 14px; font: inherit; font-weight: 800; cursor: pointer; transition: filter .15s, transform .15s; }
-    button:hover { filter: brightness(1.12); }
+    .duracao { font-size: 11px; color: var(--fraco); font-weight: 600; letter-spacing: .4px; }
+    .duracao.aparar { color: var(--alerta); }
+    /* Pilula para tudo o que se aperta, e o preto so na acao principal. */
+    button { border: 1px solid var(--fio-forte); border-radius: 999px; padding: 9px 18px;
+             font: inherit; font-weight: 600; cursor: pointer; min-height: 36px;
+             background: var(--caixa); color: var(--texto); transition: background-color .12s; }
+    button:hover { background: var(--caixa-2); }
     button:active { transform: translateY(1px); }
     button:disabled { opacity: .5; cursor: wait; }
-    .sim { background: var(--viva); color: #062416; }
-    .nao { background: #344353; color: var(--texto); }
-    footer { position: sticky; bottom: 0; margin-top: 28px; padding: 16px 0 24px; background: linear-gradient(transparent, var(--fundo) 32%); display: flex; align-items: center; gap: 16px; }
-    #montar { background: var(--alerta); color: #2b2100; padding: 13px 22px; }
+    .sim { background: color-mix(in srgb, var(--viva) 12%, var(--caixa)); color: var(--viva);
+           border-color: color-mix(in srgb, var(--viva) 40%, var(--caixa)); }
+    .sim:hover { border-color: var(--viva); }
+    .nao { color: var(--fraco); }
+    footer { position: sticky; bottom: 0; margin-top: 28px; padding: 16px 0 24px; background: var(--fundo); border-top: 1px solid var(--linha); display: flex; align-items: center; gap: 16px; }
+    #montar { background: var(--texto); color: var(--fundo); border-color: var(--texto); padding: 13px 26px; font-size: 15px; }
+    #montar:hover { background: var(--escuro); }
     #recado { color: var(--fraco); margin: 0; overflow-wrap: anywhere; }
-    .vazio { border: 1px dashed var(--linha); border-radius: 16px; padding: 50px 20px; text-align: center; color: var(--fraco); }
+    .vazio { border: 1px dashed var(--fio-forte); border-radius: 12px; padding: 50px 20px; text-align: center; color: var(--fraco); }
     @media (max-width: 700px) {
       header { align-items: start; flex-direction: column; }
       #resumo { text-align: left; }
@@ -208,6 +220,12 @@
         forca ? `${forca.toFixed(1)} dB` : 'sem medida'
       );
       meta.appendChild(sinal);
+      if (clipe.escolhido === true || clipe.escolhido === false) {
+        meta.appendChild(elemento(
+          'span', 'selo ' + (clipe.escolhido ? 'usando' : 'fora'),
+          clipe.escolhido ? '✓ no vídeo' : '× fora'
+        ));
+      }
       caixa.appendChild(meta);
 
       if (!clipe.torcida) caixa.appendChild(preencherTorcida(clipe));

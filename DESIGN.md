@@ -17,38 +17,33 @@ a bateria reprova se um divergir.
 
 ---
 
----
+## 0. O sistema: a folha da Ollama
 
-## 0. EM MIGRAÇÃO — o sistema da Ollama
-
-**Estado em 04/09/2026: começado, não terminado.** As três telas estão migrando
-para o sistema descrito em <https://getdesign.md/ollama/design-md>: folha de
-papel branca, preto como única marca, fio de cabelo no lugar de sombra, pílula
-para tudo o que se aperta, e **uma única superfície invertida por tela**.
+**Migração encerrada em 04/09/2026.** As três telas seguem o sistema descrito em
+<https://getdesign.md/ollama/design-md>: folha de papel branca, preto como única
+marca, fio de cabelo no lugar de sombra, pílula para tudo o que se aperta, e
+**uma única superfície invertida por tela**.
 
 O arquivo cru daquele sistema está em
 `https://raw.githubusercontent.com/VoltAgent/awesome-design-md/HEAD/design-md/ollama/DESIGN.md`
 — a página do site é aplicação JS e não serve para ler.
 
-**Já feito:**
-- Os tokens das três telas (`gravacao.html`, `pagina.html`, `edicao.html`) — a
-  tabela da seção 2 abaixo já é a nova.
-- Fundo chapado: saiu o degradê radial das três telas.
-- Saíram as sombras (`box-shadow`) e o brilho da bolinha viva.
-- A letra passou a ser a do sistema (`ui-sans-serif`), sem a Inter na frente.
-- `gravacao.html`: botões viraram pílula; MARCAR GOL virou a pílula preta; o
-  recado flutuante virou a faixa escura.
+O que a migração trocou, para quem for ler código antigo e estranhar:
 
-**Falta:**
-- `edicao.html` e `pagina.html`: botões, `select` e `input` ainda com canto de
-  9 px — têm de virar pílula (`999px`); cartão tem de ir para 12 px.
-- O botão RENDER FINAL do `edicao.html` ainda é âmbar: é a ação principal
-  daquela tela, tem de virar a pílula preta (`--texto` com `--fundo`).
-- Conferir contraste de `--viva`/`--morta`/`--alerta` sobre branco nas três
-  telas (os valores já foram escurecidos para isso, falta olhar).
-- Reescrever as seções 1, 6 e 7 deste documento: o texto ainda argumenta
-  "escuro sempre", que era a decisão anterior.
-- Rodar as três telas e olhar.
+- Fundo chapado branco nas três telas; saiu o degradê radial, saiu o rodapé em
+  degradê do estúdio.
+- Saíram **todas** as `box-shadow`, e com elas o brilho da bolinha viva.
+- A letra passou a ser a do sistema (`ui-sans-serif`), sem a Inter na frente.
+- Tudo o que se aperta virou pílula de 999px — botão, `select`, campo de digitar,
+  selo de estado, chip de marca de gol.
+- Cartão foi de 16/18px para 12px.
+- A ação principal de cada tela virou a pílula preta: MARCAR GOL na gravação,
+  MONTAR no estúdio, RENDER FINAL na edição. Saíram o âmbar e o `--gol`.
+- Os fundos escuros herdados da paleta anterior (o vinho do apagar, o azul-noite
+  do abrir pasta, o `#344353` do descartar) viraram tinta da cor de estado sobre
+  o papel, com o fio na mesma cor.
+- As cores de estado escureceram para passar em contraste sobre branco, e a
+  tinta de fundo caiu de 16% para 12% (a conta está na seção 2).
 
 ---
 
@@ -58,14 +53,25 @@ Sala escura, jogo na TV, painel num monitor lateral. Quem olha não está lendo:
 **conferindo**. A tela tem que responder de relance, a dois metros de distância, com o
 rabo do olho.
 
-Daí três compromissos que valem mais que estética:
+Até a migração, a resposta a isso era "escuro sempre". Deixou de ser: o vocabulário
+agora é a folha branca da Ollama, e o que faz o trabalho de ser lido de relance não é
+mais o fundo escuro, são três coisas mais baratas:
 
-- **Escuro sempre.** Não existe modo claro, e não é preguiça: tela clara num quarto
-  escuro ofusca e apaga a diferença entre verde e vermelho, que é a informação mais
-  importante da tela.
+- **Uma pílula preta por tela.** É o objeto mais escuro da página e a única coisa que
+  chama para clicar. Numa tela branca ela se acha sem procurar. Preto é escasso de
+  propósito: duas pílulas pretas na mesma dobra e nenhuma das duas é a principal.
+- **Fio de cabelo no lugar de sombra.** Quem separa cartão de página é `--linha`, não
+  profundidade. Nada levanta do papel.
 - **Cor é estado, nunca enfeite.** Se uma cor aparece, ela quer dizer alguma coisa. Um
   botão azul e um botão verde são coisas diferentes, e não duas opções de gosto.
-- **Nada pisca à toa.** Movimento é caro: só o que mudou tem direito a se mexer.
+
+Os dois compromissos que atravessaram a migração inteira:
+
+- **Nada pisca à toa.** Movimento é caro: só o que mudou tem direito a se mexer. A
+  única animação do projeto é o alarme de canal caído, e ela existe porque perder um
+  canal no meio do jogo custa a partida.
+- **Estado tem que estar escrito, não só colorido.** Verde e vermelho são as duas
+  cores mais usadas aqui, e são exatamente as duas que mais gente não distingue.
 
 O estúdio é mais espaçoso e pode respirar — ninguém escolhe clipe com pressa. O painel
 da gravação é apertado de propósito: cabe tudo sem rolar a página.
@@ -74,7 +80,7 @@ da gravação é apertado de propósito: cabe tudo sem rolar a página.
 
 ## 2. Paleta e o papel de cada cor
 
-Os tokens vivem no `:root` de cada tela e têm **o mesmo nome e o mesmo valor nas duas**.
+Os tokens vivem no `:root` de cada tela e têm **o mesmo nome e o mesmo valor nas três**.
 Se você precisar de uma cor que não está aqui, o problema é o estado que você está
 inventando, não a paleta.
 
@@ -84,18 +90,45 @@ inventando, não a paleta.
 | `--caixa` | `#ffffff` | Cartão, tabela, quadro. É a mesma folha: quem separa é o fio, não a cor. |
 | `--caixa-2` | `#fafafa` | Superfície suave: campo, pílula de controle, cabeçalho de tabela. |
 | `--linha` | `#e5e5e5` | O fio de cabelo. Toda borda e todo divisor. |
-| `--fio-forte` | `#d4d4d4` | O fio um pouco mais forte: contorno de botão secundário. |
-| `--texto` | `#000000` | Tinta. Título, texto normal, rótulo de botão. |
+| `--fio-forte` | `#d4d4d4` | O fio um pouco mais forte: contorno de botão e de campo. |
+| `--texto` | `#000000` | Tinta. Título, texto normal, rótulo de botão, **fundo da pílula principal**. |
 | `--fraco` | `#737373` | Rótulo, unidade, legenda, texto secundário. |
 | `--escuro` | `#171717` | **A única superfície invertida.** Uma por tela, e nada mais. |
 | `--viva` | `#027a48` | **Está funcionando**: canal gravando, corte pronto. |
 | `--morta` | `#b42318` | **Parou**: canal caído, corte que morreu no meio. |
 | `--alerta` | `#b54708` | **Anda, mas confira**: cortando agora, cobertura parcial, medida que discordou. |
-| `--info` | `#1849a9` | Ação neutra que abre outra coisa (abrir pasta, ver quadro). |
+| `--info` | `#1849a9` | Ação neutra que abre outra coisa (abrir pasta, ver quadro, alinhar). |
 
-**Fundo colorido é a cor a 16% sobre a caixa**, nunca a cor cheia:
-`background: rgba(53,208,127,.16)` com `color: var(--viva)`. Cor cheia com texto por cima
-não passa em contraste e grita mais alto que o gol.
+### Fundo colorido é a cor a 12% sobre a caixa
+
+Nunca a cor cheia. Cor cheia com texto por cima não passa em contraste e grita mais
+alto que o gol.
+
+```css
+background: color-mix(in srgb, var(--viva) 12%, var(--caixa));
+color: var(--viva);
+border-color: color-mix(in srgb, var(--viva) 40%, var(--caixa));  /* só quando levar fio */
+```
+
+**Eram 16% e não davam conta.** Medido: `--viva` e `--alerta` sobre a própria tinta a
+16% ficavam em 4,3:1, abaixo do 4,5:1 que a AA pede para texto de 12px. A 12% passam
+folgado, e o desenho não perdeu nada — a tinta continua se lendo como selo.
+
+| Cor | sobre `#ffffff` | sobre `#fafafa` | sobre a própria tinta a 12% |
+| --- | --- | --- | --- |
+| `--viva` | 5,41 | 5,19 | 4,57 |
+| `--morta` | 6,57 | 6,30 | 5,40 |
+| `--alerta` | 5,43 | 5,20 | 4,56 |
+| `--info` | 8,19 | 7,84 | 6,72 |
+| `--fraco` | 4,74 | 4,54 | — não use `--fraco` sobre tinta: cai para 3,9 |
+
+Duas consequências práticas dessa tabela, e as duas já estão no código:
+
+- **Hover não escurece o fundo, firma o fio.** Escurecer a tinta no hover devolvia o
+  problema de contraste. Botão de estado no hover troca `border-color` pela cor cheia.
+- **Cartão não ganha tinta de estado.** O clipe escolhido no estúdio tem fio verde e
+  selo escrito "✓ no vídeo" — não fundo verde, porque o `12,4 dB` em `--fraco` dentro
+  dele cairia para 4,2:1.
 
 ### O que cada cor NÃO pode fazer
 
@@ -103,9 +136,9 @@ não passa em contraste e grita mais alto que o gol.
   direito continua verde.
 - Vermelho não quer dizer "erro do usuário", quer dizer **parou**. Erro de digitação é
   âmbar.
-- ~~`--gol` não é o vermelho de erro.~~ O `--gol` saiu na migração: MARCAR GOL passou a ser
-  a pílula preta, que é a ação principal daquela tela. Texto antigo, a reescrever: um chama
-  para clicar, o outro avisa que algo caiu.
+- Nenhuma cor de estado carrega ação principal. Quem chama para clicar é a pílula
+  preta; verde, vermelho e âmbar só informam. Foi por isso que o `--gol` saiu: MARCAR
+  GOL era vermelho e disputava atenção com "canal caiu".
 
 ---
 
@@ -115,7 +148,7 @@ Uma família só, do sistema, sem baixar nada — a máquina é offline durante 
 fonte que não carrega deixa a tela em Times New Roman no meio da partida.
 
 ```css
-font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 ```
 
 | Papel | Tamanho | Peso | Observação |
@@ -123,6 +156,7 @@ font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-se
 | Título da página | `clamp(30px, 5vw, 54px)` | 700 | `letter-spacing: -.04em` |
 | Nome do jogo (`h2`) | 22px | 700 | |
 | Texto normal | 14px | 400 | |
+| Rótulo de botão | 14px | 600 | nunca 800: no papel branco pesa demais |
 | Rótulo, legenda, unidade | 12px | 600 | `--fraco`, `text-transform: uppercase`, `letter-spacing: .5px` |
 | Número grande de resumo | 26px | 700 | `font-variant-numeric: tabular-nums` |
 
@@ -135,27 +169,32 @@ a coluna inteira dança a cada 3 segundos — o olho persegue o movimento e não
 
 ### Botão
 
-| Variante | Fundo | Texto | Onde |
-| --- | --- | --- | --- |
-| normal | `--caixa` | `--texto` | ações comuns, com fio `--fio-forte` |
-| perigo | `#3a1f22` | `#ff8b8b` | apagar, parar |
-| abrir | `#23303a` | `#9fd8ff` | abrir pasta, ver quadro |
-| principal | `--texto` | `--fundo` | a pílula preta: MARCAR GOL, RENDER FINAL |
+Todos são pílula (`border-radius: 999px`), todos com `min-height` de 28px no compacto e
+36px no normal, `padding: 6px 14px` e `9px 18px`.
 
-Altura mínima 28px, `padding: 3px 8px` no compacto e `6px 12px` no normal.
+| Variante | Fundo | Texto | Fio | Onde |
+| --- | --- | --- | --- | --- |
+| normal | `--caixa` | `--texto` | `--fio-forte` | ações comuns |
+| principal | `--texto` | `--fundo` | `--texto` | **uma por tela**: MARCAR GOL, MONTAR, RENDER FINAL |
+| perigo | `--morta` a 12% | `--morta` | `--morta` a 40% | apagar marca, parar gravação |
+| abrir | `--caixa` | `--info` | `--fio-forte` | abrir pasta, ver quadro, alinhar |
+| apagado | `--caixa` | `--fraco` | `--fio-forte` | descartar, filtro desligado |
+
+Hover do normal é `background: var(--caixa-2)`; hover do perigo é o fio na cor cheia.
 **Ação irreversível no meio do jogo pede `confirm()`** — parar a gravação por clique sem
 querer custa o resto da partida.
 
 ### Selo de estado (pílula)
 
-`border-radius: 999px`, 12px, peso 600, fundo a 16%, texto na cor cheia. É a forma padrão
-de dizer em que pé está alguma coisa: corte, alinhamento, cobertura.
+`border-radius: 999px`, 12px, peso 600, fundo a 12%, texto na cor cheia. É a forma padrão
+de dizer em que pé está alguma coisa: corte, alinhamento, cobertura, clipe escolhido.
+Selo diz o estado **por escrito** — `✓ 6/6 cortado`, `sem torcida`, `✓ no vídeo`.
 
 ### Cartão
 
-`background: var(--caixa)`, `border: 1px solid var(--linha)`, `border-radius: 16px`.
-Sombra só no estúdio (`box-shadow: 0 18px 50px #0005`); no painel da gravação, não —
-sombra em vinte cartões lado a lado vira sujeira.
+`background: var(--caixa)`, `border: 1px solid var(--linha)`, `border-radius: 12px`.
+**Sem sombra, em nenhuma tela.** Cartão dentro de cartão usa a mídia a 8px, para o
+canto de dentro não competir com o de fora.
 
 ### Tabela
 
@@ -167,25 +206,34 @@ Coluna numérica alinhada à direita com `tabular-nums`.
 ## 5. Layout
 
 - **Escala de espaço: 4 / 8 / 16 / 24 / 32.** Nada de 5, 7, 13, 18.
-- **Escala de raio: 6 (compacto) / 10 (controle) / 16 (cartão) / 999 (pílula).**
-  Quatro valores, não dez.
+- **Escala de raio: 8 (mídia dentro de cartão, trilho) / 12 (cartão, mídia, faixa) /
+  999 (tudo o que se aperta).** Três valores, mais o `50%` da bolinha de canal vivo.
 - Largura máxima `min(1400px, calc(100% - 32px))`, centralizada.
 - O painel da gravação **não rola horizontalmente**. Nunca. Se não coube, encolhe.
-- Grade de quadros: `repeat(auto-fill, minmax(220px, 1fr))`.
+- Grade de quadros: `repeat(auto-fill, minmax(210px, 1fr))`.
 
 ---
 
 ## 6. Profundidade
 
-Quase nenhuma. Três camadas e acabou:
+Quase nenhuma, e nenhuma feita de sombra. Três camadas e acabou:
 
 1. `--fundo` — a página
-2. `--caixa` — o cartão
+2. `--caixa` — o cartão, separado por fio
 3. `--caixa-2` — o controle dentro do cartão
 
-Separação por **borda**, não por sombra. Sombra só no estúdio, e só nos cartões de gol.
-Nada de gradiente decorativo — o único do projeto é o brilho do cabeçalho do estúdio, e
-ele existe porque aquela tela é a de apresentar o trabalho pronto.
+Separação por **borda**, sempre. `box-shadow` não aparece em nenhuma das três telas, e a
+bateria reprova se voltar. Nada de gradiente decorativo: o rodapé grudado do estúdio, que
+era um degradê para o conteúdo sumir por baixo, hoje é fundo chapado com fio em cima.
+
+A única exceção é a **superfície invertida**: uma por tela, `--escuro` ou a pílula preta.
+Na gravação são a pílula MARCAR GOL e a faixa do recado que aparece e sai; no estúdio, a
+pílula MONTAR; na edição, a pílula RENDER FINAL. Botão dentro de superfície invertida é
+pílula branca (`--fundo` com `--texto`).
+
+**O preto atrás de foto e de vídeo não conta como superfície**: é passe-partout. O `#000`
+do `<video>`, do quadro do canal e do fundo da lupa existe para a imagem ter contra o que
+aparecer, e por isso o texto que fica sobre ele vai em `--fundo`, não em `--texto`.
 
 ---
 
@@ -197,6 +245,8 @@ ele existe porque aquela tela é a de apresentar o trabalho pronto.
   distingue verde de vermelho, e são exatamente as duas cores mais usadas aqui.
 - Mostrar o que falhou, marcado. Clipe que o detector não achou vai em vermelho na tela.
 - Guardar em disco na hora do clique.
+- Piscar o alarme de canal caído. É a única animação do projeto, e é para ser vista de
+  costas.
 
 **Não pode**
 
@@ -207,6 +257,9 @@ ele existe porque aquela tela é a de apresentar o trabalho pronto.
 - Guardar escolha do operador só na página aberta. Recarregar não pode perder trabalho.
 - Inventar cor nova para um estado novo. Se não cabe em vivo / parou / confira / neutro,
   o estado está mal pensado.
+- **Cor cheia atrás de texto**, sombra, gradiente decorativo, e mais de uma pílula preta
+  por tela.
+- Deixar valor cru de cor no CSS. Só `#000` de passe-partout e o branco a 70% sobre ele.
 - Animação de entrada, transição acima de 120ms, spinner girando sem fim.
 
 ---
@@ -230,15 +283,17 @@ Ao gerar ou mexer em interface deste projeto:
    em vez de token é o erro mais comum e o mais chato de desfazer.
 2. **Pergunte que estado a cor representa.** Não existe "um verde mais bonito": existe
    `--viva`, e ele quer dizer que está funcionando.
-3. **Repita o estado em texto.** `✓ 6/6 cortado` ao lado do verde, não só o verde.
-4. **Português na interface**, como no resto do projeto.
-5. **Toda escolha do operador grava em disco na hora**, antes de a tela mudar.
-6. **Não mude a tela do jogo com jogo rolando.** O painel da gravação pode ser reiniciado
+3. **Pílula para tudo o que se aperta**, 12px para o cartão, e o preto só na ação
+   principal — que já existe em cada tela, então não crie a segunda.
+4. **Repita o estado em texto.** `✓ 6/6 cortado` ao lado do verde, não só o verde.
+5. **Português na interface**, como no resto do projeto.
+6. **Toda escolha do operador grava em disco na hora**, antes de a tela mudar.
+7. **Não mude a tela do jogo com jogo rolando.** O painel da gravação pode ser reiniciado
    sem risco, mas a gravação em si, não — e as duas coisas moram em processos diferentes.
 
 ### Prompts prontos
 
 > "Acrescente um selo de estado no painel da gravação seguindo o DESIGN.md: pílula, fundo
-> a 16%, texto na cor cheia, com o estado repetido por escrito."
+> a 12%, texto na cor cheia, com o estado repetido por escrito."
 
 > "Unifique os tokens desta tela com o DESIGN.md, sem mudar o layout."

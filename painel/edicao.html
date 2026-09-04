@@ -42,7 +42,7 @@
     main { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 24px; align-items: start; padding-bottom: 40px; }
     @media (max-width: 1100px) { main { grid-template-columns: 1fr; } }
 
-    .cartao { background: var(--caixa); border: 1px solid var(--linha); border-radius: 16px; padding: 16px; }
+    .cartao { background: var(--caixa); border: 1px solid var(--linha); border-radius: 12px; padding: 16px; }
     #gols { display: grid; gap: 16px; }
     .gol {; }
     .gol-topo { display: flex; align-items: baseline; gap: 12px; margin-bottom: 12px; }
@@ -57,35 +57,43 @@
     .sinal.pico { color: var(--viva); }
     .sinal.fraco { color: var(--alerta); }
     .pilula { border-radius: 999px; font-size: 12px; font-weight: 600; padding: 2px 10px; }
-    .pilula.sem { background: rgba(255,92,92,.16); color: var(--morta); }
-    .pilula.parcial { background: rgba(255,176,32,.16); color: var(--alerta); }
-    .pilula.hora { background: rgba(255,92,92,.16); color: var(--morta); }
+    .pilula.sem { background: color-mix(in srgb, var(--morta) 12%, var(--caixa)); color: var(--morta); }
+    .pilula.parcial { background: color-mix(in srgb, var(--alerta) 12%, var(--caixa)); color: var(--alerta); }
+    .pilula.hora { background: color-mix(in srgb, var(--morta) 12%, var(--caixa)); color: var(--morta); }
     .linha-corte { grid-column: 2 / -1; display: flex; align-items: center; gap: 12px; }
 
     .barra { position: relative; height: 26px; flex: 1; background: var(--caixa-2);
-             border: 1px solid var(--linha); border-radius: 6px; touch-action: none; }
-    .janela { position: absolute; top: 0; bottom: 0; background: rgba(53,208,127,.16);
+             border: 1px solid var(--linha); border-radius: 8px; touch-action: none; }
+    .janela { position: absolute; top: 0; bottom: 0;
+              background: color-mix(in srgb, var(--viva) 12%, var(--caixa));
               border-left: 2px solid var(--viva); border-right: 2px solid var(--viva); }
     .alca { position: absolute; top: -3px; bottom: -3px; width: 12px; margin-left: -6px;
-            background: var(--viva); border-radius: 6px; cursor: ew-resize; }
-    .pico { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--alerta); }
+            background: var(--viva); border-radius: 999px; cursor: ew-resize; }
+    .barra .pico { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--alerta); }
     .tempos { font-size: 12px; color: var(--fraco); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
-    button { border: 0; border-radius: 9px; padding: 6px 12px; font: inherit; font-weight: 700;
-             cursor: pointer; background: var(--caixa-2); color: var(--texto);
-             transition: filter .12s; min-height: 28px; }
-    button:hover { filter: brightness(1.15); }
+    /* Pilula para tudo o que se aperta, e o preto so na acao principal. */
+    button { border: 1px solid var(--fio-forte); border-radius: 999px;
+             padding: 6px 14px; font: inherit; font-weight: 600;
+             cursor: pointer; background: var(--caixa); color: var(--texto);
+             transition: background-color .12s; min-height: 28px; }
+    button:hover { background: var(--caixa-2); }
     button:disabled { opacity: .5; cursor: not-allowed; }
-    button.abrir { background: #23303a; color: #9fd8ff; }
-    button.perigo { background: #3a1f22; color: #ff8b8b; }
-    button.ativo { outline: 2px solid var(--info); }
-    button.render { background: var(--alerta); color: #2b2100; width: 100%; padding: 12px; font-size: 15px; }
-    select { background: var(--caixa-2); color: var(--texto); border: 1px solid var(--linha);
-             border-radius: 9px; padding: 6px 10px; font: inherit; font-weight: 700; }
+    button.abrir { color: var(--info); }
+    button.perigo { color: var(--morta);
+                    background: color-mix(in srgb, var(--morta) 12%, var(--caixa));
+                    border-color: color-mix(in srgb, var(--morta) 40%, var(--caixa)); }
+    button.perigo:hover { border-color: var(--morta); }
+    button.ativo { outline: 2px solid var(--texto); }
+    button.render { background: var(--texto); color: var(--fundo); border-color: var(--texto);
+                    width: 100%; padding: 12px; font-size: 15px; }
+    button.render:hover { background: var(--escuro); }
+    select { background: var(--caixa-2); color: var(--texto); border: 1px solid var(--fio-forte);
+             border-radius: 999px; padding: 6px 12px; font: inherit; font-weight: 600; }
     select.falta { border-color: var(--morta); color: var(--morta); }
     input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--viva); cursor: pointer; }
     input.gols { width: 60px; background: var(--caixa-2); color: var(--texto);
-                 border: 1px solid var(--linha); border-radius: 9px; padding: 6px 8px;
+                 border: 1px solid var(--fio-forte); border-radius: 999px; padding: 6px 10px;
                  font: inherit; font-weight: 700; text-align: center;
                  font-variant-numeric: tabular-nums; }
     input.gols:placeholder-shown, input.gols.falta { border-color: var(--morta); }
@@ -93,9 +101,9 @@
     .gols-do-gol input.gols { width: 48px; padding: 4px 6px; }
 
     aside { position: sticky; top: 16px; display: grid; gap: 16px; }
-    #espiada { width: 100%; background: #000; border-radius: 10px; display: block; aspect-ratio: 16/9; object-fit: contain; }
+    #espiada { width: 100%; background: #000; border-radius: 12px; display: block; aspect-ratio: 16/9; object-fit: contain; }
     #espiada.em-pe { aspect-ratio: 9/16; }
-    #previa { width: 100%; background: #000; border-radius: 10px; display: none; }
+    #previa { width: 100%; background: #000; border-radius: 12px; display: none; }
     .duas { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     .progresso { height: 8px; border-radius: 999px; background: var(--caixa-2); overflow: hidden; }
     .progresso > div { height: 100%; background: var(--viva); width: 0; transition: width .12s; }
@@ -104,12 +112,12 @@
     .recado.ok { color: var(--viva); }
     .aviso { color: var(--alerta); font-size: 12px; }
     input[type=text] { width: 100%; background: var(--caixa-2); color: var(--texto);
-                       border: 1px solid var(--linha); border-radius: 9px;
-                       padding: 8px 10px; font: inherit; margin-bottom: 8px; }
-    #capa { width: 100%; border-radius: 10px; display: none; margin-top: 8px; }
+                       border: 1px solid var(--fio-forte); border-radius: 999px;
+                       padding: 8px 14px; font: inherit; margin-bottom: 8px; }
+    #capa { width: 100%; border-radius: 12px; display: none; margin-top: 8px; }
     #publicar-texto { width: 100%; height: 180px; background: var(--caixa-2);
-                      color: var(--texto); border: 1px solid var(--linha);
-                      border-radius: 9px; padding: 10px; font: inherit;
+                      color: var(--texto); border: 1px solid var(--fio-forte);
+                      border-radius: 12px; padding: 10px; font: inherit;
                       font-size: 12px; display: none; margin-top: 8px; }
   </style>
 </head>

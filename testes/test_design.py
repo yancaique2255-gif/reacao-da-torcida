@@ -56,3 +56,89 @@ def test_o_design_md_esta_do_lado_do_agents_md():
     """A dupla e o combinado: AGENTS.md como escrever, DESIGN.md como parece."""
     assert DESIGN.is_file()
     assert "DESIGN.md" in (RAIZ / "AGENTS.md").read_text(encoding="utf-8")
+
+
+def _css(caminho: Path) -> str:
+    """So o que esta dentro do <style>: o corpo da pagina tem texto e emoji."""
+    return "\n".join(re.findall(r"<style>(.*?)</style>", caminho.read_text(encoding="utf-8"), re.S))
+
+
+def test_nenhuma_tela_tem_sombra():
+    """O sistema da Ollama separa por fio, nao por profundidade. Nada levanta do papel."""
+    for tela in TELAS:
+        assert "box-shadow" not in _css(tela), f"{tela.name} voltou a ter sombra"
+
+
+def test_nenhuma_tela_tem_gradiente_decorativo():
+    for tela in TELAS:
+        css = _css(tela)
+        for enfeite in ("linear-gradient", "radial-gradient"):
+            assert enfeite not in css, f"{tela.name} tem {enfeite}"
+
+
+def test_so_os_raios_da_escala():
+    """Escala de raio: 8 (midia interna, trilho) / 12 (cartao) / 999 (pilula), mais a bolinha."""
+    permitidos = {"8px", "12px", "999px", "50%"}
+    for tela in TELAS:
+        usados = set(re.findall(r"border-radius:\s*([^;}]+)", _css(tela)))
+        fora = {u.strip() for u in usados} - permitidos
+        assert not fora, f"{tela.name} usa raio fora da escala: {sorted(fora)}"
+
+
+def test_a_tinta_de_estado_e_12_por_cento():
+    """A 16% o texto de --viva sobre a propria tinta dava 4,3:1 e reprovava na AA.
+
+    O 40% e so de fio, que nao leva texto por cima.
+    """
+    for tela in TELAS:
+        pcts = set(re.findall(r"color-mix\(in srgb, var\(--[a-z-]+\) (\d+)%", _css(tela)))
+        assert pcts <= {"12", "40"}, f"{tela.name} mistura em {sorted(pcts)}%"
+
+
+def test_nenhuma_cor_crua_fora_do_root():
+    """Valor cru de cor e o erro mais chato de desfazer. Sobra o #000 de passe-partout.
+
+    O preto atras de foto e video nao e superficie, e fundo para a imagem ter contra
+    o que aparecer - por isso ele fica, e o texto sobre ele vai em var(--fundo).
+    """
+    for tela in TELAS:
+        css = _css(tela)
+        sem_root = re.sub(r":root\s*\{.*?\}", "", css, flags=re.S)
+        crus = {c.lower() for c in re.findall(r"#[0-9a-fA-F]{3,8}", sem_root)} - {"#000", "#000000"}
+        assert not crus, f"{tela.name} tem cor crua fora do :root: {sorted(crus)}"
+
+
+def test_a_acao_principal_e_a_pilula_preta():
+    """Uma por tela: MARCAR GOL, MONTAR, RENDER FINAL. O ambar saiu na migracao."""
+    principais = {
+        "gravacao.html": ".marcar {",
+        "pagina.html": "#montar {",
+        "edicao.html": "button.render {",
+    }
+    for tela in TELAS:
+        css = _css(tela)
+        seletor = principais[tela.name]
+        inicio = css.index(seletor)
+        regra = css[inicio:css.index("}", inicio)]
+        assert "background: var(--texto)" in regra, f"{tela.name}: {seletor} nao e a pilula preta"
+        assert "color: var(--fundo)" in regra, f"{tela.name}: {seletor} sem tinta invertida"
+
+
+def test_tudo_o_que_se_aperta_e_pilula():
+    """Botao, select e campo de digitar: 999px. Era o que faltava em duas telas."""
+    for tela in TELAS:
+        css = _css(tela)
+        base = re.search(r"(?m)^[ \t]*button\s*\{([^}]*)\}", css)
+        assert base and "border-radius: 999px" in base.group(1), (
+            f"{tela.name}: o botao base nao e pilula"
+        )
+        for seletor, corpo in re.findall(r"([^{}]+)\{([^}]*)\}", css):
+            if "border-radius" not in corpo:
+                continue
+            if not re.search(r"\b(button|select|input)\b", seletor):
+                continue
+            if "checkbox" in seletor or "textarea" in seletor:
+                continue
+            assert "border-radius: 999px" in corpo, (
+                f"{tela.name}: {seletor.strip()} se aperta e nao e pilula"
+            )
