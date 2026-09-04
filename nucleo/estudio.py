@@ -21,7 +21,9 @@ tinha de bom veio junto: o `loudnorm` em -16 LUFS e a emenda por `concat`.
 """
 import hashlib
 import json
+import os
 import shutil
+import subprocess
 from pathlib import Path
 from typing import Callable
 
@@ -335,8 +337,10 @@ def montar(
         ))
 
     total = len(tarefas)
+    # O PID e de quem esta montando de verdade: e por ele que o painel sabe
+    # diferenciar "ainda trabalhando" de "morreu no meio".
     anotar(pasta_jogo, rodando=True, feito=0, total=total, saida="",
-           mensagem=f"montando {total} peca(s)")
+           pid=os.getpid(), mensagem=f"montando {total} peca(s)")
 
     pecas = []
     for feito, (destino, comando_de, qual) in enumerate(tarefas, start=1):
@@ -422,31 +426,86 @@ def previa(
     filtro, rotulo = filtro_do_item(clipe, dados, dados_receita, cfg, escala=PREVIA)
 
     destino = pasta_cache(pasta_jogo) / f"previa-{gol}-{canal}.mp4"
-    executar(comando_item(
+    codec = cfg.get("codec_previa", "libx264")
+    fazer = lambda qual: comando_item(  # noqa: E731
         pasta_jogo / clipe["arquivo"], item, filtro, rotulo, mascara, moldura,
-        destino, cfg["caminho_ffmpeg"],
-        video=["-c:v", cfg.get("codec_previa", "libx264"), "-preset", "veryfast",
-               "-crf", "28", "-pix_fmt", "yuv420p", "-r", str(molde.FPS)],
-    ))
+        destino, cfg["caminho_ffmpeg"], video=_video_da_previa(qual),
+    )
+    try:
+        executar(fazer(codec))
+    except subprocess.CalledProcessError:
+        # A APU pode estar ocupada, ou o ffmpeg da maquina pode nem ter o
+        # encoder dela. Ficar sem previa por isso seria bobagem: o libx264
+        # sempre existe, e em 640x360 ele da conta.
+        if codec == "libx264":
+            raise
+        executar(fazer("libx264"))
     return destino
+
+
+def _video_da_previa(codec: str) -> list[str]:
+    """As opcoes de video da previa, que mudam com o codec.
+
+    Medido nesta maquina: o `h264_amf` recusa `-preset veryfast` ("Unable to
+    parse preset option value") e nao tem `-crf`. Taxa de bits fixa serve aos
+    dois, e a previa nao precisa de mais do que isso.
+    """
+    comum = ["-c:v", codec, "-b:v", "900k", "-pix_fmt", "yuv420p", "-r", str(molde.FPS)]
+    return comum + (["-preset", "veryfast"] if codec == "libx264" else ["-quality", "speed"])
 
 
 # ------------------------------------------------------------ a fila e o disco
 
-def estado(pasta_jogo: Path) -> dict:
+def processo_vivo(pid: int, perguntar=None) -> bool:
+    """Se aquele PID ainda existe nesta maquina.
+
+    `os.kill(pid, 0)` NAO serve aqui: no Windows ele chama TerminateProcess e
+    mata o processo em vez de perguntar por ele.
+    """
+    if not pid:
+        return False
+    perguntar = perguntar or _tasklist
+    return str(pid) in perguntar(int(pid))
+
+
+def _tasklist(pid: int) -> str:
+    try:
+        return subprocess.run(
+            ["tasklist", "/FI", f"PID eq {pid}", "/NH"],
+            capture_output=True, text=True, timeout=10,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        # Sem conseguir perguntar, o menos errado e dar o processo por vivo:
+        # dizer que morreu liberaria um segundo render por cima do primeiro.
+        return str(pid)
+
+
+def estado(pasta_jogo: Path, vivo=None) -> dict:
     """O que o render esta fazendo, lido do disco.
 
     Mora em disco e nao na pagina: o painel pode ser fechado e reaberto sem
     matar o render, do mesmo jeito que o supervisor da gravacao ja funciona.
+
+    Se o processo que se disse dono do render sumiu, isto aqui para de repetir
+    que ele esta rodando. Estado travado que nunca resolve e pior do que erro:
+    o operador fica esperando um arquivo que nunca vem.
     """
-    padrao = {"rodando": False, "feito": 0, "total": 0, "mensagem": "", "saida": ""}
+    padrao = {"rodando": False, "feito": 0, "total": 0, "mensagem": "",
+              "saida": "", "pid": 0}
     arquivo = Path(pasta_jogo) / NOME_ESTADO
     if not arquivo.is_file():
         return padrao
     try:
-        return {**padrao, **json.loads(arquivo.read_text(encoding="utf-8"))}
+        atual = {**padrao, **json.loads(arquivo.read_text(encoding="utf-8"))}
     except json.JSONDecodeError:
         return padrao
+    if atual["rodando"] and atual["pid"] and not (vivo or processo_vivo)(atual["pid"]):
+        return {
+            **atual, "rodando": False,
+            "mensagem": "o render parou sozinho antes de terminar - "
+                        "veja a janela dele e mande de novo",
+        }
+    return atual
 
 
 def anotar(pasta_jogo: Path, **campos) -> dict:

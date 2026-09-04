@@ -22,16 +22,21 @@ PAGINA = Path(__file__).resolve().parent / "edicao.html"
 RAIZ = Path(__file__).resolve().parent.parent
 
 
-def lancar_render(pasta_jogo: Path) -> None:
-    """Sobe o render num processo proprio.
+def lancar_render(pasta_jogo: Path) -> int:
+    """Sobe o render num processo proprio e devolve o PID dele.
 
     O painel pode ser fechado e reaberto sem matar o render; o progresso vive
     em `render.json`, do mesmo jeito que o supervisor da gravacao.
+
+    Vai o CAMINHO INTEIRO, e nao o nome da pasta: o jogo aberto no painel pode
+    nao estar dentro da biblioteca configurada, e ai o render montaria um jogo
+    vazio sem ninguem entender por que.
     """
-    subprocess.Popen(
-        [sys.executable, "-m", "nucleo.esteira", "render", Path(pasta_jogo).name],
+    processo = subprocess.Popen(
+        [sys.executable, "-m", "nucleo.esteira", "render", str(Path(pasta_jogo))],
         cwd=str(RAIZ),
     )
+    return processo.pid
 
 
 def _clipes(dados: dict) -> dict:
@@ -221,7 +226,9 @@ def montar_resposta(
             total=len(receita.itens_do_video(edicao)), saida="",
             mensagem="na fila",
         )
-        (lancar or lancar_render)(pasta_jogo)
+        # O PID entra antes de a tela voltar: e por ele que o painel sabe
+        # diferenciar "ainda trabalhando" de "morreu no meio".
+        estudio.anotar(pasta_jogo, pid=(lancar or lancar_render)(pasta_jogo) or 0)
         return 200, tela(pasta_jogo, dados, edicao, cfg)
 
     if rota == "POST /api/limpar":

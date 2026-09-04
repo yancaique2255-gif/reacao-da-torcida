@@ -266,3 +266,13 @@ def test_rota_que_nao_existe_da_404(tmp_path: Path):
 
     assert codigo == 404
     assert "inventada" in corpo["erro"]
+
+
+def test_o_painel_guarda_o_pid_do_render(tmp_path: Path):
+    """Sem o PID nao da para saber se o render morreu no meio - e ai a tela
+    fica dizendo "rodando" para sempre, esperando um arquivo que nao vem."""
+    _jogo(tmp_path)
+
+    _pedir("POST /api/render", {}, tmp_path, lancar=lambda pasta: 4242)
+
+    assert json.loads((tmp_path / estudio.NOME_ESTADO).read_text(encoding="utf-8"))["pid"] == 4242

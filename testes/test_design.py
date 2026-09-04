@@ -9,7 +9,11 @@ import re
 from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parent.parent
-TELAS = [RAIZ / "painel" / "gravacao.html", RAIZ / "painel" / "pagina.html"]
+TELAS = [
+    RAIZ / "painel" / "gravacao.html",
+    RAIZ / "painel" / "pagina.html",
+    RAIZ / "painel" / "edicao.html",
+]
 DESIGN = RAIZ / "DESIGN.md"
 
 
@@ -20,14 +24,16 @@ def _tokens(caminho: Path) -> dict[str, str]:
     return dict(re.findall(r"(--[a-z0-9-]+):\s*(#[0-9a-fA-F]+)", bloco.group(1)))
 
 
-def test_as_duas_telas_definem_os_mesmos_tokens():
-    gravacao, estudio = (_tokens(t) for t in TELAS)
-    assert gravacao == estudio, (
-        "as telas divergiram: "
-        f"so no painel {sorted(set(gravacao) - set(estudio))}, "
-        f"so no estudio {sorted(set(estudio) - set(gravacao))}, "
-        f"valores diferentes {sorted(k for k in set(gravacao) & set(estudio) if gravacao[k] != estudio[k])}"
-    )
+def test_as_telas_definem_os_mesmos_tokens():
+    primeira, *outras = [(t.name, _tokens(t)) for t in TELAS]
+    for nome, tokens in outras:
+        assert tokens == primeira[1], (
+            f"{nome} divergiu de {primeira[0]}: "
+            f"so na primeira {sorted(set(primeira[1]) - set(tokens))}, "
+            f"so nela {sorted(set(tokens) - set(primeira[1]))}, "
+            "valores diferentes "
+            f"{sorted(k for k in set(tokens) & set(primeira[1]) if tokens[k] != primeira[1][k])}"
+        )
 
 
 def test_nenhuma_tela_usa_token_que_nao_definiu():

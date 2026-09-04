@@ -818,3 +818,28 @@ def test_etapa_limpar_apaga_os_intermediarios(tmp_path: Path, monkeypatch, capsy
     assert codigo == 0
     assert estudio.tamanho_do_cache(pasta) == 0
     assert "MB" in capsys.readouterr().out
+
+
+def test_etapa_render_aceita_o_caminho_inteiro_do_jogo(tmp_path: Path, monkeypatch):
+    """O painel manda o caminho, e nao o nome: a pasta do jogo pode nao estar
+    dentro da biblioteca configurada, e ai o render montava um jogo vazio."""
+    pasta = tmp_path / "fora-da-biblioteca" / "2026-09-03 gremio x internacional"
+    pasta.mkdir(parents=True)
+    _jogo_pronto_para_render(pasta)
+    cfg = {
+        "biblioteca": str(tmp_path / "outra"),
+        "caminho_ffmpeg": "ffmpeg.exe",
+        "fonte_cartela": r"C:\Windows\Fonts\arialbd.ttf",
+    }
+    monkeypatch.setattr(esteira.config, "carregar", lambda: cfg)
+
+    def executar(comando):
+        Path(comando[-1]).parent.mkdir(parents=True, exist_ok=True)
+        Path(comando[-1]).write_bytes(b"x")
+
+    monkeypatch.setattr(esteira.cortador, "executar", executar)
+
+    codigo = esteira.etapa_render([str(pasta)])
+
+    assert codigo == 0
+    assert (pasta / "saida" / "compilacao-deitado.mp4").is_file()

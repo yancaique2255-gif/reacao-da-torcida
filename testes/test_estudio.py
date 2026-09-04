@@ -10,6 +10,7 @@ clipe no mesmo volume, cartela abrindo cada gol, e o progresso em disco para o
 painel poder ser fechado e reaberto sem matar o render.
 """
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -293,3 +294,62 @@ def test_nome_de_canal_gigante_nao_estoura_a_etiqueta():
 
     assert curto == "BALDASSO TV"
     assert len(gigante) <= molde.MAXIMO_DO_CANAL
+
+
+def test_a_previa_nao_manda_preset_de_libx264_para_a_apu(tmp_path: Path):
+    """Medido: o h264_amf recusa `-preset veryfast` e `-crf`, e a previa morria.
+
+    "Unable to parse preset option value veryfast" - os presets dele sao outros.
+    Taxa de bits em vez de crf serve aos dois, e a previa nao precisa de mais.
+    """
+    dados = _jogo(tmp_path)
+    executor = Executor()
+
+    estudio.previa(
+        tmp_path, dados, receita.padrao(dados), 1, "paulo-brito",
+        {**CFG, "codec_previa": "h264_amf"}, executar=executor,
+    )
+
+    comando = executor.comandos[0]
+    assert "h264_amf" in comando
+    assert "veryfast" not in comando
+    assert "-crf" not in comando
+    assert "-b:v" in comando
+
+
+def test_previa_recusada_pela_apu_sai_pelo_libx264(tmp_path: Path):
+    """A APU pode estar ocupada. Ficar sem previa por isso seria bobagem."""
+    dados = _jogo(tmp_path)
+    tentativas = []
+
+    def apu_ocupada(comando):
+        tentativas.append(comando)
+        if "h264_amf" in comando:
+            raise subprocess.CalledProcessError(1, comando)
+        Path(comando[-1]).write_bytes(b"video de mentira")
+
+    saida = estudio.previa(
+        tmp_path, dados, receita.padrao(dados), 1, "paulo-brito",
+        {**CFG, "codec_previa": "h264_amf"}, executar=apu_ocupada,
+    )
+
+    assert len(tentativas) == 2
+    assert "libx264" in tentativas[1]
+    assert saida.is_file()
+
+
+def test_render_que_morreu_no_meio_nao_fica_rodando_para_sempre(tmp_path: Path):
+    """Estado travado que nunca resolve e pior que erro: o operador espera um
+    arquivo que nunca vem. Se o processo do render sumiu, a tela tem que dizer."""
+    estudio.anotar(tmp_path, rodando=True, feito=1, total=5, pid=999999)
+
+    estado = estudio.estado(tmp_path, vivo=lambda pid: False)
+
+    assert estado["rodando"] is False
+    assert "parou" in estado["mensagem"]
+
+
+def test_render_vivo_continua_rodando(tmp_path: Path):
+    estudio.anotar(tmp_path, rodando=True, feito=1, total=5, pid=4242)
+
+    assert estudio.estado(tmp_path, vivo=lambda pid: True)["rodando"] is True

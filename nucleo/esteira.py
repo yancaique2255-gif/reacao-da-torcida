@@ -622,6 +622,26 @@ def etapa_estudio(argv=None) -> int:
     return 0
 
 
+def etapa_edicao(argv=None) -> int:
+    """Abre o estudio de EDICAO, na 8772 - o novo, ao lado do de sempre.
+
+    O da 8770 continua onde esta: reforma grande nao se faz na ferramenta em
+    uso. Os dois podem rodar ao mesmo tempo, cada um na sua porta.
+    """
+    from painel import edicao
+
+    p = argparse.ArgumentParser(description="Abre o estudio de edicao (porta 8772).")
+    p.add_argument("jogo", nargs="?")
+    p.add_argument("--porta", type=int, default=8772)
+    args = p.parse_args(argv)
+    cfg = config.carregar()
+    jogo = args.jogo or escolher_jogo(Path(cfg["biblioteca"]))
+    if not jogo:
+        return 1
+    edicao.servir(Path(cfg["biblioteca"]) / jogo, cfg, args.porta)
+    return 0
+
+
 def _par_canal_torcida(texto: str) -> tuple[str, str]:
     if "=" not in texto:
         raise argparse.ArgumentTypeError(f'use CANAL=TORCIDA, nao "{texto}"')
@@ -773,6 +793,7 @@ if __name__ == "__main__":
         "gravar": etapa_gravar,
         "cortar": etapa_cortar,
         "estudio": etapa_estudio,
+        "edicao": etapa_edicao,
         "render": etapa_render,
         "limpar": etapa_limpar,
         "ficha": etapa_ficha,
@@ -781,7 +802,7 @@ if __name__ == "__main__":
     if len(sys.argv) < 2 or sys.argv[1] not in etapas:
         print(
             "Uso: python -m nucleo.esteira "
-            "canais|gravar|cortar|estudio|render|limpar|ficha|torcida ..."
+            "canais|gravar|cortar|estudio|edicao|render|limpar|ficha|torcida ..."
         )
         sys.exit(2)
     sys.exit(etapas[sys.argv[1]](sys.argv[2:]))

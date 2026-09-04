@@ -3,12 +3,17 @@
 O par visual do `AGENTS.md`. Aquele diz **como o código se escreve**; este diz **como a
 tela se parece**. Leia antes de mexer em qualquer `.html` do projeto.
 
-O projeto tem duas telas, e elas não competem:
+O projeto tem três telas, e elas não competem:
 
 | Tela | Arquivo | Porta | Quando é usada |
 | --- | --- | --- | --- |
 | Painel da gravação | `painel/gravacao.html` | 8771 | **Durante** o jogo, de canto de olho |
 | Estúdio | `painel/pagina.html` | 8770 | **Depois** do jogo, escolhendo clipe |
+| Estúdio de edição | `painel/edicao.html` | 8772 | **Depois** da escolha, montando o vídeo |
+
+O estúdio de edição nasceu ao lado do da 8770, e não no lugar dele: reforma
+grande não se faz na ferramenta em uso. Os três `:root` têm os mesmos tokens, e
+a bateria reprova se um divergir.
 
 ---
 

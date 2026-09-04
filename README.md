@@ -22,8 +22,16 @@ Os atalhos numerados na raiz da pasta são a ordem de uso, e cada um chama o
    exato em que a reação aparece na gravação.
 5. **4 - ESTUDIO** (porta 8770) — a tela do *depois*. Assista aos clipes, escolha
    quais usar e monte a compilação.
+6. **5 - EDICAO** (porta 8772) — o estúdio de edição: monta o vídeo com a cara do
+   canal. Ele já abre decidido — entram os canais da torcida que **perdeu**, na
+   ordem da reação mais forte, com o corte proposto —, e tudo ali é ajustável:
+   marcar e desmarcar, arrastar as alças do corte, trocar de que torcida se ri,
+   virar o vídeo em pé. Cada clique grava em disco na hora. ESPIAR mostra um
+   quadro pronto na hora; PRÉVIA renderiza o trecho pequeno; RENDER FINAL vai
+   para a fila em outro processo, e você pode fechar a tela sem matar o render.
 
-As duas telas podem ficar abertas ao mesmo tempo: moram em portas diferentes.
+As telas podem ficar abertas ao mesmo tempo: moram em portas diferentes. A 8770
+continua sendo a de trabalhar; a 8772 nasceu ao lado dela, e não no lugar.
 
 O detector de pico não decide mais sozinho onde está o gol — quem marca é o
 operador, ou o placar da ESPN. Ele é usado para duas coisas: medir a força da

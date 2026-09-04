@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reação da Torcida — Estúdio de edição</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --fundo: #0f1115;
+      --caixa: #171a21;
+      --caixa-2: #1e222c;
+      --linha: #242833;
+      --texto: #e7e9ee;
+      --fraco: #8b93a7;
+      --viva: #35d07f;
+      --morta: #ff5c5c;
+      --alerta: #ffb020;
+      --info: #63a9ff;
+      --gol: #e5342b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: radial-gradient(circle at 80% -10%, #17304a 0, transparent 34%), var(--fundo);
+      color: var(--texto);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      min-height: 100vh;
+    }
+    header, main { width: min(1400px, calc(100% - 32px)); margin-inline: auto; }
+    header { padding: 32px 0 20px; }
+    .sobretitulo { color: var(--info); font-size: 12px; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; }
+    h1 { font-size: clamp(24px, 3.4vw, 40px); line-height: 1; margin: 8px 0 0; letter-spacing: -.03em; }
+    .barra-topo { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin-top: 16px; }
+    .rotulo { color: var(--fraco); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; }
+    .resumo { margin-left: auto; text-align: right; color: var(--fraco); font-variant-numeric: tabular-nums; }
+    .resumo b { color: var(--texto); font-size: 26px; font-weight: 700; }
+
+    main { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 24px; align-items: start; padding-bottom: 40px; }
+    @media (max-width: 1100px) { main { grid-template-columns: 1fr; } }
+
+    .cartao { background: var(--caixa); border: 1px solid var(--linha); border-radius: 16px; padding: 16px; }
+    #gols { display: grid; gap: 16px; }
+    .gol { box-shadow: 0 18px 50px #0005; }
+    .gol-topo { display: flex; align-items: baseline; gap: 12px; margin-bottom: 12px; }
+    h2 { margin: 0; font-size: 22px; }
+    .placar-do-gol { color: var(--fraco); font-size: 13px; font-variant-numeric: tabular-nums; }
+
+    .item { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 8px 12px; align-items: center;
+            padding: 10px 8px; border-top: 1px solid var(--linha); }
+    .item.fora { opacity: .55; }
+    .nome { font-weight: 700; overflow-wrap: anywhere; }
+    .sinal { font-size: 12px; color: var(--fraco); font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .sinal.pico { color: var(--viva); }
+    .sinal.fraco { color: var(--alerta); }
+    .pilula { border-radius: 999px; font-size: 12px; font-weight: 600; padding: 2px 10px; }
+    .pilula.sem { background: rgba(255,92,92,.16); color: var(--morta); }
+    .pilula.parcial { background: rgba(255,176,32,.16); color: var(--alerta); }
+    .linha-corte { grid-column: 2 / -1; display: flex; align-items: center; gap: 12px; }
+
+    .barra { position: relative; height: 26px; flex: 1; background: var(--caixa-2);
+             border: 1px solid var(--linha); border-radius: 6px; touch-action: none; }
+    .janela { position: absolute; top: 0; bottom: 0; background: rgba(53,208,127,.16);
+              border-left: 2px solid var(--viva); border-right: 2px solid var(--viva); }
+    .alca { position: absolute; top: -3px; bottom: -3px; width: 12px; margin-left: -6px;
+            background: var(--viva); border-radius: 6px; cursor: ew-resize; }
+    .pico { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--alerta); }
+    .tempos { font-size: 12px; color: var(--fraco); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+    button { border: 0; border-radius: 9px; padding: 6px 12px; font: inherit; font-weight: 700;
+             cursor: pointer; background: var(--caixa-2); color: var(--texto);
+             transition: filter .12s; min-height: 28px; }
+    button:hover { filter: brightness(1.15); }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    button.abrir { background: #23303a; color: #9fd8ff; }
+    button.perigo { background: #3a1f22; color: #ff8b8b; }
+    button.ativo { outline: 2px solid var(--info); }
+    button.render { background: var(--alerta); color: #2b2100; width: 100%; padding: 12px; font-size: 15px; }
+    select { background: var(--caixa-2); color: var(--texto); border: 1px solid var(--linha);
+             border-radius: 9px; padding: 6px 10px; font: inherit; font-weight: 700; }
+    select.falta { border-color: var(--morta); color: var(--morta); }
+    input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--viva); cursor: pointer; }
+
+    aside { position: sticky; top: 16px; display: grid; gap: 16px; }
+    #espiada { width: 100%; background: #000; border-radius: 10px; display: block; aspect-ratio: 16/9; object-fit: contain; }
+    #espiada.em-pe { aspect-ratio: 9/16; }
+    #previa { width: 100%; background: #000; border-radius: 10px; display: none; }
+    .duas { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .progresso { height: 8px; border-radius: 999px; background: var(--caixa-2); overflow: hidden; }
+    .progresso > div { height: 100%; background: var(--viva); width: 0; transition: width .12s; }
+    .recado { color: var(--fraco); font-size: 13px; margin: 8px 0 0; overflow-wrap: anywhere; }
+    .recado.erro { color: var(--morta); }
+    .recado.ok { color: var(--viva); }
+    .aviso { color: var(--alerta); font-size: 12px; }
+  </style>
+</head>
+<body>
+<header>
+  <div class="sobretitulo">Reação da Torcida — estúdio de edição</div>
+  <h1 id="titulo">carregando…</h1>
+  <div class="barra-topo">
+    <span class="rotulo">rindo do</span>
+    <select id="alvo"></select>
+    <span class="rotulo">formato</span>
+    <button id="deitado" data-formato="deitado">DEITADO</button>
+    <button id="empe" data-formato="em-pe">EM PÉ</button>
+    <span class="rotulo">por clipe</span>
+    <select id="duracao"></select>
+    <div class="resumo"><b id="tempo">—</b><br><span id="quantos"></span></div>
+  </div>
+  <p class="recado" id="recado-topo"></p>
+</header>
+
+<main>
+  <section id="gols"></section>
+
+  <aside>
+    <div class="cartao">
+      <div class="rotulo">espiar</div>
+      <img id="espiada" alt="quadro com todas as camadas">
+      <video id="previa" controls></video>
+      <p class="recado" id="recado-espiar">Escolha um clipe e clique em ESPIAR.</p>
+    </div>
+
+    <div class="cartao">
+      <button class="render" id="render">RENDER FINAL</button>
+      <div class="progresso" style="margin-top:12px"><div id="progresso-barra"></div></div>
+      <p class="recado" id="recado-render">fila: nada rodando</p>
+      <p class="recado"><span id="cache"></span>
+        <button class="perigo" id="limpar">limpar</button></p>
+    </div>
+  </aside>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let tela = null;
+let vigiando = null;
+
+const seg = (s) => {
+  const t = Math.max(0, Math.round(s));
+  return `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`;
+};
+
+async function pedir(rota, corpo) {
+  const resposta = await fetch(rota, {
+    method: corpo ? "POST" : "GET",
+    headers: { "Content-Type": "application/json" },
+    body: corpo ? JSON.stringify(corpo) : undefined,
+  });
+  const dados = await resposta.json();
+  if (!resposta.ok) throw new Error(dados.erro || `erro ${resposta.status}`);
+  return dados;
+}
+
+function avisar(elemento, texto, tipo = "") {
+  const alvo = $(elemento);
+  alvo.textContent = texto;
+  alvo.className = "recado" + (tipo ? " " + tipo : "");
+}
+
+async function mandar(rota, corpo, onde = "recado-topo") {
+  try {
+    desenhar(await pedir(rota, corpo));
+    avisar(onde, "gravado.", "ok");
+  } catch (erro) {
+    avisar(onde, erro.message, "erro");
+  }
+}
+
+function desenhar(dados) {
+  tela = dados;
+  const p = dados.partida || {};
+  const placar = (p.gols_mandante === undefined)
+    ? "sem placar" : `${p.gols_mandante} x ${p.gols_visitante}`;
+  $("titulo").textContent = `${p.mandante || "?"} ${placar} ${p.visitante || "?"}`;
+
+  const alvo = $("alvo");
+  alvo.innerHTML = "";
+  for (const torcida of dados.torcidas) {
+    const opcao = document.createElement("option");
+    opcao.value = torcida;
+    opcao.textContent = torcida.toUpperCase();
+    opcao.selected = torcida === dados.alvo.torcida;
+    alvo.append(opcao);
+  }
+  if (!dados.alvo.decidido) {
+    const vazio = document.createElement("option");
+    vazio.value = "";
+    vazio.textContent = dados.alvo.motivo === "empate" ? "EMPATE — ESCOLHA" : "SEM PLACAR — ESCOLHA";
+    vazio.selected = true;
+    alvo.prepend(vazio);
+  }
+
+  $("deitado").classList.toggle("ativo", dados.formato === "deitado");
+  $("empe").classList.toggle("ativo", dados.formato === "em-pe");
+  $("espiada").classList.toggle("em-pe", dados.formato === "em-pe");
+
+  const duracao = $("duracao");
+  duracao.innerHTML = "";
+  for (const valor of [20, 30, 45, 60, 75, 90]) {
+    const opcao = document.createElement("option");
+    opcao.value = valor;
+    opcao.textContent = `${valor}s`;
+    opcao.selected = Math.round(dados.duracao_por_clipe) === valor;
+    duracao.append(opcao);
+  }
+
+  $("tempo").textContent = seg(dados.segundos);
+  $("quantos").textContent = `${dados.quantos} clipe(s) · ${dados.alvo.motivo}`;
+  $("cache").textContent = `intermediários: ${dados.cache_mb} MB `;
+  if (dados.cache_no_teto) $("cache").innerHTML += '<span class="aviso">passou do teto</span> ';
+
+  const gols = $("gols");
+  gols.innerHTML = "";
+  for (const gol of dados.gols) gols.append(desenharGol(gol, dados));
+
+  mostrarRender(dados.render);
+}
+
+function desenharGol(gol, dados) {
+  const caixa = document.createElement("section");
+  caixa.className = "cartao gol";
+  const topo = document.createElement("div");
+  topo.className = "gol-topo";
+  topo.innerHTML = `<h2>GOL ${gol.numero}</h2>
+    <span class="placar-do-gol">${gol.placar || "placar não anotado"}</span>`;
+  caixa.append(topo);
+  for (const item of gol.itens) caixa.append(desenharItem(item, dados));
+  return caixa;
+}
+
+function desenharItem(item, dados) {
+  const linha = document.createElement("div");
+  linha.className = "item" + (item.entra ? "" : " fora");
+
+  const marca = document.createElement("input");
+  marca.type = "checkbox";
+  marca.checked = item.entra;
+  marca.disabled = !item.torcida;
+  marca.onchange = () => mandar("/api/item",
+    { gol: item.gol, canal: item.canal, entra: marca.checked });
+  linha.append(marca);
+
+  const nome = document.createElement("div");
+  nome.className = "nome";
+  nome.textContent = item.canal;
+  linha.append(nome);
+
+  const sinais = document.createElement("div");
+  if (item.torcida) {
+    const forca = document.createElement("span");
+    forca.className = "sinal " + (item.tem_pico ? "pico" : "fraco");
+    forca.textContent = item.tem_pico
+      ? `${item.confianca_db.toFixed(1)} dB`
+      : `${item.confianca_db.toFixed(1)} dB · sem pico`;
+    sinais.append(forca);
+  } else {
+    const selo = document.createElement("span");
+    selo.className = "pilula sem";
+    selo.textContent = "sem torcida";
+    sinais.append(selo);
+  }
+  if (item.parcial) {
+    const selo = document.createElement("span");
+    selo.className = "pilula parcial";
+    selo.textContent = "parcial";
+    sinais.append(selo);
+  }
+  linha.append(sinais);
+
+  if (!item.torcida) {
+    const preencher = document.createElement("div");
+    preencher.className = "linha-corte";
+    const escolha = document.createElement("select");
+    escolha.className = "falta";
+    escolha.innerHTML = '<option value="">preencher torcida…</option>' +
+      [...dados.torcidas, "neutro"].map((t) => `<option value="${t}">${t}</option>`).join("");
+    escolha.onchange = () => {
+      if (escolha.value) mandar("/api/torcida", { canal: item.canal, torcida: escolha.value });
+    };
+    preencher.append(escolha);
+    linha.append(preencher);
+    return linha;
+  }
+
+  linha.append(desenharCorte(item));
+  return linha;
+}
+
+function desenharCorte(item) {
+  const bloco = document.createElement("div");
+  bloco.className = "linha-corte";
+  const total = item.duracao || (item.ate + 1);
+
+  const barra = document.createElement("div");
+  barra.className = "barra";
+  const janela = document.createElement("div");
+  janela.className = "janela";
+  const alcaDe = document.createElement("div");
+  alcaDe.className = "alca";
+  const alcaAte = document.createElement("div");
+  alcaAte.className = "alca";
+  const pico = document.createElement("div");
+  pico.className = "pico";
+  barra.append(janela, pico, alcaDe, alcaAte);
+
+  const tempos = document.createElement("span");
+  tempos.className = "tempos";
+
+  let de = item.de, ate = item.ate;
+  const pintar = () => {
+    janela.style.left = `${(de / total) * 100}%`;
+    janela.style.width = `${((ate - de) / total) * 100}%`;
+    alcaDe.style.left = `${(de / total) * 100}%`;
+    alcaAte.style.left = `${(ate / total) * 100}%`;
+    pico.style.left = `${(Math.min(item.instante, total) / total) * 100}%`;
+    tempos.textContent = `${seg(de)} → ${seg(ate)} · ${Math.round(ate - de)}s`;
+  };
+  pintar();
+
+  const arrastar = (alca, qual) => {
+    alca.onpointerdown = (evento) => {
+      evento.preventDefault();
+      alca.setPointerCapture(evento.pointerId);
+      const mover = (e) => {
+        const caixa = barra.getBoundingClientRect();
+        const onde = Math.min(1, Math.max(0, (e.clientX - caixa.left) / caixa.width)) * total;
+        // As alcas nao se cruzam e nao saem do clipe: o servidor recusaria, e
+        // um corte invertido vira tela preta no meio da compilacao.
+        if (qual === "de") de = Math.min(onde, ate - 1);
+        else ate = Math.max(onde, de + 1);
+        pintar();
+      };
+      const soltar = () => {
+        alca.onpointermove = null;
+        alca.onpointerup = null;
+        // Grava ao soltar, e nao a cada pixel: uma escrita por arrasto.
+        mandar("/api/item", {
+          gol: item.gol, canal: item.canal,
+          de: Math.round(de * 10) / 10, ate: Math.round(ate * 10) / 10,
+        });
+      };
+      alca.onpointermove = mover;
+      alca.onpointerup = soltar;
+    };
+  };
+  arrastar(alcaDe, "de");
+  arrastar(alcaAte, "ate");
+
+  const espiar = document.createElement("button");
+  espiar.className = "abrir";
+  espiar.textContent = "ESPIAR";
+  espiar.onclick = () => verQuadro(item, espiar);
+
+  const previa = document.createElement("button");
+  previa.className = "abrir";
+  previa.textContent = "PRÉVIA";
+  previa.onclick = () => verPrevia(item, previa);
+
+  bloco.append(barra, tempos, espiar, previa);
+  return bloco;
+}
+
+async function verQuadro(item, botao) {
+  botao.disabled = true;
+  avisar("recado-espiar", "espiando…");
+  try {
+    const resposta = await pedir("/api/espiar", { gol: item.gol, canal: item.canal });
+    $("espiada").src = resposta.arquivo;
+    $("espiada").style.display = "block";
+    $("previa").style.display = "none";
+    avisar("recado-espiar", `${item.canal} · gol ${item.gol}`, "ok");
+  } catch (erro) {
+    avisar("recado-espiar", erro.message, "erro");
+  }
+  botao.disabled = false;
+}
+
+async function verPrevia(item, botao) {
+  botao.disabled = true;
+  avisar("recado-espiar", "renderizando a prévia… leva alguns segundos.");
+  try {
+    const resposta = await pedir("/api/previa", { gol: item.gol, canal: item.canal });
+    $("previa").src = resposta.arquivo;
+    $("previa").style.display = "block";
+    $("espiada").style.display = "none";
+    avisar("recado-espiar", `prévia de ${item.canal}`, "ok");
+  } catch (erro) {
+    avisar("recado-espiar", erro.message, "erro");
+  }
+  botao.disabled = false;
+}
+
+function mostrarRender(estado) {
+  const parte = estado.total ? (estado.feito / estado.total) * 100 : 0;
+  $("progresso-barra").style.width = `${parte}%`;
+  $("render").disabled = !!estado.rodando;
+  if (estado.rodando) {
+    avisar("recado-render", `rodando: ${estado.mensagem || "…"}`);
+    vigiar();
+  } else if (estado.saida) {
+    avisar("recado-render", `pronto: ${estado.saida}`, "ok");
+  } else {
+    avisar("recado-render", estado.mensagem || "fila: nada rodando");
+  }
+}
+
+function vigiar() {
+  if (vigiando) return;
+  // De dois em dois segundos, e so enquanto ha render: nada pisca a toa.
+  vigiando = setInterval(async () => {
+    const estado = await pedir("/api/estado");
+    if (!estado.rodando) {
+      clearInterval(vigiando);
+      vigiando = null;
+      desenhar(await pedir("/api/edicao"));
+      return;
+    }
+    $("progresso-barra").style.width =
+      `${estado.total ? (estado.feito / estado.total) * 100 : 0}%`;
+    avisar("recado-render", `rodando: ${estado.mensagem}`);
+  }, 2000);
+}
+
+$("alvo").onchange = () => mandar("/api/alvo", { torcida: $("alvo").value });
+$("duracao").onchange = () => mandar("/api/molde", { duracao_por_clipe: Number($("duracao").value) });
+for (const id of ["deitado", "empe"]) {
+  $(id).onclick = () => mandar("/api/molde", { formato: $(id).dataset.formato });
+}
+$("render").onclick = async () => {
+  avisar("recado-render", "mandando para a fila…");
+  await mandar("/api/render", {}, "recado-render");
+};
+$("limpar").onclick = async () => {
+  if (!confirm("Apagar os intermediários deste jogo? O próximo render refaz tudo.")) return;
+  const resposta = await pedir("/api/limpar", {});
+  avisar("recado-topo", `liberado ${resposta.liberado_mb} MB`, "ok");
+  desenhar(await pedir("/api/edicao"));
+};
+
+pedir("/api/edicao").then(desenhar).catch((erro) => avisar("recado-topo", erro.message, "erro"));
+</script>
+</body>
+</html>

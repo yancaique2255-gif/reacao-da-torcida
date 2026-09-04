@@ -1,10 +1,9 @@
 # Estúdio de edição — desenho
 
 Data: 2026-09-04
-Estado: **passos 1 a 4 da seção 14 aplicados** e o passo 5 pela metade
-(`torcida` obrigatória; `perdedor` e `melhor`; `molde` e `receita`; `estudio`;
-o servidor do painel 8772, mas ainda sem a página). Do passo 6 em diante, nada
-deste documento está no código ainda.
+Estado: **passos 1 a 5 da seção 14 aplicados** (`torcida` obrigatória;
+`perdedor` e `melhor`; `molde` e `receita`; `estudio`; painel 8772). O vídeo
+longo já sai. Do passo 6 em diante, nada deste documento está no código ainda.
 
 O par deste arquivo é o `DESIGN.md` (como a tela se parece) e o `AGENTS.md`
 (como o código se escreve). Este aqui diz **o que o estúdio faz**.
@@ -565,12 +564,13 @@ Cada passo entrega algo que funciona sozinho:
    primeiro quadro e corrigidos — o placar por extenso saía cortado pela borda
    (no quadro vão só os números; o nome por extenso ficou na cartela) e o nome
    do canal vazava da tarja (o molde agora garante que cabe).
-5. **Painel 8772** — **metade feito.** O servidor está pronto e testado
-   (`painel/edicao.py`, 18 testes): abre com a edição já derivada, grava cada
-   clique em disco na hora, troca de que torcida se ri, troca o formato,
-   preenche torcida em branco ali mesmo, espia um quadro, e dispara o render
-   em outro processo (dois cliques não viram dois renders). **Falta a página**
-   `painel/edicao.html` — sem ela o `servir()` não abre. É o próximo passo.
+5. ~~**Painel 8772**~~ — **feito.** `painel/edicao.py` + `painel/edicao.html`,
+   abertos pelo `5 - EDICAO.bat`. Provado por HTTP de ponta a ponta nesta
+   máquina: página serve, edição já vem derivada, arrastar alça grava, espiar
+   0,3s, prévia 2,0s, render em outro processo termina e volta `pronto`.
+   Dois defeitos que só a prova real acharia foram corrigidos — o `h264_amf`
+   recusa `-preset veryfast`/`-crf` (a prévia morria), e um render que morre no
+   meio deixava a tela dizendo "rodando" para sempre (agora o PID é conferido).
 6. **`capa` + `publicacao`** — as duas peças que acompanham o vídeo.
 7. **Formato em pé** — o curto de 2 min, mesmo molde, outro enquadramento.
 
