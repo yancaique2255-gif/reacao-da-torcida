@@ -81,3 +81,60 @@ def test_janela_do_clipe_sem_pico_ainda_propoe_um_corte():
 def test_janela_do_clipe_sem_duracao_conhecida_so_nao_comeca_antes_do_zero():
     """Clipe velho, cortado antes de o catalogo anotar duracao: nao da para prender o fim."""
     assert melhor.janela_do_clipe(_clipe(instante=200.0, duracao=0.0), 60) == (179.0, 239.0)
+
+
+# ------------------------------------- o clipe que veio de outro momento do jogo
+
+CFG_PICO = {
+    "segundos_antes": 60,
+    "segundos_depois": 60,
+    "margem_sem_alinhamento": 60,
+}
+
+
+def _suspeito(instante: float, duracao: float = 240.0, largo=True, tem_pico=True) -> dict:
+    return {
+        "instante": instante, "duracao": duracao,
+        "largo": largo, "tem_pico": tem_pico,
+    }
+
+
+def test_pico_na_hora_do_gol_nao_e_suspeito():
+    """Clipe largo tem o gol no segundo 120: 60 pedidos mais 60 de margem."""
+    assert melhor.fora_de_hora(_suspeito(119.0), CFG_PICO) is False
+
+
+def test_pico_a_quarenta_e_cinco_minutos_do_gol_e_suspeito():
+    """O `farid-germano-filho` religou 55x e caiu no primeiro tempo nos gols 3 e 4.
+
+    Isto e defeito da esteira de corte, e nao do estudio - mas o estudio pode
+    marcar em vermelho em vez de deixar o operador descobrir no video pronto.
+    """
+    assert melhor.fora_de_hora(_suspeito(11.0), CFG_PICO) is True
+    assert melhor.fora_de_hora(_suspeito(34.5), CFG_PICO) is True
+
+
+def test_clipe_sem_pico_nao_e_acusado():
+    """Sem grito nao ha o que comparar, e o painel ja marca esse clipe como fraco."""
+    assert melhor.fora_de_hora(_suspeito(3.0, tem_pico=False), CFG_PICO) is False
+
+
+def test_clipe_sem_margem_espera_o_gol_no_segundo_sessenta():
+    assert melhor.fora_de_hora(_suspeito(58.0, duracao=120.0, largo=False), CFG_PICO) is False
+    assert melhor.fora_de_hora(_suspeito(5.0, duracao=120.0, largo=False), CFG_PICO) is True
+
+
+def test_cobertura_parcial_aceita_o_gol_nos_dois_lugares_possiveis():
+    """Faltou gravado de um dos lados, e nao se sabe de qual - nao da para acusar.
+
+    O gol 1 de 03/09 saiu com clipes de ~174s numa janela de 240s: se o que
+    faltou foi o comeco, o gol esta em 54s; se foi o fim, em 120s.
+    """
+    assert melhor.fora_de_hora(_suspeito(80.0, duracao=170.4), CFG_PICO) is False
+    assert melhor.fora_de_hora(_suspeito(119.0, duracao=170.4), CFG_PICO) is False
+    assert melhor.fora_de_hora(_suspeito(158.0, duracao=170.4), CFG_PICO) is True
+
+
+def test_a_tolerancia_sai_da_configuracao():
+    assert melhor.fora_de_hora(_suspeito(60.0), {**CFG_PICO, "tolerancia_do_pico": 5}) is True
+    assert melhor.fora_de_hora(_suspeito(60.0), {**CFG_PICO, "tolerancia_do_pico": 90}) is False

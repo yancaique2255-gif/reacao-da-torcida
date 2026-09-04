@@ -420,3 +420,57 @@ def test_a_tela_tem_onde_digitar_o_placar():
     assert 'id="placar-mandante"' in pagina and 'id="placar-visitante"' in pagina
     assert "/api/placar" in pagina
     assert "/api/placar-do-gol" in pagina, "cada gol tambem precisa do seu"
+
+
+def test_previa_que_trava_volta_erro_e_nao_derruba_o_painel(tmp_path: Path):
+    """Travamento e falha doem igual para a tela: as duas viram um recado."""
+    import subprocess
+
+    _jogo(tmp_path)
+
+    def travar(comando):
+        raise subprocess.TimeoutExpired(comando, 900, stderr=b"frame=  120")
+
+    codigo, corpo = _pedir(
+        "POST /api/previa", {"gol": 1, "canal": "farid-germano-filho"},
+        tmp_path, executar=travar,
+    )
+
+    assert codigo == 500 and "travou" in corpo["erro"]
+
+
+def test_a_tela_marca_o_clipe_que_veio_de_outro_momento_do_jogo(tmp_path: Path):
+    """Mitigacao do defeito 5 do laudo: o estudio nao conserta, mas avisa."""
+    dados = _jogo(tmp_path)
+    for clipe in dados["clipes"]:
+        clipe["largo"] = True
+        clipe["duracao"] = 240.0
+    dados["clipes"][0]["instante"] = 11.0     # 45 min fora do lugar
+    dados["clipes"][1]["instante"] = 119.0    # na hora do gol
+    catalogo.salvar(tmp_path, dados)
+
+    _, corpo = _pedir("GET /api/edicao", {}, tmp_path)
+
+    fora = {i["canal"]: i["fora_de_hora"] for i in corpo["gols"][0]["itens"]}
+    assert fora[dados["clipes"][0]["canal"]] is True
+    assert fora[dados["clipes"][1]["canal"]] is False
+
+
+def test_a_tela_avisa_quantas_pecas_o_render_vai_ter(tmp_path: Path):
+    """O painel escrevia 12 e o render trocava para 16: a barra andava para tras."""
+    _jogo(tmp_path)
+
+    _, corpo = _pedir("GET /api/edicao", {}, tmp_path)
+
+    assert corpo["pecas"] == corpo["quantos"] + len(
+        {i["gol"] for g in corpo["gols"] for i in g["itens"] if i["entra"]}
+    )
+
+
+def test_o_render_comeca_com_o_total_que_o_painel_prometeu(tmp_path: Path):
+    _jogo(tmp_path)
+    _, tela = _pedir("GET /api/edicao", {}, tmp_path)
+
+    _pedir("POST /api/render", {}, tmp_path, lancar=lambda p: 4242)
+
+    assert estudio.estado(tmp_path, vivo=lambda p: True)["total"] == tela["pecas"]

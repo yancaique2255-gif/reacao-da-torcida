@@ -56,6 +56,7 @@
     .pilula { border-radius: 999px; font-size: 12px; font-weight: 600; padding: 2px 10px; }
     .pilula.sem { background: rgba(255,92,92,.16); color: var(--morta); }
     .pilula.parcial { background: rgba(255,176,32,.16); color: var(--alerta); }
+    .pilula.hora { background: rgba(255,92,92,.16); color: var(--morta); }
     .linha-corte { grid-column: 2 / -1; display: flex; align-items: center; gap: 12px; }
 
     .barra { position: relative; height: 26px; flex: 1; background: var(--caixa-2);
@@ -248,7 +249,8 @@ function desenhar(dados) {
   $("gancho").value = (dados.textos || {}).gancho || "";
   $("frase").value = (dados.textos || {}).frase_da_capa || "";
   $("tempo").textContent = seg(dados.segundos);
-  $("quantos").textContent = `${dados.quantos} clipe(s) · ${dados.alvo.motivo}`;
+  $("quantos").textContent =
+    `${dados.quantos} clipe(s) · ${dados.pecas} peça(s) · ${dados.alvo.motivo}`;
   $("cache").textContent = `intermediários: ${dados.cache_mb} MB `;
   if (dados.cache_no_teto) $("cache").innerHTML += '<span class="aviso">passou do teto</span> ';
 
@@ -331,6 +333,16 @@ function desenharItem(item, dados) {
     const selo = document.createElement("span");
     selo.className = "pilula parcial";
     selo.textContent = "parcial";
+    sinais.append(selo);
+  }
+  // Mitigação do defeito 5: o pico não cai perto da hora do gol, então este
+  // clipe provavelmente veio de outro momento do jogo. O estúdio não conserta
+  // isso — mas não deixa o operador descobrir no vídeo pronto.
+  if (item.fora_de_hora) {
+    const selo = document.createElement("span");
+    selo.className = "pilula hora";
+    selo.title = "o grito não cai perto da hora do gol: confira na PRÉVIA antes de marcar";
+    selo.textContent = "fora de hora";
     sinais.append(selo);
   }
   linha.append(sinais);

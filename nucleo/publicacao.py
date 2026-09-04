@@ -111,9 +111,21 @@ def descricao(
     ]
     for credito in creditos(pasta_jogo, dados, dados_receita):
         linhas.append(f"🔗 {credito['nome']} {credito['url']}".rstrip())
-    linhas += ["", " ".join(f"#{t.replace(' ', '')}" for t in
-                            tags(dados, dados_receita, cadastrados))]
+    linhas += ["", " ".join(
+        hashtag(t) for t in tags(dados, dados_receita, cadastrados)
+    )]
     return "\n".join(linhas)
+
+
+def hashtag(tag: str) -> str:
+    """`copa-do-brasil` -> `#copadobrasil`.
+
+    Hashtag com hifen nao funciona no YouTube nem no Instagram: os dois cortam
+    a tag no hifen, e o que sobra e `#copa`. O espaco tambem sai, que era o
+    unico caso tratado antes.
+    """
+    limpa = "".join(letra for letra in (tag or "") if letra not in " -_.")
+    return f"#{limpa}"
 
 
 def tags(

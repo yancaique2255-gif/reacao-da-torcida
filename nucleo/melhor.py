@@ -14,6 +14,49 @@ import numpy as np
 # ver a cara do sujeito ANTES da explosao e o que faz a explosao ter graca.
 FRACAO_ANTES = 0.35
 
+# Quanto o grito pode estar longe da hora do gol antes de o clipe virar suspeito.
+# Medido nos 24 clipes de 03/09: 30s poupa os que a leitura dos relogios da
+# transmissao confirmou como certos e acusa os tres que estavam fora de lugar.
+TOLERANCIA_DO_PICO = 30.0
+
+
+def fora_de_hora(clipe: dict, cfg: dict) -> bool:
+    """Se o grito daquele clipe nao cai perto da hora do gol.
+
+    Mitigacao barata para um defeito que NAO e do estudio: canal com buracos de
+    gravacao sai com o mapa hora-do-relogio -> posicao no arquivo errado, e o
+    clipe vem de outro momento do jogo. Em 03/09 o `farid-germano-filho`
+    religou 55 vezes e caiu no primeiro tempo nos gols 3 e 4 - cerca de 45
+    minutos de jogo fora do lugar. O estudio nao tem como consertar isso, mas
+    tem como marcar em vermelho, em vez de deixar o operador descobrir depois
+    de o video estar pronto.
+
+    Clipe sem pico nao e acusado: sem grito nao ha o que comparar, e o painel
+    ja marca esse clipe como fraco.
+    """
+    if not clipe.get("tem_pico"):
+        return False
+
+    antes = float(cfg.get("segundos_antes", 60))
+    depois = float(cfg.get("segundos_depois", 60))
+    margem = (
+        float(cfg.get("margem_sem_alinhamento", 60)) if clipe.get("largo") else 0.0
+    )
+    esperado = antes + margem
+    inteiro = esperado + depois + margem
+    duracao = float(clipe.get("duracao") or 0.0)
+
+    # Cobertura parcial: faltou gravado de um dos lados e nao se sabe de qual, e
+    # acusar sem saber seria pior do que nao marcar. Os dois lugares possiveis
+    # entram, e basta o pico estar perto de um deles.
+    lugares = [esperado]
+    if duracao and duracao < inteiro - 1.0:
+        lugares.append(duracao - (depois + margem))
+
+    pico = float(clipe.get("instante") or 0.0)
+    tolerancia = float(cfg.get("tolerancia_do_pico", TOLERANCIA_DO_PICO))
+    return min(abs(pico - lugar) for lugar in lugares) > tolerancia
+
 
 def janela(
     curva_db, quadro_s: float, duracao_alvo: float, tem_pico: bool

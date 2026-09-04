@@ -175,3 +175,19 @@ def test_o_credito_usa_o_nome_de_verdade_do_canal(tmp_path: Path):
 
     assert creditos[0]["nome"] == "Baldasso TV"
     assert creditos[0]["canal"] == "baldasso-tv"
+
+
+def test_hashtag_nao_sai_com_hifen():
+    """`#copa-do-brasil` nao funciona no YouTube nem no Instagram."""
+    assert publicacao.hashtag("copa-do-brasil") == "#copadobrasil"
+    assert publicacao.hashtag("reação da torcida") == "#reaçãodatorcida"
+
+
+def test_a_descricao_nao_leva_hashtag_com_hifen(tmp_path: Path):
+    dados = _jogo(tmp_path)
+
+    texto = publicacao.descricao(tmp_path, dados, receita.padrao(dados), TIMES)
+
+    hashtags = [p for p in texto.split() if p.startswith("#")]
+    assert hashtags, "a descricao tem de terminar com as tags"
+    assert not any("-" in tag for tag in hashtags), hashtags

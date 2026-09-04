@@ -16,7 +16,7 @@ from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from nucleo import canais, capa, catalogo, cortador, estudio, molde
+from nucleo import canais, capa, catalogo, cortador, estudio, melhor, molde
 from nucleo import perdedor, publicacao, receita, torcidas
 
 PAGINA = Path(__file__).resolve().parent / "edicao.html"
@@ -80,6 +80,11 @@ def tela(pasta_jogo: Path, dados: dict, edicao: dict, cfg: dict) -> dict:
                 "confianca_db": clipe.get("confianca_db", 0.0),
                 "tem_pico": clipe.get("tem_pico", False),
                 "parcial": clipe.get("parcial", False),
+                # Mitigacao do defeito 5: canal com buracos de gravacao traz
+                # clipe de outro momento do jogo, e o estudio nao tem como
+                # perceber. Marcar em vermelho e melhor do que o operador
+                # descobrir no video pronto.
+                "fora_de_hora": melhor.fora_de_hora(clipe, cfg),
                 "arquivo": "/midia/" + str(clipe.get("arquivo", "")).replace("\\", "/"),
             })
         gols.append({
@@ -96,6 +101,9 @@ def tela(pasta_jogo: Path, dados: dict, edicao: dict, cfg: dict) -> dict:
     quantos_gols = len({i["gol"] for i in entram})
     segundos = sum(i["ate"] - i["de"] for i in entram)
     segundos += quantos_gols * estudio.DURACAO_DA_CARTELA
+    # As cartelas contam: o painel escrevia 12 e o render trocava para 16, e a
+    # barra de progresso andava para tras na cara do operador.
+    pecas = len(entram) + quantos_gols
 
     return {
         "jogo": Path(pasta_jogo).name,
@@ -114,6 +122,7 @@ def tela(pasta_jogo: Path, dados: dict, edicao: dict, cfg: dict) -> dict:
         "gols": gols,
         "sem_torcida": perdedor.sem_torcida(dados),
         "quantos": len(entram),
+        "pecas": pecas,
         "segundos": round(segundos, 1),
         "textos": edicao.get("textos") or {},
         "render": estudio.estado(pasta_jogo),
@@ -236,8 +245,8 @@ def montar_resposta(
             )
         except KeyError as erro:
             return 404, {"erro": erro.args[0]}
-        except subprocess.CalledProcessError as erro:
-            return 500, {"erro": f"o ffmpeg recusou: {erro}"}
+        except cortador.FALHAS as erro:
+            return 500, {"erro": cortador.motivo(erro)}
         relativo = saida.relative_to(pasta_jogo).as_posix()
         # A tela troca a imagem sem recarregar a pagina; sem o contador, o
         # navegador mostra a espiada anterior e o operador acha que nao mudou.
@@ -261,8 +270,11 @@ def montar_resposta(
             saida = capa.gerar(
                 pasta_jogo, dados, edicao, cfg, executar=executar or cortador.executar
             )
-        except subprocess.CalledProcessError as erro:
-            return 500, {"erro": f"o ffmpeg recusou o quadro do rosto: {erro}"}
+        except cortador.FALHAS as erro:
+            return 500, {
+                "erro": "nao deu para tirar o quadro do rosto: "
+                        + cortador.motivo(erro)
+            }
         relativo = saida.relative_to(pasta_jogo).as_posix()
         return 200, {"arquivo": f"/midia/{relativo}?v={saida.stat().st_mtime_ns}"}
 
@@ -286,7 +298,7 @@ def montar_resposta(
         receita.salvar(pasta_jogo, edicao)
         estudio.anotar(
             pasta_jogo, rodando=True, feito=0,
-            total=len(receita.itens_do_video(edicao)), saida="",
+            total=tela(pasta_jogo, dados, edicao, cfg)["pecas"], saida="",
             mensagem="na fila",
         )
         # O PID entra antes de a tela voltar: e por ele que o painel sabe
