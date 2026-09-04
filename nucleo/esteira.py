@@ -356,8 +356,9 @@ def planejar_corte(
 class ClipeCortado:
     canal: str
     arquivo: Path
-    deslocamento: float
-    forca_db: float   # quanto o audio subiu acima da linha de base
+    deslocamento: float  # de onde no .ts de origem o corte comecou
+    instante: float      # onde DENTRO do clipe a reacao explode
+    forca_db: float      # quanto o audio subiu acima da linha de base
     tem_pico: bool
     duracao: float = 0.0
     largo: bool = False
@@ -366,13 +367,17 @@ class ClipeCortado:
 
 def medir_reacao(
     clipe: Path, cfg: dict, executar=None, duracao: float | None = None
-) -> tuple[float, bool]:
-    """Quanto o audio explodiu acima da linha de base, em dB.
+) -> tuple[float, bool, float]:
+    """Quanto o audio explodiu, se explodiu, e EM QUE SEGUNDO do clipe.
 
     Nao serve para achar o gol - o horario ja veio do operador. Serve para
-    ordenar: com onze canais por gol, ver primeiro os mais explosivos poupa a
-    maior parte do trabalho de curadoria. Falhar aqui nao pode custar o clipe,
-    entao qualquer erro vira zero.
+    ordenar (com onze canais por gol, ver primeiro os mais explosivos poupa a
+    maior parte da curadoria) e para dizer onde esta o grito dentro do clipe.
+
+    Esse terceiro numero era medido e jogado fora. Sem ele, o `melhor` propunha
+    a janela pelo lugar errado, a capa tirava o rosto no momento calmo e o
+    ESPIAR mostrava o sujeito quieto: foi o defeito que deixou o video de 03/09
+    sem uma reacao. Falhar aqui nao pode custar o clipe, entao erro vira zero.
     """
     executar = executar or cortador.executar
     wav = clipe.with_suffix(".wav")
@@ -387,9 +392,9 @@ def medir_reacao(
             )
         )
         achado = detector.analisar(wav, cfg["limiar_confianca_db"])
-        return round(achado.confianca_db, 1), achado.tem_pico
+        return round(achado.confianca_db, 1), achado.tem_pico, round(achado.instante, 1)
     except Exception:
-        return 0.0, False
+        return 0.0, False, 0.0
     finally:
         wav.unlink(missing_ok=True)
 
@@ -417,11 +422,64 @@ def cortar_um_canal(
     )
     temporaria.unlink(missing_ok=True)  # a juncao, quando houve
     temporaria.with_suffix(".txt").unlink(missing_ok=True)
-    forca, tem_pico = medir_reacao(saida, cfg, executar, plano.duracao)
+    forca, tem_pico, instante = medir_reacao(saida, cfg, executar, plano.duracao)
     return ClipeCortado(
-        plano.nome, saida, deslocamento, forca, tem_pico,
+        plano.nome, saida, deslocamento, instante, forca, tem_pico,
         plano.duracao, plano.largo, plano.parcial,
     )
+
+
+def remedir_clipes(
+    pasta_jogo: Path, cfg: dict, executar=None, avisar=print
+) -> dict:
+    """Mede de novo o audio dos clipes que ja estao no disco e grava o instante.
+
+    Existe por causa de um defeito: ate 04/09/2026 o `instante` do catalogo
+    guardava o deslocamento dentro do .ts de origem, e nao o segundo do grito
+    dentro do clipe. Os jogos cortados antes disso tem o numero errado no disco,
+    e dele saem a janela proposta, o quadro do ESPIAR e o rosto da capa.
+
+    Nao recorta video nenhum: extrai o wav de cada clipe que ja existe e roda o
+    detector. Sao segundos por clipe, contra minutos de recodificacao.
+    """
+    pasta_jogo = Path(pasta_jogo)
+    dados = catalogo.carregar(pasta_jogo)
+    clipes = dados.get("clipes", [])
+    if not clipes:
+        avisar("Nenhum clipe no catalogo deste jogo.")
+        return dados
+
+    def medir(clipe: dict) -> tuple[dict, tuple[float, bool, float]]:
+        arquivo = pasta_jogo / clipe["arquivo"]
+        if not arquivo.is_file():
+            return clipe, None
+        return clipe, medir_reacao(
+            arquivo, cfg, executar, float(clipe.get("duracao") or 0.0) or None
+        )
+
+    trabalhadores = max(1, min(cfg.get("cortes_em_paralelo", 3), len(clipes)))
+    with ThreadPoolExecutor(max_workers=trabalhadores) as equipe:
+        medidos = list(equipe.map(medir, clipes))
+
+    for clipe, medida in medidos:
+        qual = f"gol {clipe['gol']}: {clipe['canal']}"
+        if medida is None:
+            avisar(f"{qual} SEM ARQUIVO em {clipe['arquivo']} - nada a medir")
+            continue
+        forca, tem_pico, instante = medida
+        if not tem_pico and forca == 0.0:
+            # Clipe sem `moov`, de um corte interrompido: o ffmpeg nao entrega
+            # audio nenhum. Nunca sumir calado - ele fica no catalogo com zero.
+            avisar(f"{qual} ILEGIVEL - o clipe nao abre; deixei em zero")
+            continue
+        antes = float(clipe.get("instante") or 0.0)
+        clipe["instante"] = instante
+        clipe["confianca_db"] = forca
+        clipe["tem_pico"] = tem_pico
+        avisar(f"{qual}  instante {antes:.1f}s -> {instante:.1f}s ({forca:+.1f} dB)")
+
+    catalogo.salvar(pasta_jogo, dados)
+    return dados
 
 
 def _gols_a_cortar(
@@ -582,7 +640,7 @@ def cortar_gols(
             dados = catalogo.registrar_clipe(
                 dados, numero, plano.nome,
                 str(clipe.arquivo.relative_to(pasta_jogo)).replace("\\", "/"),
-                clipe.deslocamento, clipe.forca_db, clipe.tem_pico,
+                clipe.instante, clipe.forca_db, clipe.tem_pico,
                 torcidas.get(plano.nome, ""),
                 duracao=clipe.duracao, largo=clipe.largo, parcial=clipe.parcial,
             )
@@ -770,6 +828,28 @@ def etapa_render(argv=None) -> int:
     return 0
 
 
+def etapa_remedir(argv=None) -> int:
+    """Mede de novo os clipes de um jogo ja cortado. Casca fina: quem mede e a esteira.
+
+    Serve aos jogos cortados antes de 04/09/2026, que ficaram com o `instante`
+    errado no catalogo - dele saem a janela proposta, o ESPIAR e o rosto da capa.
+    """
+    p = argparse.ArgumentParser(
+        description="Recalcula o instante do pico dos clipes que ja estao no disco."
+    )
+    p.add_argument("jogo", nargs="?", help="nome da pasta; sem isto, menu")
+    args = p.parse_args(argv)
+    cfg = config.carregar()
+
+    jogo = args.jogo or escolher_jogo(Path(cfg["biblioteca"]))
+    if not jogo:
+        return 1
+    remedir_clipes(
+        Path(cfg["biblioteca"]) / jogo, cfg, avisar=lambda t: print(t, flush=True)
+    )
+    return 0
+
+
 def etapa_limpar(argv=None) -> int:
     """Apaga os intermediarios de um jogo. Perder o cache custa um render."""
     p = argparse.ArgumentParser(description="Apaga os intermediarios do render.")
@@ -808,6 +888,7 @@ if __name__ == "__main__":
         "estudio": etapa_estudio,
         "edicao": etapa_edicao,
         "render": etapa_render,
+        "remedir": etapa_remedir,
         "limpar": etapa_limpar,
         "ficha": etapa_ficha,
         "torcida": etapa_torcida,
@@ -815,7 +896,7 @@ if __name__ == "__main__":
     if len(sys.argv) < 2 or sys.argv[1] not in etapas:
         print(
             "Uso: python -m nucleo.esteira "
-            "canais|gravar|cortar|estudio|edicao|render|limpar|ficha|torcida ..."
+            "canais|gravar|cortar|estudio|edicao|render|remedir|limpar|ficha|torcida ..."
         )
         sys.exit(2)
     sys.exit(etapas[sys.argv[1]](sys.argv[2:]))

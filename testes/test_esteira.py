@@ -392,17 +392,6 @@ CFG_CORTE = {
 }
 
 
-def test_medir_reacao_devolve_zero_quando_o_audio_nao_da_para_ler(tmp_path: Path):
-    """Medir e um luxo para ordenar a lista; falhar nele nao pode custar o clipe."""
-    clipe = tmp_path / "peixao.mp4"
-    clipe.write_bytes(b"nao e video")
-
-    forca, tem_pico = esteira.medir_reacao(clipe, CFG_CORTE, executar=lambda c: None)
-
-    assert forca == 0.0 and tem_pico is False
-    assert not (tmp_path / "peixao.wav").exists(), "o wav de medicao nao pode ficar"
-
-
 def test_cada_canal_corta_no_relogio_dele(tmp_path: Path, monkeypatch):
     """A mesma jogada aparece em instantes diferentes conforme o atraso do canal.
 
@@ -875,3 +864,173 @@ def test_o_render_entrega_video_capa_e_publicar_md(tmp_path: Path, monkeypatch):
     assert (pasta / "saida" / "compilacao-deitado.mp4").is_file()
     assert (pasta / "saida" / "capa.jpg").is_file()
     assert (pasta / "saida" / "publicar.md").is_file()
+
+
+# --------------------------------------------------------- o instante do pico
+
+def _wav_com_pico(destino: Path, duracao: float, pico_em: float) -> Path:
+    """Um wav de verdade: quase silencio e uma explosao curta na hora marcada.
+
+    O detector nao e enganado por mock nenhum - ele mede energia RMS. Entao o
+    jeito honesto de testar "o instante que voltou e o do pico" e dar a ele um
+    audio em que se sabe onde o pico esta.
+    """
+    import math
+    import wave
+
+    taxa = 16000
+    amostras = []
+    for indice in range(int(duracao * taxa)):
+        segundo = indice / taxa
+        alto = pico_em <= segundo < pico_em + 6.0
+        volume = 12000 if alto else 300
+        amostras.append(int(volume * math.sin(2 * math.pi * 220 * segundo)))
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(destino), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(taxa)
+        w.writeframes(b"".join(int(a).to_bytes(2, "little", signed=True) for a in amostras))
+    return destino
+
+
+def test_medir_reacao_devolve_o_instante_do_pico(tmp_path: Path):
+    """O detector ja sabe onde o grito comeca; jogar esse numero fora custou o video.
+
+    No jogo de 03/09 o `instante` gravado era o deslocamento dentro do .ts de
+    origem, e nao o pico dentro do clipe - por isso a janela proposta pegava o
+    minuto ANTES do gol e o video saiu sem reacao nenhuma.
+    """
+    clipe = tmp_path / "peixao.mp4"
+    clipe.write_bytes(b"nao importa: quem le o audio e o wav")
+
+    forca, tem_pico, instante = esteira.medir_reacao(
+        clipe, CFG_CORTE, executar=lambda c: _wav_com_pico(Path(c[-1]), 100.0, 80.0),
+        duracao=100.0,
+    )
+
+    assert tem_pico is True and forca > 6.0
+    assert 74.0 <= instante <= 82.0, f"o pico esta em 80s, voltou {instante}"
+
+
+def test_medir_reacao_sem_audio_legivel_devolve_instante_zero(tmp_path: Path):
+    """Medir e um luxo para ordenar a lista; falhar nele nao pode custar o clipe."""
+    clipe = tmp_path / "peixao.mp4"
+    clipe.write_bytes(b"nao e video")
+
+    assert esteira.medir_reacao(clipe, CFG_CORTE, executar=lambda c: None) == (
+        0.0, False, 0.0
+    )
+    assert not (tmp_path / "peixao.wav").exists(), "o wav de medicao nao pode ficar"
+
+
+def test_o_instante_do_clipe_e_o_pico_e_nao_o_deslocamento_da_fonte(tmp_path: Path):
+    """O que vai para o catalogo tem que ser medido DENTRO do clipe cortado."""
+    (tmp_path / "a.ts").write_bytes(b"x")
+    destino = tmp_path / "clipes"
+    destino.mkdir()
+
+    def executar(comando):
+        alvo = Path(comando[-1])
+        if alvo.suffix == ".wav":
+            _wav_com_pico(alvo, 120.0, 70.0)
+        else:
+            alvo.parent.mkdir(parents=True, exist_ok=True)
+            alvo.write_bytes(b"clipe de mentira")
+
+    plano = esteira.PlanoDoCanal(
+        "peixao", [relogio.Trecho("a.ts", 42.0, 162.0)], 120.0, False, False
+    )
+    clipe = esteira.cortar_um_canal(plano, tmp_path, 1, destino, CFG_CORTE, executar)
+
+    assert clipe.deslocamento == 42.0, "de onde se cortou continua sendo 42s"
+    assert 64.0 <= clipe.instante <= 72.0, f"o pico esta em 70s, veio {clipe.instante}"
+
+
+def _jogo_ja_cortado(pasta: Path, instante: float = 0.0) -> dict:
+    """Um jogo como os de antes do conserto: clipe no disco, `instante` errado."""
+    dados = catalogo.novo(pasta.name)
+    dados = catalogo.registrar_gol(dados, 1, "2026-09-03T20:13:32", "")
+    for canal in ("farid-germano-filho", "baldasso-tv"):
+        arquivo = pasta / "clipes" / "gol-01" / f"{canal}.mp4"
+        arquivo.parent.mkdir(parents=True, exist_ok=True)
+        arquivo.write_bytes(b"clipe de mentira")
+        dados = catalogo.registrar_clipe(
+            dados, 1, canal, f"clipes/gol-01/{canal}.mp4",
+            instante, 0.0, False, "inter", 120.0,
+        )
+    catalogo.salvar(pasta, dados)
+    return dados
+
+
+def test_remedir_recalcula_o_instante_dos_clipes_que_ja_estao_no_disco(tmp_path: Path):
+    """Os jogos cortados antes do conserto ficaram com o `instante` errado no disco.
+
+    Refazer o corte deles seria uma hora de recodificacao; medir de novo o audio
+    de um clipe que ja existe leva segundos e nao toca em video nenhum.
+    """
+    _jogo_ja_cortado(tmp_path)
+
+    esteira.remedir_clipes(
+        tmp_path, CFG_CORTE, avisar=lambda t: None,
+        executar=lambda c: _wav_com_pico(Path(c[-1]), 120.0, 70.0),
+    )
+
+    depois = catalogo.carregar(tmp_path)
+    for clipe in depois["clipes"]:
+        assert 64.0 <= clipe["instante"] <= 72.0, clipe
+        assert clipe["tem_pico"] is True and clipe["confianca_db"] > 6.0
+
+
+def test_remedir_nao_recodifica_video_nenhum(tmp_path: Path):
+    _jogo_ja_cortado(tmp_path)
+    comandos = []
+
+    esteira.remedir_clipes(
+        tmp_path, CFG_CORTE, avisar=lambda t: None,
+        executar=lambda c: (comandos.append(c), _wav_com_pico(Path(c[-1]), 120.0, 70.0))[1],
+    )
+
+    for comando in comandos:
+        assert comando[-1].endswith(".wav"), f"remedir pediu video ao ffmpeg: {comando}"
+        assert "libx264" not in " ".join(comando)
+
+
+def test_remedir_avisa_o_clipe_que_nao_da_para_ler_e_nao_o_apaga(tmp_path: Path):
+    """Os tres clipes do gol 5 de 03/09 sairam sem `moov`, de um corte interrompido.
+
+    Nunca sumir calado: quem nao da para medir e nomeado, e continua no catalogo
+    com zero - o painel ja mostra clipe sem pico como fraco.
+    """
+    _jogo_ja_cortado(tmp_path, instante=3.0)
+    ditos = []
+
+    esteira.remedir_clipes(
+        tmp_path, CFG_CORTE, avisar=ditos.append, executar=lambda c: None
+    )
+
+    depois = catalogo.carregar(tmp_path)
+    assert len(depois["clipes"]) == 2, "clipe ilegivel nao sai do catalogo"
+    recado = " ".join(ditos)
+    assert "baldasso-tv" in recado and "farid-germano-filho" in recado
+    assert "ILEGIVEL" in recado.upper()
+
+
+def test_etapa_remedir_roda_no_jogo_pedido(tmp_path: Path, monkeypatch, capsys):
+    """A casca do comando: acha o jogo na biblioteca e manda medir."""
+    biblioteca = tmp_path / "MIDIA"
+    pasta = biblioteca / "2026-09-03 gremio x internacional"
+    pasta.mkdir(parents=True)
+    _jogo_ja_cortado(pasta)
+    monkeypatch.setattr(
+        esteira.config, "carregar", lambda *a, **k: {**CFG_CORTE, "biblioteca": str(biblioteca)}
+    )
+    monkeypatch.setattr(
+        esteira, "remedir_clipes",
+        lambda p, cfg, avisar=print, **k: (print(f"medi {Path(p).name}"), {})[1],
+    )
+
+    codigo = esteira.etapa_remedir(["2026-09-03 gremio x internacional"])
+
+    assert codigo == 0
+    assert "medi 2026-09-03 gremio x internacional" in capsys.readouterr().out
