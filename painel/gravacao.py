@@ -35,6 +35,7 @@ def estado(biblioteca: Path, agora: float) -> dict:
         )
         for canal in j["canais"]:
             canal["deslocamento"] = medidos.get(canal["canal"])
+        j["tem_clipes"] = pasta_dos_clipes(Path(biblioteca) / j["jogo"]).is_dir()
         try:
             j["espn"] = espn_do_jogo(biblioteca, j["jogo"], agora)
         except Exception:
@@ -155,15 +156,22 @@ def _no_explorador(pasta: Path) -> None:
     os.startfile(str(pasta))  # so existe no Windows, que e onde isto roda
 
 
-def abrir_pasta(biblioteca: Path, jogo: str, numero: int, abrir=None) -> dict:
-    """Abre no Explorador a pasta dos clipes de um gol.
+def pasta_dos_clipes(pasta_jogo: Path) -> Path:
+    return Path(pasta_jogo) / "clipes"
+
+
+def abrir_pasta(biblioteca: Path, jogo: str, abrir=None) -> dict:
+    """Abre no Explorador a pasta de clipes do jogo, com um gol por subpasta.
+
+    Um botao por jogo, e nao por gol: dentro de `clipes` o Explorador ja mostra
+    gol-01, gol-02, e dali se navega mais rapido do que voltando ao painel.
 
     Conferir o corte e olhar o video, e olhar video e no player do sistema, nao
     no navegador: e por isso que o botao abre a pasta em vez de tocar aqui.
     """
-    destino = pasta_do_corte(_pasta_do_jogo(biblioteca, jogo), numero)
+    destino = pasta_dos_clipes(_pasta_do_jogo(biblioteca, jogo))
     if not destino.is_dir():
-        return {"ok": False, "motivo": "o corte deste gol ainda não saiu"}
+        return {"ok": False, "motivo": "este jogo ainda não tem clipe cortado"}
     (abrir or _no_explorador)(destino)
     return {"ok": True, "pasta": str(destino)}
 
@@ -394,9 +402,7 @@ class _Manipulador(BaseHTTPRequestHandler):
             "/api/ajustar": lambda c: ajustar(
                 self.biblioteca, c["jogo"], c["canal"], float(c["segundos"])
             ),
-            "/api/abrir": lambda c: abrir_pasta(
-                self.biblioteca, c["jogo"], int(c["numero"])
-            ),
+            "/api/abrir": lambda c: abrir_pasta(self.biblioteca, c["jogo"]),
             "/api/alinhar": lambda c: medir_alinhamento(
                 self.biblioteca, c["jogo"], int(c["numero"]), self.cfg,
                 bool(c.get("forcar")),

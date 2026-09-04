@@ -74,7 +74,8 @@
   .marca .corte.cortando { background: rgba(255,176,32,.16); color: var(--alerta); }
   .marca .corte.parou { background: #3a1f22; color: #ff8b8b; }
   .marca .corte.falta { background: rgba(255,176,32,.16); color: var(--alerta); }
-  .marca button.abrir { background: #23303a; color: #9fd8ff; }
+  h2 button.abrir { background: #23303a; color: #9fd8ff; font-size: 12px;
+                    font-weight: 600; padding: 4px 10px; margin-left: 10px; }
   table { width: 100%; border-collapse: collapse; background: var(--caixa);
           border: 1px solid var(--linha); border-radius: 10px; overflow: hidden; }
   th, td { text-align: left; padding: 9px 14px; border-bottom: 1px solid var(--linha); }
@@ -397,8 +398,6 @@ async function atualizar() {
       <span class="marca">
         <span class="n">#${g.numero}</span><b>${g.horario}</b>
         <span class="corte ${classeDoCorte(g.corte)}" title="${tituloDoCorte(g.corte)}">${textoDoCorte(g.corte)}</span>
-        ${g.corte && g.corte.pasta ? `<button class="abrir" data-acao="abrir" data-jogo="${j.jogo}" data-n="${g.numero}"
-                title="Abre a pasta deste gol no Explorador para você conferir os clipes">📂 abrir pasta</button>` : ''}
         <button data-acao="mover" data-jogo="${j.jogo}" data-n="${g.numero}" data-s="-5">−5s</button>
         <button data-acao="mover" data-jogo="${j.jogo}" data-n="${g.numero}" data-s="5">+5s</button>
         <button class="alinhar" data-acao="alinhar" data-jogo="${j.jogo}" data-n="${g.numero}"
@@ -408,7 +407,10 @@ async function atualizar() {
 
     return `
       <div class="jogo">
-        <h2>${j.jogo} <span class="placar">${j.gravando} de ${j.total} gravando · ${mb(j.mb)}</span></h2>
+        <h2>${j.jogo} <span class="placar">${j.gravando} de ${j.total} gravando · ${mb(j.mb)}</span>
+          ${j.tem_clipes ? `<button class="abrir" data-acao="abrir" data-jogo="${j.jogo}"
+                  title="Abre a pasta de clipes no Explorador: um gol por subpasta">📂 abrir clipes</button>` : ''}
+        </h2>
         <div class="barra-gol">
           <button class="marcar" data-acao="marcar" data-jogo="${j.jogo}">⚽ MARCAR GOL AGORA <kbd>${i + 1}</kbd></button>
           <div class="marcas">${marcas}</div>
@@ -539,7 +541,7 @@ alvo.addEventListener('click', async (e) => {
   if (acao === 'mover') enviar('/api/mover', {jogo, numero: Number(n), segundos: Number(s)});
   if (acao === 'apagar') enviar('/api/apagar', {jogo, numero: Number(n)});
   if (acao === 'abrir') {
-    const d = await enviar('/api/abrir', {jogo, numero: Number(n)});
+    const d = await enviar('/api/abrir', {jogo});
     if (d && !d.ok) avisar(d.motivo || 'não deu para abrir a pasta');
   }
   if (acao === 'alinhar') {

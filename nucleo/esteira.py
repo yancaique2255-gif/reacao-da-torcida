@@ -8,7 +8,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from nucleo import canais as mod_canais
-from nucleo import alinhamento, catalogo, config, cortador, detector, gravador
+from nucleo import alinhamento, catalogo, config, cortador, detector
+from nucleo import ficha, gravador
 from nucleo import importar, relogio, vigia
 
 
@@ -146,6 +147,8 @@ def etapa_gravar(argv=None) -> int:
             catalogo.carregar(pasta_jogo), args.liga, args.mandante, args.visitante
         ),
     )
+    ficha.escrever(pasta_jogo)
+    ficha.escrever_indice(Path(cfg["biblioteca"]))
     print(f"Gravando {len(processos)} canal(is) em {cfg['biblioteca']}\\{jogo}", flush=True)
     print("Feche esta janela ou aperte PARAR no painel.", flush=True)
 
@@ -589,6 +592,13 @@ def cortar_gols(
             )
 
     catalogo.salvar(pasta_jogo, dados)
+    # A ficha e derivada: refazer e barato e a deixa sempre igual ao disco.
+    # Falhar aqui nao pode custar o corte, que ja esta gravado.
+    try:
+        ficha.escrever(pasta_jogo)
+        ficha.escrever_indice(pasta_jogo.parent)
+    except Exception as erro:
+        avisar(f"nao deu para atualizar a ficha do jogo: {erro}")
     return dados
 
 
@@ -607,12 +617,28 @@ def etapa_estudio(argv=None) -> int:
     return 0
 
 
+def etapa_ficha(argv=None) -> int:
+    """Refaz a ficha de um jogo e o indice da biblioteca, lendo tudo do disco."""
+    p = argparse.ArgumentParser(description="Refaz JOGO.md e JOGOS.md.")
+    p.add_argument("jogo", nargs="?", help="nome da pasta; sem isto, todos")
+    args = p.parse_args(argv)
+    cfg = config.carregar()
+    biblioteca = Path(cfg["biblioteca"])
+
+    alvos = [biblioteca / args.jogo] if args.jogo else ficha.jogos(biblioteca)
+    for pasta in alvos:
+        print(f"ficha: {ficha.escrever(pasta)}")
+    print(f"indice: {ficha.escrever_indice(biblioteca)}")
+    return 0
+
+
 if __name__ == "__main__":
     etapas = {
         "canais": etapa_canais,
         "gravar": etapa_gravar,
         "cortar": etapa_cortar,
         "estudio": etapa_estudio,
+        "ficha": etapa_ficha,
     }
     if len(sys.argv) < 2 or sys.argv[1] not in etapas:
         print("Uso: python -m nucleo.esteira canais|gravar|cortar|estudio ...")

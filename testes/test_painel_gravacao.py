@@ -550,35 +550,11 @@ def test_estado_traz_o_corte_de_cada_gol(tmp_path: Path):
 
 # --- abrir a pasta do corte no Explorador ------------------------------------
 
-def test_abrir_pasta_chama_o_explorador_com_a_pasta_do_gol(tmp_path: Path):
-    jogo = "2026-09-02 vitoria x vasco"
-    _canal(tmp_path / jogo / "bruto", "arena", 1)
-    _mp4_do_corte(tmp_path, jogo, 2, "arena")
-    abertas = []
-
-    r = gravacao.abrir_pasta(tmp_path, jogo, 2, abrir=abertas.append)
-
-    assert r["ok"] is True
-    assert abertas == [tmp_path / jogo / "clipes" / "gol-02"]
-
-
-def test_abrir_pasta_avisa_quando_o_corte_ainda_nao_saiu(tmp_path: Path):
-    """Sem pasta nao ha o que abrir - e um recado, nao um estouro."""
-    jogo = "2026-09-02 vitoria x vasco"
-    _canal(tmp_path / jogo / "bruto", "arena", 1)
-    abertas = []
-
-    r = gravacao.abrir_pasta(tmp_path, jogo, 1, abrir=abertas.append)
-
-    assert r["ok"] is False and r["motivo"]
-    assert abertas == [], "nada pode ser aberto quando a pasta nao existe"
-
-
 def test_abrir_pasta_recusa_jogo_de_fora_da_biblioteca(tmp_path: Path):
     """O nome do jogo vem da pagina; nome nenhum pode virar caminho de fuga."""
     for nome in ("../fora", r"..\fora", r"C:\Windows"):
         try:
-            gravacao.abrir_pasta(tmp_path, nome, 1, abrir=lambda p: None)
+            gravacao.abrir_pasta(tmp_path, nome, abrir=lambda p: None)
         except (ValueError, OSError):
             continue
         raise AssertionError(f"deveria ter recusado: {nome}")
@@ -588,3 +564,40 @@ def test_pagina_mostra_o_corte_e_o_botao_de_abrir():
     html = gravacao.PAGINA.read_text(encoding="utf-8")
     assert "/api/abrir" in html
     assert "corte" in html
+
+
+def test_abrir_pasta_abre_os_clipes_do_jogo(tmp_path: Path):
+    """Um botao por jogo: abre `clipes` e o Explorador ja mostra gol-01, gol-02."""
+    jogo = "2026-09-02 vitoria x vasco"
+    _canal(tmp_path / jogo / "bruto", "arena", 1)
+    _mp4_do_corte(tmp_path, jogo, 1, "arena")
+    _mp4_do_corte(tmp_path, jogo, 2, "arena")
+    abertas = []
+
+    r = gravacao.abrir_pasta(tmp_path, jogo, abrir=abertas.append)
+
+    assert r["ok"] is True
+    assert abertas == [tmp_path / jogo / "clipes"]
+
+
+def test_abrir_pasta_avisa_quando_nada_foi_cortado_ainda(tmp_path: Path):
+    jogo = "2026-09-02 vitoria x vasco"
+    _canal(tmp_path / jogo / "bruto", "arena", 1)
+    abertas = []
+
+    r = gravacao.abrir_pasta(tmp_path, jogo, abrir=abertas.append)
+
+    assert r["ok"] is False and r["motivo"]
+    assert abertas == []
+
+
+def test_estado_diz_se_o_jogo_ja_tem_clipes_para_abrir(tmp_path: Path):
+    """O botao so aparece quando ha o que abrir."""
+    jogo = "2026-09-02 vitoria x vasco"
+    _canal(tmp_path / jogo / "bruto", "arena", 1)
+
+    assert gravacao.estado(tmp_path, time.time())["jogos"][0]["tem_clipes"] is False
+
+    _mp4_do_corte(tmp_path, jogo, 1, "arena")
+
+    assert gravacao.estado(tmp_path, time.time())["jogos"][0]["tem_clipes"] is True
