@@ -1,9 +1,9 @@
 # Estúdio de edição — desenho
 
 Data: 2026-09-04
-Estado: **passos 1 e 2 da seção 14 aplicados** (`torcida` obrigatória;
-`perdedor` e `melhor`). Do passo 3 em diante, nada deste documento está no
-código ainda.
+Estado: **passos 1 a 3 da seção 14 aplicados** (`torcida` obrigatória;
+`perdedor` e `melhor`; `molde` e `receita`). Do passo 4 em diante, nada deste
+documento está no código ainda.
 
 O par deste arquivo é o `DESIGN.md` (como a tela se parece) e o `AGENTS.md`
 (como o código se escreve). Este aqui diz **o que o estúdio faz**.
@@ -551,7 +551,11 @@ Cada passo entrega algo que funciona sozinho:
    caber no catálogo (`catalogo.registrar_placar`), porque a ESPN só responde
    enquanto o jogo está no ar e o estúdio edita dias depois — **falta quem
    escreva esse placar**, e isso vem com o painel do passo 5.
-3. **`molde` + `receita`** — a declaração única e o arquivo de edição.
+3. ~~**`molde` + `receita`**~~ — **feito.** `nucleo/molde.py` declara as cinco
+   camadas em coordenadas de 0 a 1 e emite o `filter_complex` e o JSON da
+   página; o teste lê a geometria de volta do filtro e compara com o da página,
+   camada por camada, nos dois formatos. `nucleo/receita.py` nasce derivada do
+   catálogo, guarda o que o operador tocou e sobrevive a um corte novo.
 4. **`estudio` render** — espiar, prévia, final, cache, fila.
 5. **Painel 8772** — a tela em cima do que já funciona.
 6. **`capa` + `publicacao`** — as duas peças que acompanham o vídeo.
