@@ -39,6 +39,25 @@ class Executor:
         return " ".join(" ".join(c) for c in self.comandos)
 
 
+class Morrendo(Executor):
+    """ffmpeg que morre no item `em`, deixando o arquivo pela metade.
+
+    E o que aconteceu de verdade: saida congelada nos 48 bytes do cabecalho.
+    """
+
+    def __init__(self, em: int):
+        super().__init__()
+        self.em = em
+
+    def __call__(self, comando):
+        self.comandos.append(comando)
+        destino = Path(comando[-1])
+        destino.parent.mkdir(parents=True, exist_ok=True)
+        destino.write_bytes(b"\x00" * 48)
+        if len(self.comandos) >= self.em:
+            raise subprocess.CalledProcessError(1, comando, stderr=b"morri no meio")
+
+
 def _jogo(pasta: Path, gols=(1,)) -> dict:
     dados = catalogo.registrar_partida(
         catalogo.novo(pasta.name), "copa-do-brasil", "Grêmio", "Internacional"
@@ -64,7 +83,7 @@ def test_cada_item_vira_um_arquivo_proprio_no_cache(tmp_path: Path):
 
     estudio.montar(tmp_path, dados, receita.padrao(dados), CFG, executar=executor)
 
-    pedacos = sorted(estudio.pasta_cache(tmp_path).glob("*.mp4"))
+    pedacos = sorted(estudio.pasta_das_pecas(tmp_path).glob("*.mp4"))
     assert len(pedacos) == 3, "uma cartela e dois clipes"
 
 
@@ -371,3 +390,71 @@ def test_torcida_sem_cor_cadastrada_usa_a_do_molde(tmp_path: Path):
     dados = _jogo(tmp_path)
 
     assert estudio.cor_do_fundo(receita.padrao(dados), {}) == molde.COR_FUNDO
+
+
+# ------------------------------------------------- o cache nao engole lixo
+
+def test_peca_que_ficou_pela_metade_nao_e_reaproveitada(tmp_path: Path):
+    """O defeito que sumiu com um clipe do video de 03/09 sem avisar nada.
+
+    ffmpeg que morre no meio deixa um .mp4 de 48 bytes - so o `ftyp`, sem
+    `moov`. O render seguinte reaproveitava esse arquivo, o `concat` engolia, e
+    a compilacao saia 60s mais curta em silencio. Mandar RENDER de novo nao
+    consertava: o lixo tem nome, tamanho e data de peca boa.
+    """
+    dados = _jogo(tmp_path)
+    feita = receita.padrao(dados)
+    morreu = Morrendo(em=2)
+    with pytest.raises(subprocess.CalledProcessError):
+        estudio.montar(tmp_path, dados, feita, CFG, executar=morreu)
+
+    depois = Executor()
+    estudio.montar(tmp_path, dados, feita, CFG, executar=depois)
+
+    assert len(depois.comandos) == 3, (
+        "a peca que morreu tem de ser refeita, mais a emenda; "
+        f"rodou {len(depois.comandos)}"
+    )
+
+
+def test_a_peca_que_morreu_nao_fica_no_disco(tmp_path: Path):
+    dados = _jogo(tmp_path)
+    with pytest.raises(subprocess.CalledProcessError):
+        estudio.montar(
+            tmp_path, dados, receita.padrao(dados), CFG, executar=Morrendo(em=1)
+        )
+
+    sobras = list(estudio.pasta_cache(tmp_path).rglob("*.mp4"))
+    assert sobras == [], f"sobrou lixo no cache: {sobras}"
+
+
+def test_a_peca_boa_fica_com_o_nome_final_e_e_reaproveitada(tmp_path: Path):
+    dados = _jogo(tmp_path)
+    feita = receita.padrao(dados)
+    estudio.montar(tmp_path, dados, feita, CFG, executar=Executor())
+
+    prontas = sorted(estudio.pasta_das_pecas(tmp_path).glob("*.mp4"))
+    assert len(prontas) == 3, "uma cartela e dois clipes, todos batizados"
+    assert not list(estudio.pasta_cache(tmp_path).glob("parcial-*"))
+
+
+def test_lixo_do_render_antigo_no_cache_nao_conta_como_peca(tmp_path: Path):
+    """Os jogos rodados antes deste conserto tem os .mp4 na raiz do cache.
+
+    Nada ali passou por batismo nenhum, entao nada ali e confiavel: o cache novo
+    mora em `pecas/` e nem olha para tras.
+    """
+    dados = _jogo(tmp_path)
+    feita = receita.padrao(dados)
+    cache = estudio.pasta_cache(tmp_path)
+    cache.mkdir(parents=True, exist_ok=True)
+    for item in receita.itens_do_video(feita):
+        clipe = estudio._clipe_de(dados, item["gol"], item["canal"])
+        filtro, _ = estudio.filtro_do_item(clipe, dados, feita, CFG)
+        nome = estudio.identidade(clipe["arquivo"], item["de"], item["ate"], filtro)
+        (cache / f"{nome}.mp4").write_bytes(b"\x00" * 48)  # so o ftyp
+
+    executor = Executor()
+    estudio.montar(tmp_path, dados, feita, CFG, executar=executor)
+
+    assert len(executor.comandos) == 4, "cartela, dois clipes e a emenda"

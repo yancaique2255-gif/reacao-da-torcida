@@ -30,6 +30,12 @@ from typing import Callable
 from nucleo import cortador, molde, receita, times as mod_times
 
 PASTA_CACHE = "intermediarios"
+# As pecas prontas moram numa pasta propria, e chegar la e o batismo: um arquivo
+# so recebe o nome final depois de o ffmpeg sair com codigo zero. Antes disso o
+# render escrevia direto no nome final, e um ffmpeg morto no meio deixava um
+# .mp4 de 48 bytes que o render seguinte reaproveitava como peca boa - a
+# compilacao de 03/09 saiu 60s mais curta sem uma linha de aviso.
+PASTA_PECAS = "pecas"
 PASTA_SAIDA = "saida"
 NOME_ESTADO = "render.json"
 FORMATO_PADRAO = "deitado"
@@ -53,6 +59,31 @@ _AUDIO = ["-c:a", "aac", "-b:a", "128k", "-ar", "48000"]
 
 def pasta_cache(pasta_jogo: Path) -> Path:
     return Path(pasta_jogo) / PASTA_CACHE
+
+
+def pasta_das_pecas(pasta_jogo: Path) -> Path:
+    """Onde vivem as pecas que o ffmpeg terminou. Nada mais entra aqui."""
+    return pasta_cache(pasta_jogo) / PASTA_PECAS
+
+
+def fazer_peca(destino: Path, comando_de, executar, avisar, qual: str) -> None:
+    """Renderiza para um nome temporario e batiza a peca so no fim.
+
+    Arquivo truncado tem nome, tamanho e data de arquivo bom - nao ha como
+    olhar um .mp4 no cache e saber se ele saiu inteiro. O que da para saber e
+    quem passou pelo ffmpeg com codigo zero, e e disso que o nome final vira
+    prova. Foi o que faltou em 03/09: o `baldasso-tv` do gol 4 morreu no meio,
+    e os dois renders seguintes reaproveitaram os 48 bytes que ele deixou.
+    """
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    meio = destino.parent.parent / f"parcial-{destino.name}"
+    try:
+        executar(comando_de(meio))
+    except BaseException:
+        meio.unlink(missing_ok=True)
+        raise
+    os.replace(meio, destino)
+    avisar(f"pronto: {qual}")
 
 
 def identidade(origem: str, de: float, ate: float, filtro: str) -> str:
@@ -308,7 +339,7 @@ def montar(
     pasta_jogo = Path(pasta_jogo)
     formato = dados_receita.get("formato", FORMATO_PADRAO)
     mascara, moldura = mascaras(pasta_jogo, formato)
-    cache = pasta_cache(pasta_jogo)
+    cache = pasta_das_pecas(pasta_jogo)
     clipes = _clipes_por_chave(dados)
 
     tarefas = []
@@ -357,8 +388,7 @@ def montar(
         if destino.is_file():
             avisar(f"reaproveitado: {qual}")
         else:
-            executar(comando_de(destino))
-            avisar(f"pronto: {qual}")
+            fazer_peca(destino, comando_de, executar, avisar, qual)
         pecas.append(destino)
         anotar(pasta_jogo, feito=feito, total=total,
                mensagem=f"{feito} de {total}: {qual}")
@@ -366,8 +396,10 @@ def montar(
     pasta_saida = pasta_jogo / PASTA_SAIDA
     pasta_saida.mkdir(parents=True, exist_ok=True)
     saida = pasta_saida / f"compilacao-{formato}.mp4"
-    executar(comando_concat(escrever_lista(pecas, cache / "lista.txt"), saida,
-                            cfg["caminho_ffmpeg"]))
+    executar(comando_concat(
+        escrever_lista(pecas, pasta_cache(pasta_jogo) / "lista.txt"), saida,
+        cfg["caminho_ffmpeg"],
+    ))
 
     anotar(pasta_jogo, rodando=False, feito=total, total=total,
            saida=str(saida), mensagem="pronto")
