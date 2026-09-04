@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from nucleo import catalogo
 
 
@@ -121,3 +123,17 @@ def test_placar_pode_ser_corrigido_depois():
 
     assert dados["partida"]["gols_mandante"] == 1
     assert dados["partida"]["gols_visitante"] == 2
+
+
+def test_registrar_o_placar_de_um_gol_guarda_o_momento_daquele_gol():
+    """O placar DAQUELE gol, que e o que a cartela anuncia - nao o placar final."""
+    dados = catalogo.registrar_gol(catalogo.novo("jogo"), 3, "2026-09-03T21:30:01", "")
+
+    dados = catalogo.registrar_placar_do_gol(dados, 3, 3, 0)
+
+    assert dados["gols"][0]["placar"] == [3, 0]
+
+
+def test_registrar_placar_de_gol_inexistente_reclama():
+    with pytest.raises(KeyError):
+        catalogo.registrar_placar_do_gol(catalogo.novo("jogo"), 7, 1, 0)

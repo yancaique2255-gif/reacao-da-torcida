@@ -86,6 +86,9 @@ def tela(pasta_jogo: Path, dados: dict, edicao: dict, cfg: dict) -> dict:
             "numero": gol["numero"],
             "horario": gol.get("horario", ""),
             "placar": estudio.placar_do_gol(dados, gol["numero"]),
+            # Os dois numeros crus, para os campos do placar daquele gol: a
+            # tela precisa preencher os campos, e nao so mostrar a frase.
+            "gols": list(gol.get("placar") or []),
             "itens": itens,
         })
 
@@ -153,6 +156,34 @@ def montar_resposta(
             edicao = receita.mexer(edicao, corpo["gol"], corpo["canal"], **campos)
         except KeyError as erro:
             return 404, {"erro": erro.args[0]}
+        receita.salvar(pasta_jogo, edicao)
+        return 200, tela(pasta_jogo, dados, edicao, cfg)
+
+    if rota in ("POST /api/placar", "POST /api/placar-do-gol"):
+        # O placar e fato do jogo: mora no catalogo, e a receita se re-deriva
+        # dele. Sem este campo o estudio de 03/09 abriu com "sem placar", nada
+        # marcado, as cartelas escritas so "GOL 3" e o titulo sem o 3x1 - a
+        # `vigia` so escreve placar enquanto a partida esta no ar.
+        try:
+            casa = int(corpo["gols_mandante"])
+            fora = int(corpo["gols_visitante"])
+        except (KeyError, TypeError, ValueError):
+            return 400, {
+                "erro": "placar precisa de gols_mandante e gols_visitante "
+                        "em numeros inteiros"
+            }
+        if rota.endswith("placar-do-gol"):
+            try:
+                dados = catalogo.registrar_placar_do_gol(
+                    dados, int(corpo.get("gol", 0)), casa, fora
+                )
+            except (KeyError, TypeError, ValueError) as erro:
+                return 404, {"erro": str(erro.args[0] if erro.args else erro)}
+        else:
+            dados = catalogo.registrar_placar(dados, casa, fora)
+        catalogo.salvar(pasta_jogo, dados)
+        dados = catalogo.carregar(pasta_jogo)
+        edicao = receita.carregar(pasta_jogo, dados)
         receita.salvar(pasta_jogo, edicao)
         return 200, tela(pasta_jogo, dados, edicao, cfg)
 

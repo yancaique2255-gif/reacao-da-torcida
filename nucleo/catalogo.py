@@ -50,6 +50,22 @@ def registrar_placar(dados: dict, gols_mandante: int, gols_visitante: int) -> di
     return dados
 
 
+def registrar_placar_do_gol(
+    dados: dict, numero: int, gols_mandante: int, gols_visitante: int
+) -> dict:
+    """O placar NAQUELE gol, que e o que a cartela do video anuncia.
+
+    A `vigia` escreve isto sozinha enquanto o jogo esta no ar, lendo a ESPN. Sem
+    ela - jogo sem liga configurada, ou ESPN fora do ar - o numero nao existe e
+    a cartela sai escrita so "GOL 3". Este e o caminho para o operador digitar.
+    """
+    for gol in dados.get("gols", []):
+        if gol["numero"] == numero:
+            gol["placar"] = [int(gols_mandante), int(gols_visitante)]
+            return dados
+    raise KeyError(f"gol {numero} nao existe")
+
+
 def registrar_gol(dados: dict, numero: int, horario: str, descricao: str) -> dict:
     dados["gols"] = [g for g in dados["gols"] if g["numero"] != numero]
     dados["gols"].append(

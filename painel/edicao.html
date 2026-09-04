@@ -80,6 +80,13 @@
              border-radius: 9px; padding: 6px 10px; font: inherit; font-weight: 700; }
     select.falta { border-color: var(--morta); color: var(--morta); }
     input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--viva); cursor: pointer; }
+    input.gols { width: 60px; background: var(--caixa-2); color: var(--texto);
+                 border: 1px solid var(--linha); border-radius: 9px; padding: 6px 8px;
+                 font: inherit; font-weight: 700; text-align: center;
+                 font-variant-numeric: tabular-nums; }
+    input.gols:placeholder-shown, input.gols.falta { border-color: var(--morta); }
+    .gols-do-gol { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+    .gols-do-gol input.gols { width: 48px; padding: 4px 6px; }
 
     aside { position: sticky; top: 16px; display: grid; gap: 16px; }
     #espiada { width: 100%; background: #000; border-radius: 10px; display: block; aspect-ratio: 16/9; object-fit: contain; }
@@ -107,6 +114,10 @@
   <div class="sobretitulo">Reação da Torcida — estúdio de edição</div>
   <h1 id="titulo">carregando…</h1>
   <div class="barra-topo">
+    <span class="rotulo">placar final</span>
+    <input type="number" min="0" max="30" id="placar-mandante" class="gols">
+    <span class="rotulo">x</span>
+    <input type="number" min="0" max="30" id="placar-visitante" class="gols">
     <span class="rotulo">rindo do</span>
     <select id="alvo"></select>
     <span class="rotulo">formato</span>
@@ -195,6 +206,13 @@ function desenhar(dados) {
   const placar = (p.gols_mandante === undefined)
     ? "sem placar" : `${p.gols_mandante} x ${p.gols_visitante}`;
   $("titulo").textContent = `${p.mandante || "?"} ${placar} ${p.visitante || "?"}`;
+  // Sem placar o estúdio não sabe quem perdeu, e quem perdeu decide o vídeo
+  // inteiro. Campo em vermelho enquanto estiver vazio.
+  for (const [id, campo] of [["placar-mandante", "gols_mandante"],
+                             ["placar-visitante", "gols_visitante"]]) {
+    $(id).value = p[campo] === undefined ? "" : p[campo];
+    $(id).classList.toggle("falta", p[campo] === undefined);
+  }
 
   const alvo = $("alvo");
   alvo.innerHTML = "";
@@ -248,6 +266,31 @@ function desenharGol(gol, dados) {
   topo.className = "gol-topo";
   topo.innerHTML = `<h2>GOL ${gol.numero}</h2>
     <span class="placar-do-gol">${gol.placar || "placar não anotado"}</span>`;
+  // O placar DAQUELE gol é o que a cartela anuncia. Sem ele a cartela sai
+  // escrita só "GOL 3", que foi como o vídeo de 03/09 saiu.
+  const numeros = document.createElement("div");
+  numeros.className = "gols-do-gol";
+  numeros.innerHTML = '<span class="rotulo">cartela</span>';
+  const campos = [0, 1].map((lado) => {
+    const campo = document.createElement("input");
+    campo.type = "number";
+    campo.min = 0;
+    campo.max = 30;
+    campo.className = "gols" + (gol.gols.length ? "" : " falta");
+    campo.value = gol.gols.length ? gol.gols[lado] : "";
+    campo.onchange = () => {
+      if (campos.some((c) => c.value === "")) return;
+      mandar("/api/placar-do-gol", {
+        gol: gol.numero,
+        gols_mandante: Number(campos[0].value),
+        gols_visitante: Number(campos[1].value),
+      });
+    };
+    return campo;
+  });
+  numeros.append(campos[0], Object.assign(document.createElement("span"),
+    { className: "rotulo", textContent: "x" }), campos[1]);
+  topo.append(numeros);
   caixa.append(topo);
   for (const item of gol.itens) caixa.append(desenharItem(item, dados));
   return caixa;
@@ -481,6 +524,14 @@ $("botao-publicar").onclick = async () => {
     avisar("recado-capa", erro.message, "erro");
   }
 };
+
+const gravarPlacar = () => {
+  const casa = $("placar-mandante").value, fora = $("placar-visitante").value;
+  if (casa === "" || fora === "") return;
+  mandar("/api/placar", { gols_mandante: Number(casa), gols_visitante: Number(fora) });
+};
+$("placar-mandante").onchange = gravarPlacar;
+$("placar-visitante").onchange = gravarPlacar;
 
 $("alvo").onchange = () => mandar("/api/alvo", { torcida: $("alvo").value });
 $("duracao").onchange = () => mandar("/api/molde", { duracao_por_clipe: Number($("duracao").value) });

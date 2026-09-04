@@ -322,3 +322,101 @@ def test_o_publicar_md_sai_da_tela_com_titulo_e_creditos(tmp_path: Path):
     assert codigo == 200
     assert "VAMOS RIR DO" in corpo["texto"]
     assert (tmp_path / "saida" / "publicar.md").is_file()
+
+
+# ---------------------------------------------------- onde digitar o placar
+
+def _jogo_sem_placar(pasta: Path) -> dict:
+    """Como o jogo de 03/09 chegou ao estudio: gols marcados, placar nenhum.
+
+    A `vigia` so escreve placar enquanto a partida esta no ar. Jogo cortado sem
+    a liga configurada, ou com a ESPN fora, chega assim - e sem placar o estudio
+    abre com "sem placar", nada marcado, cartela escrita so "GOL 3" e o titulo
+    do publicar.md sem o 3x1.
+    """
+    dados = catalogo.registrar_partida(
+        catalogo.novo(pasta.name), "copa-do-brasil", "Grêmio", "Internacional"
+    )
+    for numero in (1, 2):
+        dados = catalogo.registrar_gol(dados, numero, f"2026-09-03T20:1{numero}:00", "")
+    for canal, torcida, db in CLIPES:
+        for numero in (1, 2):
+            dados = catalogo.registrar_clipe(
+                dados, numero, canal, f"clipes/gol-0{numero}/{canal}.mp4",
+                100.0, db, True, torcida, 175.0,
+            )
+    catalogo.salvar(pasta, dados)
+    return dados
+
+
+def test_digitar_o_placar_decide_de_quem_o_video_ri(tmp_path: Path):
+    _jogo_sem_placar(tmp_path)
+    antes, corpo = _pedir("GET /api/edicao", {}, tmp_path)
+    assert corpo["alvo"]["decidido"] is False
+
+    codigo, corpo = _pedir(
+        "POST /api/placar", {"gols_mandante": 3, "gols_visitante": 1}, tmp_path
+    )
+
+    assert codigo == 200
+    assert corpo["partida"]["gols_mandante"] == 3
+    assert corpo["alvo"]["torcida"] == "inter" and corpo["alvo"]["motivo"] == "perdeu"
+
+
+def test_o_placar_digitado_grava_no_catalogo_na_hora(tmp_path: Path):
+    _jogo_sem_placar(tmp_path)
+
+    _pedir("POST /api/placar", {"gols_mandante": 3, "gols_visitante": 1}, tmp_path)
+
+    guardado = catalogo.carregar(tmp_path)["partida"]
+    assert (guardado["gols_mandante"], guardado["gols_visitante"]) == (3, 1)
+
+
+def test_placar_que_nao_e_numero_e_recusado_e_nada_muda(tmp_path: Path):
+    _jogo_sem_placar(tmp_path)
+
+    codigo, corpo = _pedir(
+        "POST /api/placar", {"gols_mandante": "tres", "gols_visitante": 1}, tmp_path
+    )
+
+    assert codigo == 400 and "erro" in corpo
+    assert "gols_mandante" not in catalogo.carregar(tmp_path)["partida"]
+
+
+def test_o_placar_de_cada_gol_escreve_a_cartela(tmp_path: Path):
+    """A cartela saia "GOL 3" pelado porque so a vigia sabia o placar do momento."""
+    _jogo_sem_placar(tmp_path)
+
+    codigo, corpo = _pedir(
+        "POST /api/placar-do-gol",
+        {"gol": 2, "gols_mandante": 2, "gols_visitante": 0}, tmp_path,
+    )
+
+    assert codigo == 200
+    dados = catalogo.carregar(tmp_path)
+    assert estudio.texto_da_cartela(dados, 2) == "GOL 2 - Grêmio 2 x 0 Internacional"
+    assert [g["placar"] for g in corpo["gols"] if g["numero"] == 2] == ["Grêmio 2 x 0 Internacional"]
+
+
+def test_placar_de_gol_que_nao_existe_da_404(tmp_path: Path):
+    _jogo_sem_placar(tmp_path)
+
+    codigo, corpo = _pedir(
+        "POST /api/placar-do-gol",
+        {"gol": 9, "gols_mandante": 1, "gols_visitante": 0}, tmp_path,
+    )
+
+    assert codigo == 404 and "9" in corpo["erro"]
+
+
+def test_a_tela_tem_onde_digitar_o_placar():
+    """A rota sem campo na tela nao serve de nada - foi o que faltou em 03/09.
+
+    A secao 14.2 da spec mandou o placar para este painel e ele nao veio: nem
+    rota nem campo. O teste cobra os dois lados.
+    """
+    pagina = edicao.PAGINA.read_text(encoding="utf-8")
+
+    assert 'id="placar-mandante"' in pagina and 'id="placar-visitante"' in pagina
+    assert "/api/placar" in pagina
+    assert "/api/placar-do-gol" in pagina, "cada gol tambem precisa do seu"
