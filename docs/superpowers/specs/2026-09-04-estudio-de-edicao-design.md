@@ -1,7 +1,8 @@
 # Estúdio de edição — desenho
 
 Data: 2026-09-04
-Estado: **escrito, não aplicado**. Nada deste documento está no código ainda.
+Estado: **passo 1 da seção 14 aplicado** (`torcida` obrigatória). Do passo 2
+em diante, nada deste documento está no código ainda.
 
 O par deste arquivo é o `DESIGN.md` (como a tela se parece) e o `AGENTS.md`
 (como o código se escreve). Este aqui diz **o que o estúdio faz**.
@@ -66,6 +67,9 @@ trava.
 
 ### O buraco: metade dos canais não tem torcida
 
+**Consertado em 04/09/2026** — o diagnóstico abaixo fica registrado porque é o
+que motivou a mudança; o estado atual está no fim desta seção.
+
 Conferi o jogo de ontem. Dos seis canais gravados, **três estão com `torcida`
 em branco**:
 
@@ -91,6 +95,10 @@ Portanto, faz parte desta rodada:
    mesmo. **Não some com ele da lista** — a regra do `DESIGN.md` seção 7 vale:
    o que está errado aparece marcado, não desaparece.
 3. Um comando conserta os jogos velhos preenchendo o que faltar.
+
+Os três já estão preenchidos: `bage-tv` gremio, `baldasso-tv` inter,
+`gaucha-esportes` neutro. E `neutro` virou uma resposta por extenso — vazio
+agora quer dizer só uma coisa, "ninguém preencheu", e é recusado no cadastro.
 
 ---
 
@@ -530,8 +538,11 @@ gerado automático e não é opcional.
 
 Cada passo entrega algo que funciona sozinho:
 
-1. **`torcida` obrigatória** — cadastro exige, estúdio deixa preencher, comando
-   conserta os jogos velhos. *Sem isto nada mais funciona direito.*
+1. ~~**`torcida` obrigatória**~~ — **feito.** O cadastro exige (`0 - CANAIS`
+   não grava sem), o estúdio da 8770 marca em vermelho e deixa preencher ali,
+   e `python -m nucleo.esteira torcida <jogo>` conserta os jogos velhos. Os
+   três canais em branco do jogo de 03/09 foram preenchidos: `bage-tv` gremio,
+   `baldasso-tv` inter, `gaucha-esportes` neutro. `nucleo/torcidas.py`.
 2. **`perdedor` + `melhor`** — as duas decisões automáticas, puro Python, cem
    por cento testável.
 3. **`molde` + `receita`** — a declaração única e o arquivo de edição.

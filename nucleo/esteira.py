@@ -10,7 +10,7 @@ from pathlib import Path
 from nucleo import canais as mod_canais
 from nucleo import alinhamento, catalogo, config, cortador, detector
 from nucleo import ficha, gravador
-from nucleo import importar, relogio, vigia
+from nucleo import importar, relogio, torcidas, vigia
 
 
 def listar_jogos(biblioteca: Path) -> list[str]:
@@ -64,10 +64,7 @@ def nome_do_jogo(
 
 
 def _cadastro() -> dict[str, list[mod_canais.Canal]]:
-    return mod_canais.carregar(ARQUIVO_CANAIS)
-
-
-ARQUIVO_CANAIS = Path(__file__).resolve().parent.parent / "dados" / "canais.json"
+    return mod_canais.carregar(mod_canais.ARQUIVO)
 
 
 def etapa_canais(argv=None) -> int:
@@ -79,21 +76,28 @@ def etapa_canais(argv=None) -> int:
     )
     p.add_argument(
         "--torcida", default="",
-        help="de que torcida e o lote, ex: santos. Vazio para narracao neutra.",
+        help=f'de que torcida e o lote, ex: santos. Narracao sem lado: '
+             f'"{mod_canais.NEUTRO}".',
     )
     args = p.parse_args(argv)
     cfg = config.carregar()
 
     if args.importar:
+        # Recusar aqui e o barato. Canal cadastrado sem torcida nao da erro
+        # nenhum: ele grava, corta, aparece no painel - e some do video la na
+        # frente, quando o estudio filtrar pelo lado que perdeu.
+        try:
+            torcida = mod_canais.exigir_torcida(args.torcida)
+        except ValueError as erro:
+            print(f"Nao cadastrei nada: {erro}")
+            return 2
         print(f"Lendo {len(args.importar)} endereco(s)...")
-        novos = importar.importar(
-            args.importar, cfg["caminho_ytdlp"], args.torcida.strip().lower()
-        )
+        novos = importar.importar(args.importar, cfg["caminho_ytdlp"], torcida)
         if novos:
             cadastro = importar.juntar(
-                importar.carregar_cru(ARQUIVO_CANAIS), args.time, novos
+                importar.carregar_cru(mod_canais.ARQUIVO), args.time, novos
             )
-            importar.salvar(ARQUIVO_CANAIS, cadastro)
+            importar.salvar(mod_canais.ARQUIVO, cadastro)
             print(f'{len(novos)} canal(is) somado(s) a "{args.time}".\n')
         else:
             print("Nenhum canal novo.\n")
@@ -617,6 +621,80 @@ def etapa_estudio(argv=None) -> int:
     return 0
 
 
+def _par_canal_torcida(texto: str) -> tuple[str, str]:
+    if "=" not in texto:
+        raise argparse.ArgumentTypeError(f'use CANAL=TORCIDA, nao "{texto}"')
+    canal, torcida = texto.split("=", 1)
+    return canal.strip(), torcida.strip()
+
+
+def etapa_torcida(argv=None) -> int:
+    """Mostra e conserta a torcida dos canais de um jogo ja gravado.
+
+    O campo virou obrigatorio no cadastro, mas os jogos gravados antes disso
+    ficaram com buracos - e buraco desses tira o canal do video sem avisar.
+    """
+    p = argparse.ArgumentParser(
+        description="Mostra e preenche a torcida dos canais de um jogo gravado."
+    )
+    p.add_argument("jogo", nargs="?", help="nome da pasta; sem isto, menu")
+    p.add_argument(
+        "--definir", nargs="+", default=[], metavar="CANAL=TORCIDA",
+        type=_par_canal_torcida,
+        help="ex: --definir baldasso-tv=inter gaucha-esportes=neutro",
+    )
+    args = p.parse_args(argv)
+    cfg = config.carregar()
+
+    jogo = args.jogo or escolher_jogo(Path(cfg["biblioteca"]))
+    if not jogo:
+        return 1
+    pasta_jogo = Path(cfg["biblioteca"]) / jogo
+
+    anotadas = torcidas.gravadas(pasta_jogo)
+    if not anotadas:
+        print(f"Nenhuma gravacao em {pasta_jogo}\\bruto")
+        return 1
+
+    # O que o cadastro ja sabe entra sozinho; digitar de novo o que ja esta
+    # escrito e trabalho repetido, e e onde nasce a divergencia entre os dois.
+    sabidas = torcidas.do_cadastro(_cadastro())
+    definicoes = {
+        canal: sabidas[canal]
+        for canal, torcida in anotadas.items()
+        if not torcida and canal in sabidas
+    }
+    definicoes.update(dict(args.definir))
+
+    if definicoes:
+        try:
+            mexidos = torcidas.aplicar(pasta_jogo, definicoes)
+        except (KeyError, ValueError) as erro:
+            print(f"Nao mudei nada: {erro.args[0]}")
+            return 2
+        for canal in mexidos:
+            print(f"  {canal} -> {definicoes[canal]}")
+        no_cadastro = torcidas.definir_no_cadastro(mod_canais.ARQUIVO, definicoes)
+        if no_cadastro:
+            print(f"cadastro tambem atualizado: {', '.join(no_cadastro)}")
+        print("")
+
+    anotadas = torcidas.gravadas(pasta_jogo)
+    for canal, torcida in anotadas.items():
+        print(f"  {canal:<24} {torcida or 'SEM TORCIDA'}")
+
+    faltam = [canal for canal, torcida in anotadas.items() if not torcida]
+    if faltam:
+        # Nunca sumir calado: o comando pronto vai junto do aviso.
+        exemplo = " ".join(f"{canal}=inter" for canal in faltam)
+        print(
+            f"\nAVISO: {len(faltam)} canal(is) sem torcida. Com a regra do "
+            f"perdedor ligada, eles ficam de fora do video.\n"
+            f'  python -m nucleo.esteira torcida "{jogo}" --definir {exemplo}'
+        )
+    return 0
+
+
 def etapa_ficha(argv=None) -> int:
     """Refaz a ficha de um jogo e o indice da biblioteca, lendo tudo do disco."""
     p = argparse.ArgumentParser(description="Refaz JOGO.md e JOGOS.md.")
@@ -639,8 +717,12 @@ if __name__ == "__main__":
         "cortar": etapa_cortar,
         "estudio": etapa_estudio,
         "ficha": etapa_ficha,
+        "torcida": etapa_torcida,
     }
     if len(sys.argv) < 2 or sys.argv[1] not in etapas:
-        print("Uso: python -m nucleo.esteira canais|gravar|cortar|estudio ...")
+        print(
+            "Uso: python -m nucleo.esteira "
+            "canais|gravar|cortar|estudio|ficha|torcida ..."
+        )
         sys.exit(2)
     sys.exit(etapas[sys.argv[1]](sys.argv[2:]))

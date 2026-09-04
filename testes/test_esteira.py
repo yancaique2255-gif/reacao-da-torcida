@@ -3,6 +3,8 @@ import json
 from datetime import datetime
 from pathlib import Path
 
+import pytest
+
 from nucleo import canais, catalogo, esteira
 
 
@@ -651,3 +653,105 @@ def test_cortar_um_gol_nao_mexe_nos_clipes_dos_outros(tmp_path: Path, monkeypatc
 
     assert sorted(g["numero"] for g in dados["gols"]) == [1, 2]
     assert sorted(c["gol"] for c in dados["clipes"]) == [1, 2]
+
+
+# --- torcida obrigatoria ---------------------------------------------------
+
+
+def test_cadastrar_sem_dizer_a_torcida_nao_grava_nada(monkeypatch, capsys, tmp_path: Path):
+    """Sem torcida o canal some do video mais tarde, calado. Melhor recusar agora."""
+    arquivo = tmp_path / "canais.json"
+    monkeypatch.setattr(esteira.mod_canais, "ARQUIVO", arquivo)
+    monkeypatch.setattr(esteira.config, "carregar", lambda: {"caminho_ytdlp": "yt"})
+    monkeypatch.setattr(
+        esteira.importar, "importar",
+        lambda *a, **k: pytest.fail("nao podia nem ter tentado ler as URLs"),
+    )
+
+    codigo = esteira.etapa_canais(["um-jogo", "--importar", "https://y/1"])
+
+    assert codigo == 2
+    assert not arquivo.exists()
+    assert "neutro" in capsys.readouterr().out
+
+
+def test_cadastrar_com_torcida_normaliza_a_grafia(monkeypatch, tmp_path: Path):
+    arquivo = tmp_path / "canais.json"
+    monkeypatch.setattr(esteira.mod_canais, "ARQUIVO", arquivo)
+    monkeypatch.setattr(esteira.config, "carregar", lambda: {"caminho_ytdlp": "yt", "teto_canais": 20})
+    recebidas = []
+    monkeypatch.setattr(
+        esteira.importar, "importar",
+        lambda urls, ytdlp, torcida="", **k: recebidas.append(torcida) or [],
+    )
+
+    esteira.etapa_canais(["um-jogo", "--torcida", " Grêmio ", "--importar", "https://y/1"])
+
+    assert recebidas == ["gremio"]
+
+
+def _jogo_para_torcida(tmp_path: Path) -> Path:
+    pasta = tmp_path / "2026-09-03 gremio x internacional"
+    for nome, torcida in (("paulo-brito", "inter"), ("baldasso-tv", ""), ("bage-tv", "")):
+        canal = pasta / "bruto" / nome
+        canal.mkdir(parents=True)
+        (canal / "gravacao.json").write_text(
+            json.dumps({"url": f"https://y/{nome}", "sessoes": [], "torcida": torcida}),
+            encoding="utf-8",
+        )
+    catalogo.salvar(pasta, catalogo.novo(pasta.name))
+    return pasta
+
+
+def test_etapa_torcida_preenche_o_que_o_operador_disser(monkeypatch, tmp_path, capsys):
+    pasta = _jogo_para_torcida(tmp_path)
+    monkeypatch.setattr(esteira.config, "carregar", lambda: {"biblioteca": str(tmp_path)})
+    monkeypatch.setattr(esteira.mod_canais, "ARQUIVO", tmp_path / "canais.json")
+
+    codigo = esteira.etapa_torcida([pasta.name, "--definir", "baldasso-tv=inter", "bage-tv=Grêmio"])
+
+    assert codigo == 0
+    assert esteira.torcidas.gravadas(pasta) == {
+        "bage-tv": "gremio", "baldasso-tv": "inter", "paulo-brito": "inter",
+    }
+    assert "SEM TORCIDA" not in capsys.readouterr().out
+
+
+def test_etapa_torcida_puxa_do_cadastro_o_que_ele_ja_sabe(monkeypatch, tmp_path):
+    """O cadastro e a origem: se ele sabe, o jogo velho nao precisa ser digitado."""
+    pasta = _jogo_para_torcida(tmp_path)
+    monkeypatch.setattr(esteira.config, "carregar", lambda: {"biblioteca": str(tmp_path)})
+    monkeypatch.setattr(esteira.mod_canais, "ARQUIVO", tmp_path / "canais.json")
+    monkeypatch.setattr(esteira, "_cadastro", lambda: {
+        "j": [canais.Canal("BALDASSO TV", "https://y/1", True, "inter")]
+    })
+
+    esteira.etapa_torcida([pasta.name])
+
+    assert esteira.torcidas.gravadas(pasta)["baldasso-tv"] == "inter"
+
+
+def test_etapa_torcida_avisa_quem_ficou_faltando_e_ensina_o_comando(monkeypatch, tmp_path, capsys):
+    pasta = _jogo_para_torcida(tmp_path)
+    monkeypatch.setattr(esteira.config, "carregar", lambda: {"biblioteca": str(tmp_path)})
+    monkeypatch.setattr(esteira.mod_canais, "ARQUIVO", tmp_path / "canais.json")
+    monkeypatch.setattr(esteira, "_cadastro", lambda: {})
+
+    codigo = esteira.etapa_torcida([pasta.name])
+
+    saida = capsys.readouterr().out
+    assert codigo == 0
+    assert "SEM TORCIDA" in saida and "baldasso-tv" in saida and "bage-tv" in saida
+    assert "--definir" in saida, "o aviso tem que trazer o comando pronto"
+
+
+def test_etapa_torcida_recusa_canal_que_nao_existe(monkeypatch, tmp_path, capsys):
+    pasta = _jogo_para_torcida(tmp_path)
+    monkeypatch.setattr(esteira.config, "carregar", lambda: {"biblioteca": str(tmp_path)})
+    monkeypatch.setattr(esteira.mod_canais, "ARQUIVO", tmp_path / "canais.json")
+    monkeypatch.setattr(esteira, "_cadastro", lambda: {})
+
+    codigo = esteira.etapa_torcida([pasta.name, "--definir", "fantasma=inter"])
+
+    assert codigo == 2
+    assert "fantasma" in capsys.readouterr().out

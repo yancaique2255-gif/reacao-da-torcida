@@ -85,3 +85,73 @@ def test_estudio_avisa_qual_clipe_pede_aparo():
     assert "Janela larga" in html and "apare no seu editor" in html
     assert "Parcial" in html, "cobertura incompleta tambem se explica"
     assert "clipe.duracao" in html, "a duracao na tela e o que denuncia o clipe longo"
+
+
+# --- preencher a torcida sem sair do painel --------------------------------
+
+
+def _jogo_com_canal_sem_torcida(tmp_path: Path) -> Path:
+    import json
+
+    canal = tmp_path / "bruto" / "baldasso-tv"
+    canal.mkdir(parents=True)
+    (canal / "gravacao.json").write_text(
+        json.dumps({"url": "https://y/1", "sessoes": []}), encoding="utf-8"
+    )
+    dados = catalogo.novo("jogo")
+    dados = catalogo.registrar_clipe(
+        dados, 1, "baldasso-tv", "clipes/gol-01/b.mp4", 0.0, 9.0, True
+    )
+    catalogo.salvar(tmp_path, dados)
+    return tmp_path
+
+
+def test_preencher_torcida_grava_no_disco_na_hora(tmp_path: Path, monkeypatch):
+    from nucleo import canais
+
+    pasta = _jogo_com_canal_sem_torcida(tmp_path)
+    monkeypatch.setattr(canais, "ARQUIVO", tmp_path / "canais.json")
+
+    codigo, corpo = servidor.montar_resposta(
+        "POST /api/torcida", {"canal": "baldasso-tv", "torcida": "Inter"}, pasta, CFG
+    )
+
+    assert codigo == 200 and corpo["ok"] is True
+    assert catalogo.carregar(pasta)["clipes"][0]["torcida"] == "inter"
+
+
+def test_preencher_torcida_de_canal_inexistente_devolve_404(tmp_path: Path, monkeypatch):
+    from nucleo import canais
+
+    pasta = _jogo_com_canal_sem_torcida(tmp_path)
+    monkeypatch.setattr(canais, "ARQUIVO", tmp_path / "canais.json")
+
+    codigo, corpo = servidor.montar_resposta(
+        "POST /api/torcida", {"canal": "fantasma", "torcida": "inter"}, pasta, CFG
+    )
+
+    assert codigo == 404 and "fantasma" in corpo["erro"]
+
+
+def test_preencher_torcida_vazia_devolve_400(tmp_path: Path, monkeypatch):
+    from nucleo import canais
+
+    pasta = _jogo_com_canal_sem_torcida(tmp_path)
+    monkeypatch.setattr(canais, "ARQUIVO", tmp_path / "canais.json")
+
+    codigo, corpo = servidor.montar_resposta(
+        "POST /api/torcida", {"canal": "baldasso-tv", "torcida": " "}, pasta, CFG
+    )
+
+    assert codigo == 400 and "neutro" in corpo["erro"]
+
+
+def test_estudio_marca_o_canal_sem_torcida_em_vez_de_esconder():
+    """A regra mais forte do projeto: o que esta errado aparece, nao some."""
+    html = (Path(servidor.__file__).resolve().parent / "pagina.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert "sem torcida" in html, "o estado precisa estar escrito, nao so colorido"
+    assert "var(--morta)" in html, "e marcado em vermelho, como manda o DESIGN.md"
+    assert "/api/torcida" in html, "da para preencher ali mesmo"

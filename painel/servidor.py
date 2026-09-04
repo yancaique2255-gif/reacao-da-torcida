@@ -4,7 +4,7 @@ from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from nucleo import catalogo, montador
+from nucleo import canais, catalogo, montador, torcidas
 
 PAGINA = Path(__file__).resolve().parent / "pagina.html"
 
@@ -25,6 +25,24 @@ def montar_resposta(
             return 404, {"erro": str(erro)}
         catalogo.salvar(pasta_jogo, dados)
         return 200, {"ok": True}
+
+    if rota == "POST /api/torcida":
+        # O canal sem torcida aparece marcado na tela, e o conserto e ali
+        # mesmo: mandar o operador abrir um json no meio da curadoria e o
+        # jeito garantido de o campo continuar vazio.
+        try:
+            mexidos = torcidas.aplicar(
+                pasta_jogo, {corpo.get("canal", ""): corpo.get("torcida", "")}
+            )
+        except KeyError as erro:
+            return 404, {"erro": erro.args[0]}
+        except ValueError as erro:
+            return 400, {"erro": str(erro)}
+        # O cadastro e a origem: sem consertar la, o buraco volta no proximo jogo.
+        torcidas.definir_no_cadastro(
+            canais.ARQUIVO, {corpo["canal"]: corpo["torcida"]}
+        )
+        return 200, {"ok": True, "canais": mexidos}
 
     if rota == "POST /api/montar":
         dados = catalogo.carregar(pasta_jogo)

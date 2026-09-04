@@ -31,6 +31,36 @@ reação de cada clipe (para o estúdio mostrar os mais explosivos primeiro) e
 descobrir quanto cada canal atrasa em relação aos outros. A descoberta automática de lives também foi removida: a decisão
 dos canais é sempre do operador.
 
+## De que torcida é cada canal
+
+O estúdio de edição publica **só o lado que perdeu** — é a regra editorial do
+canal. Por isso todo canal precisa dizer de que torcida é, e o cadastro passou
+a **exigir** isso: sem torcida ele não grava a live. Canal de narração, sem
+lado, se cadastra como `neutro` — que é uma resposta, diferente de campo vazio.
+
+Vazio é caro e é calado: o canal grava, corta, aparece no painel, e só some lá
+na frente, quando o estúdio filtrar pelo perdedor. Foi o que quase aconteceu com
+o `baldasso-tv` no primeiro jogo, que era o melhor material da noite.
+
+Para os jogos gravados antes disso:
+
+```
+python -m nucleo.esteira torcida "2026-09-03 gremio x internacional"
+```
+
+Sem argumentos ele lista os canais e preenche sozinho o que o cadastro já sabe.
+O que ele não souber, você diz — e ele grava nos três lugares (cadastro,
+gravação e catálogo):
+
+```
+python -m nucleo.esteira torcida "2026-09-03 gremio x internacional" ^
+  --definir baldasso-tv=inter gaucha-esportes=neutro
+```
+
+No **4 - ESTUDIO** dá para fazer o mesmo sem sair da tela: o canal sem torcida
+aparece marcado em vermelho, com a lista de escolha logo abaixo. Ele nunca some
+da lista.
+
 ## A ficha de cada jogo
 
 Cada pasta de jogo ganha um **`JOGO.md`**: os times, a competição, a data e —
