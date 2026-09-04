@@ -1,9 +1,10 @@
 # Estúdio de edição — desenho
 
 Data: 2026-09-04
-Estado: **passos 1 a 4 da seção 14 aplicados** (`torcida` obrigatória;
-`perdedor` e `melhor`; `molde` e `receita`; `estudio`). Do passo 5 em diante,
-nada deste documento está no código ainda.
+Estado: **passos 1 a 4 da seção 14 aplicados** e o passo 5 pela metade
+(`torcida` obrigatória; `perdedor` e `melhor`; `molde` e `receita`; `estudio`;
+o servidor do painel 8772, mas ainda sem a página). Do passo 6 em diante, nada
+deste documento está no código ainda.
 
 O par deste arquivo é o `DESIGN.md` (como a tela se parece) e o `AGENTS.md`
 (como o código se escreve). Este aqui diz **o que o estúdio faz**.
@@ -564,7 +565,12 @@ Cada passo entrega algo que funciona sozinho:
    primeiro quadro e corrigidos — o placar por extenso saía cortado pela borda
    (no quadro vão só os números; o nome por extenso ficou na cartela) e o nome
    do canal vazava da tarja (o molde agora garante que cabe).
-5. **Painel 8772** — a tela em cima do que já funciona.
+5. **Painel 8772** — **metade feito.** O servidor está pronto e testado
+   (`painel/edicao.py`, 18 testes): abre com a edição já derivada, grava cada
+   clique em disco na hora, troca de que torcida se ri, troca o formato,
+   preenche torcida em branco ali mesmo, espia um quadro, e dispara o render
+   em outro processo (dois cliques não viram dois renders). **Falta a página**
+   `painel/edicao.html` — sem ela o `servir()` não abre. É o próximo passo.
 6. **`capa` + `publicacao`** — as duas peças que acompanham o vídeo.
 7. **Formato em pé** — o curto de 2 min, mesmo molde, outro enquadramento.
 

@@ -21,6 +21,9 @@ from nucleo import melhor, perdedor
 NOME = "receita.json"
 FORMATO_PADRAO = "deitado"
 DURACAO_POR_CLIPE = 60.0
+# Quanto dura cada clipe em cada formato. No deitado o operador ajusta entre 45
+# e 90; no em pe sao 20s, que e o que faz caber uns seis canais em ~2 min.
+DURACAO_DO_FORMATO = {"deitado": 60.0, "em-pe": 20.0}
 MARGEM = 0.05
 CAMPOS_DO_OPERADOR = ("entra", "de", "ate", "ordem")
 
@@ -90,6 +93,30 @@ def casar(velha: dict, dados: dict) -> dict:
     nova["itens"] = itens
     nova["textos"] = {**nova["textos"], **(velha.get("textos") or {})}
     return nova
+
+
+def ajustar(
+    dados_receita: dict,
+    dados: dict,
+    formato: str | None = None,
+    duracao_por_clipe: float | None = None,
+) -> dict:
+    """Troca o formato ou a duracao por clipe e recalcula o que ninguem tocou.
+
+    Trocar de deitado para em pe nao e so outro enquadramento: e outra duracao,
+    porque o curto tem ~2 min no total. Quem foi tocado atravessa igual - o
+    operador escolheu aquele trecho olhando a cara do sujeito, e isso nao muda
+    porque o video virou de lado.
+    """
+    novo = dict(dados_receita)
+    if formato:
+        novo["formato"] = formato
+        if duracao_por_clipe is None:
+            duracao_por_clipe = DURACAO_DO_FORMATO.get(formato, DURACAO_POR_CLIPE)
+    if duracao_por_clipe is not None:
+        novo["molde"] = {**(novo.get("molde") or {}),
+                         "duracao_por_clipe": float(duracao_por_clipe)}
+    return casar(novo, dados)
 
 
 def carregar(pasta_jogo: Path, dados: dict) -> dict:

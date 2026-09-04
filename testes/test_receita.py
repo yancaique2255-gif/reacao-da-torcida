@@ -170,3 +170,33 @@ def test_o_video_e_so_quem_entra_na_ordem_escolhida():
     assert [i["canal"] for i in receita.itens_do_video(feita)] == [
         "paulo-brito", "farid-germano-filho",
     ]
+
+
+def test_o_curto_ja_nasce_com_a_janela_apertada():
+    """Trocar para em pe sem dizer a duracao pede 20s: e o que cabe em ~2 min."""
+    ajustada = receita.ajustar(receita.padrao(_jogo()), _jogo(), formato="em-pe")
+
+    item = _item(ajustada, 1, "paulo-brito")
+    assert ajustada["formato"] == "em-pe"
+    assert round(item["ate"] - item["de"], 1) == 20.0
+
+
+def test_trocar_o_formato_nao_desfaz_o_que_o_operador_mexeu():
+    dados = _jogo()
+    feita = receita.mexer(receita.padrao(dados), 1, "paulo-brito", de=10.0, ate=70.0)
+
+    ajustada = receita.ajustar(feita, dados, formato="em-pe")
+
+    item = _item(ajustada, 1, "paulo-brito")
+    assert (item["de"], item["ate"]) == (10.0, 70.0)
+
+
+def test_mudar_so_a_duracao_reaperta_quem_nao_foi_tocado():
+    """De 45 a 90 segundos, o operador ajusta - e o corte proposto acompanha."""
+    dados = _jogo()
+
+    ajustada = receita.ajustar(receita.padrao(dados), dados, duracao_por_clipe=90)
+
+    item = _item(ajustada, 1, "paulo-brito")
+    assert ajustada["formato"] == "deitado", "so a duracao mudou"
+    assert round(item["ate"] - item["de"], 1) == 90.0
