@@ -3,7 +3,10 @@ import json
 from pathlib import Path
 
 PADROES = {
-    "biblioteca": r"G:\REACAO DA TORCIDA",
+    # Disco LOCAL, sempre. O `G:` e o Google Drive: gravar la dispara upload
+    # durante o jogo, e o upload disputa a mesma placa de 100 Mbps que baixa as
+    # lives. So a compilacao pronta sobe para o Drive.
+    "biblioteca": r"C:\REACAO DA TORCIDA",
     "altura_maxima": 720,
     "segundos_antes": 8,
     "segundos_depois": 12,

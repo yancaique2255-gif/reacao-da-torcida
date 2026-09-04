@@ -8,12 +8,14 @@
   :root {
     --fundo: #0f1115;
     --caixa: #171a21;
+    --caixa-2: #1e222c;
     --linha: #242833;
     --texto: #e7e9ee;
     --fraco: #8b93a7;
     --viva: #35d07f;
     --morta: #ff5c5c;
     --alerta: #ffb020;
+    --info: #63a9ff;
     --gol: #e5342b;
   }
   * { box-sizing: border-box; }
@@ -64,11 +66,11 @@
   }
   .marca b { font-variant-numeric: tabular-nums; letter-spacing: .5px; }
   .marca .n { color: var(--fraco); font-size: 12px; }
-  .marca button { padding: 3px 8px; font-size: 12px; font-weight: 600; background: #222735; }
+  .marca button { padding: 3px 8px; font-size: 12px; font-weight: 600; background: var(--caixa-2); }
   .marca button.x { background: #3a1f22; color: #ff8b8b; }
   .marca .corte {
     font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 20px;
-    background: #222735; color: var(--fraco); white-space: nowrap;
+    background: var(--caixa-2); color: var(--fraco); white-space: nowrap;
   }
   .marca .corte.pronto { background: rgba(53,208,127,.16); color: var(--viva); }
   .marca .corte.cortando { background: rgba(255,176,32,.16); color: var(--alerta); }
@@ -156,7 +158,7 @@
     font-weight: 600;
   }
   #alarme.aceso { display: flex; animation: pulsa 1.4s ease-in-out infinite; }
-  @keyframes pulsa { 50% { border-color: #ff5c5c; } }
+  @keyframes pulsa { 50% { border-color: var(--morta); } }
   #alarme button { background: #7d2630; padding: 6px 12px; font-size: 13px; }
   #alarme .quem { font-weight: 400; color: #ff9b9b; }
 </style>

@@ -4,8 +4,10 @@ Leia antes de escrever qualquer linha de código. Isto vale mais do que o hábit
 
 ## Onde começar
 
-1. `docs/superpowers/specs/2026-09-01-reacao-da-torcida-design.md` — o desenho aprovado.
-2. `docs/superpowers/plans/2026-09-01-reacao-da-torcida-plan.md` — as tarefas, em ordem.
+1. `DESIGN.md` — como a tela se parece. Este arquivo diz como o codigo se escreve;
+   aquele diz como a interface se veste. Leia antes de mexer em qualquer `.html`.
+2. `docs/superpowers/specs/2026-09-01-reacao-da-torcida-design.md` — o desenho aprovado.
+3. `docs/superpowers/plans/2026-09-01-reacao-da-torcida-plan.md` — as tarefas, em ordem.
 
 O plano é para ser seguido na ordem. Cada tarefa entrega algo que roda e é testado.
 
@@ -30,7 +32,9 @@ lives. Só a compilação pronta sobe para o Drive.
 Windows 10, PowerShell. Ryzen 5 5600G (6 núcleos), 15,4 GB de RAM, **sem GPU dedicada**.
 
 - **Placa de rede de 100 Mbps** (92 Mbps reais medidos). É o gargalo do projeto inteiro.
-- **Grave sempre no `G:`** (323 GB livres). Nunca encher o `C:`.
+- **Grave sempre em disco local** (`C:`, com folga de centenas de GB). O `G:` é o
+  Google Drive e está proibido: veja acima. Confira o espaço antes do jogo — onze
+  canais comem dezenas de GB e o disco enche DEPOIS da largada.
 - **Trave o formato em 720p.** A 1080p, 13 canais ocupam 85% da banda e a gravação cai
   no meio do jogo.
 - Nada de modelo pesado de IA. Sem GPU, o detector tem que ser aritmética sobre o áudio.
