@@ -45,6 +45,11 @@ def _lives(pasta_jogo: Path) -> list[dict]:
     return lives
 
 
+def lives(pasta_jogo: Path) -> list[dict]:
+    """As lives gravadas deste jogo. O bloco de creditos da publicacao sai daqui."""
+    return _lives(pasta_jogo)
+
+
 def montar(pasta_jogo: Path) -> str:
     """A ficha inteira em Markdown."""
     pasta_jogo = Path(pasta_jogo)

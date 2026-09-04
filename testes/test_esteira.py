@@ -802,7 +802,8 @@ def test_etapa_render_monta_o_video_do_jogo(tmp_path: Path, monkeypatch):
     assert codigo == 0
     assert (pasta / "receita.json").is_file(), "a receita nasce na primeira montagem"
     assert estudio.estado(pasta)["rodando"] is False
-    assert len(comandos) == 4
+    da_montagem = [c for c in comandos if "-filter_complex" in c or "concat" in c]
+    assert len(da_montagem) == 4, "cartela, dois clipes e a emenda"
 
 
 def test_etapa_limpar_apaga_os_intermediarios(tmp_path: Path, monkeypatch, capsys):
@@ -843,3 +844,34 @@ def test_etapa_render_aceita_o_caminho_inteiro_do_jogo(tmp_path: Path, monkeypat
 
     assert codigo == 0
     assert (pasta / "saida" / "compilacao-deitado.mp4").is_file()
+
+
+def test_o_render_entrega_video_capa_e_publicar_md(tmp_path: Path, monkeypatch):
+    """Tres pecas saem de cada jogo, e o operador nao devia ter que pedir cada uma."""
+    from PIL import Image
+
+    pasta = tmp_path / "2026-09-03 gremio x internacional"
+    pasta.mkdir()
+    _jogo_pronto_para_render(pasta)
+    cfg = {
+        "biblioteca": str(tmp_path),
+        "caminho_ffmpeg": "ffmpeg.exe",
+        "fonte_cartela": r"C:\Windows\Fonts\arialbd.ttf",
+    }
+    monkeypatch.setattr(esteira.config, "carregar", lambda: cfg)
+
+    def executar(comando):
+        destino = Path(comando[-1])
+        destino.parent.mkdir(parents=True, exist_ok=True)
+        if destino.suffix == ".jpg":
+            Image.new("RGB", (640, 360), (0, 200, 0)).save(destino)
+        else:
+            destino.write_bytes(b"x")
+
+    monkeypatch.setattr(esteira.cortador, "executar", executar)
+
+    esteira.etapa_render([str(pasta)])
+
+    assert (pasta / "saida" / "compilacao-deitado.mp4").is_file()
+    assert (pasta / "saida" / "capa.jpg").is_file()
+    assert (pasta / "saida" / "publicar.md").is_file()

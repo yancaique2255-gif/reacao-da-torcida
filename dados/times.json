@@ -1,0 +1,56 @@
+{
+  "internacional": {
+    "nome": "Internacional",
+    "torcida": "inter",
+    "apelido": "COLORADOS",
+    "adjetivo": "COLORADAS",
+    "curto": "INTER",
+    "cor": "#c8102e",
+    "escudo": ""
+  },
+  "gremio": {
+    "nome": "Grêmio",
+    "torcida": "gremio",
+    "apelido": "GREMISTAS",
+    "adjetivo": "GREMISTAS",
+    "curto": "GRÊMIO",
+    "cor": "#0d80bf",
+    "escudo": ""
+  },
+  "santos": {
+    "nome": "Santos",
+    "torcida": "santos",
+    "apelido": "SANTISTAS",
+    "adjetivo": "SANTISTAS",
+    "curto": "SANTOS",
+    "cor": "#111111",
+    "escudo": ""
+  },
+  "palmeiras": {
+    "nome": "Palmeiras",
+    "torcida": "palmeiras",
+    "apelido": "PALMEIRENSES",
+    "adjetivo": "PALMEIRENSES",
+    "curto": "PALMEIRAS",
+    "cor": "#026e3f",
+    "escudo": ""
+  },
+  "vasco": {
+    "nome": "Vasco da Gama",
+    "torcida": "vasco",
+    "apelido": "VASCAÍNOS",
+    "adjetivo": "VASCAÍNAS",
+    "curto": "VASCO",
+    "cor": "#111111",
+    "escudo": ""
+  },
+  "vitoria": {
+    "nome": "Vitória",
+    "torcida": "vitoria",
+    "apelido": "RUBRO-NEGROS",
+    "adjetivo": "RUBRO-NEGRAS",
+    "curto": "VITÓRIA",
+    "cor": "#c8102e",
+    "escudo": ""
+  }
+}

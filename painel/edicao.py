@@ -16,7 +16,8 @@ from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from nucleo import canais, catalogo, cortador, estudio, molde, perdedor, receita, torcidas
+from nucleo import canais, capa, catalogo, cortador, estudio, molde
+from nucleo import perdedor, publicacao, receita, torcidas
 
 PAGINA = Path(__file__).resolve().parent / "edicao.html"
 RAIZ = Path(__file__).resolve().parent.parent
@@ -210,6 +211,37 @@ def montar_resposta(
         # A tela troca a imagem sem recarregar a pagina; sem o contador, o
         # navegador mostra a espiada anterior e o operador acha que nao mudou.
         return 200, {"arquivo": f"/midia/{relativo}?v={saida.stat().st_mtime_ns}"}
+
+    if rota == "POST /api/textos":
+        edicao = receita.carregar(pasta_jogo, dados)
+        try:
+            edicao = receita.definir_textos(
+                edicao,
+                **{c: corpo[c] for c in receita.TEXTOS_DO_OPERADOR if c in corpo},
+            )
+        except KeyError as erro:
+            return 400, {"erro": erro.args[0]}
+        receita.salvar(pasta_jogo, edicao)
+        return 200, tela(pasta_jogo, dados, edicao, cfg)
+
+    if rota == "POST /api/capa":
+        edicao = receita.carregar(pasta_jogo, dados)
+        try:
+            saida = capa.gerar(
+                pasta_jogo, dados, edicao, cfg, executar=executar or cortador.executar
+            )
+        except subprocess.CalledProcessError as erro:
+            return 500, {"erro": f"o ffmpeg recusou o quadro do rosto: {erro}"}
+        relativo = saida.relative_to(pasta_jogo).as_posix()
+        return 200, {"arquivo": f"/midia/{relativo}?v={saida.stat().st_mtime_ns}"}
+
+    if rota == "POST /api/publicar":
+        edicao = receita.carregar(pasta_jogo, dados)
+        saida = publicacao.escrever(pasta_jogo, dados, edicao)
+        return 200, {
+            "arquivo": f"/midia/{saida.relative_to(pasta_jogo).as_posix()}",
+            "texto": saida.read_text(encoding="utf-8"),
+        }
 
     if rota == "POST /api/render":
         estado = estudio.estado(pasta_jogo)

@@ -27,7 +27,7 @@ import subprocess
 from pathlib import Path
 from typing import Callable
 
-from nucleo import cortador, molde, receita
+from nucleo import cortador, molde, receita, times as mod_times
 
 PASTA_CACHE = "intermediarios"
 PASTA_SAIDA = "saida"
@@ -162,8 +162,18 @@ def fonte_de(cfg: dict) -> Path | None:
     return Path(caminho) if caminho else None
 
 
-def cor_do_fundo(dados_receita: dict) -> str:
-    return (dados_receita.get("molde") or {}).get("cor_fundo") or molde.COR_FUNDO
+def cor_do_fundo(dados_receita: dict, cadastrados: dict | None = None) -> str:
+    """A cor da torcida que perdeu, que e o fundo do video inteiro.
+
+    Sem esse fundo com a cara do time, um clipe de webcam em tela cheia continua
+    sendo um clipe de webcam. A receita pode fixar outra cor; sem isso, vale a
+    do `dados/times.json`, e sem o time cadastrado vale o cinza do molde.
+    """
+    escolhida = (dados_receita.get("molde") or {}).get("cor_fundo")
+    if escolhida:
+        return escolhida
+    ficha = mod_times.achar(dados_receita.get("torcida_alvo", ""), cadastrados)
+    return ficha.get("cor") or molde.COR_FUNDO
 
 
 def filtro_do_item(

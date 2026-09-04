@@ -353,3 +353,21 @@ def test_render_vivo_continua_rodando(tmp_path: Path):
     estudio.anotar(tmp_path, rodando=True, feito=1, total=5, pid=4242)
 
     assert estudio.estado(tmp_path, vivo=lambda pid: True)["rodando"] is True
+
+
+def test_o_fundo_do_video_e_a_cor_da_torcida_que_perdeu(tmp_path: Path):
+    """Sem o fundo com a cara do time, um clipe de webcam continua um clipe de webcam."""
+    dados = _jogo(tmp_path)
+    feita = receita.padrao(dados)
+
+    cor = estudio.cor_do_fundo(feita, {"internacional": {
+        "nome": "Internacional", "torcida": "inter", "cor": "#c8102e",
+    }})
+
+    assert cor == "#c8102e"
+
+
+def test_torcida_sem_cor_cadastrada_usa_a_do_molde(tmp_path: Path):
+    dados = _jogo(tmp_path)
+
+    assert estudio.cor_do_fundo(receita.padrao(dados), {}) == molde.COR_FUNDO

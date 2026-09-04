@@ -9,7 +9,8 @@ from pathlib import Path
 
 from nucleo import canais as mod_canais
 from nucleo import alinhamento, catalogo, config, cortador, detector
-from nucleo import estudio, ficha, gravador
+from nucleo import capa, estudio, ficha, gravador
+from nucleo import publicacao
 from nucleo import receita
 from nucleo import importar, relogio, torcidas, vigia
 
@@ -748,6 +749,18 @@ def etapa_render(argv=None) -> int:
         estudio.anotar(pasta_jogo, rodando=False, mensagem=str(erro))
         return 2
     print(f"Pronto: {saida}")
+
+    # As outras duas pecas do pacote. Falhar aqui nao pode custar o video, que
+    # ja esta no disco e levou minutos.
+    for peca, fazer in (
+        ("capa", lambda: capa.gerar(pasta_jogo, dados, edicao, cfg)),
+        ("publicar.md", lambda: publicacao.escrever(pasta_jogo, dados, edicao)),
+    ):
+        try:
+            print(f"Pronto: {fazer()}")
+        except Exception as erro:
+            print(f"nao deu para gerar a {peca}: {erro}")
+
     if estudio.passou_do_teto(pasta_jogo, cfg):
         tamanho = estudio.tamanho_do_cache(pasta_jogo) / 1024**3
         print(

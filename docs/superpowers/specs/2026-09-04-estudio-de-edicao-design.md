@@ -1,9 +1,10 @@
 # Estúdio de edição — desenho
 
 Data: 2026-09-04
-Estado: **passos 1 a 5 da seção 14 aplicados** (`torcida` obrigatória;
-`perdedor` e `melhor`; `molde` e `receita`; `estudio`; painel 8772). O vídeo
-longo já sai. Do passo 6 em diante, nada deste documento está no código ainda.
+Estado: **os sete passos da seção 14 aplicados**. O vídeo longo, o curto, a
+capa e o `publicar.md` saem de ponta a ponta, e cada peça foi renderizada de
+verdade nesta máquina antes de ser dada por pronta. O que sobrou está listado
+no fim da seção 14.
 
 O par deste arquivo é o `DESIGN.md` (como a tela se parece) e o `AGENTS.md`
 (como o código se escreve). Este aqui diz **o que o estúdio faz**.
@@ -571,10 +572,22 @@ Cada passo entrega algo que funciona sozinho:
    Dois defeitos que só a prova real acharia foram corrigidos — o `h264_amf`
    recusa `-preset veryfast`/`-crf` (a prévia morria), e um render que morre no
    meio deixava a tela dizendo "rodando" para sempre (agora o PID é conferido).
-6. **`capa` + `publicacao`** — as duas peças que acompanham o vídeo.
-7. **Formato em pé** — o curto de 2 min, mesmo molde, outro enquadramento.
+6. ~~**`capa` + `publicacao`**~~ — **feito.** `nucleo/capa.py` (PIL, 1280×720,
+   rostos tirados do instante do pico e guardados em disco), `nucleo/times.py`
+   + `dados/times.json` (apelido, adjetivo e cor de cada torcida) e
+   `nucleo/publicacao.py` (título no padrão do canal, créditos com o nome de
+   verdade do canal e link, tags). O `render` entrega as três peças de uma vez;
+   o painel tem os campos do gancho e da frase, e os botões CAPA e PUBLICAR.MD.
+7. ~~**Formato em pé**~~ — **feito.** Mesmo molde, outro enquadramento: 1080×1920
+   renderizado de verdade nesta máquina. Trocar para em pé aperta a janela para
+   20s e desmarca o que passa de 2 min — sem desfazer o que o operador marcou.
 
-O vídeo longo fica pronto no passo 5. O curto, no 7.
+O vídeo longo ficou pronto no passo 5. O curto, no 7.
+
+**O que ficou pendente**, e é de propósito: a fonte do repositório (Anton ou
+Bebas Neue) não entrou — as telas e o vídeo usam a Arial Bold da máquina, que
+já está configurada em `fonte_cartela`. E `dados/times.json` está sem os
+arquivos de escudo: o placar do quadro mostra só os números até eles existirem.
 
 ---
 

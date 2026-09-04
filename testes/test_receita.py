@@ -200,3 +200,48 @@ def test_mudar_so_a_duracao_reaperta_quem_nao_foi_tocado():
     item = _item(ajustada, 1, "paulo-brito")
     assert ajustada["formato"] == "deitado", "so a duracao mudou"
     assert round(item["ate"] - item["de"], 1) == 90.0
+
+
+def test_o_texto_da_publicacao_grava_na_receita():
+    """Gancho e frase da capa sao escolha do operador, e moram com a edicao."""
+    feita = receita.definir_textos(receita.padrao(_jogo()), gancho="ELIMINADO")
+
+    assert feita["textos"]["gancho"] == "ELIMINADO"
+    assert feita["textos"]["titulo"] == "", "o que ele nao mexeu fica como estava"
+
+
+def test_texto_que_nao_existe_e_recusado():
+    with pytest.raises(KeyError):
+        receita.definir_textos(receita.padrao(_jogo()), assinatura="x")
+
+
+def test_o_curto_so_leva_quantos_clipes_cabem_em_dois_minutos():
+    """O curto tem ~2 min. Marcar dez clipes de 20s daria um "curto" de 3:20."""
+    dados = _jogo(gols=(1, 2, 3, 4))
+
+    ajustada = receita.ajustar(receita.padrao(dados), dados, formato="em-pe")
+
+    entram = receita.itens_do_video(ajustada)
+    assert len(entram) == 6, "seis clipes de 20s dao 2 min"
+    assert sum(i["ate"] - i["de"] for i in entram) <= receita.TETO_DO_CURTO
+
+
+def test_o_teto_do_curto_nao_desmarca_o_que_o_operador_marcou():
+    dados = _jogo(gols=(1, 2, 3, 4))
+    feita = receita.padrao(dados)
+    ultimo = [i for i in feita["itens"] if i["gol"] == 4 and i["entra"]][-1]
+    feita = receita.mexer(feita, ultimo["gol"], ultimo["canal"], entra=True)
+
+    ajustada = receita.ajustar(feita, dados, formato="em-pe")
+
+    assert (ultimo["gol"], ultimo["canal"]) in [
+        (i["gol"], i["canal"]) for i in receita.itens_do_video(ajustada)
+    ]
+
+
+def test_o_deitado_nao_tem_teto_de_dois_minutos():
+    dados = _jogo(gols=(1, 2, 3, 4))
+
+    feita = receita.padrao(dados)
+
+    assert len(receita.itens_do_video(feita)) == 8

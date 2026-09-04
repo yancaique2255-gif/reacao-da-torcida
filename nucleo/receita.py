@@ -24,8 +24,13 @@ DURACAO_POR_CLIPE = 60.0
 # Quanto dura cada clipe em cada formato. No deitado o operador ajusta entre 45
 # e 90; no em pe sao 20s, que e o que faz caber uns seis canais em ~2 min.
 DURACAO_DO_FORMATO = {"deitado": 60.0, "em-pe": 20.0}
+# O curto tem ~2 min: Shorts aceita ate 3, mas a graca do formato e ser curto.
+# Marcar dez clipes de 20s daria um "curto" de 3:20 sem ninguem perceber.
+TETO_DO_CURTO = 120.0
+TETO_DO_FORMATO = {"em-pe": TETO_DO_CURTO}
 MARGEM = 0.05
 CAMPOS_DO_OPERADOR = ("entra", "de", "ate", "ordem")
+TEXTOS_DO_OPERADOR = ("titulo", "gancho", "frase_da_capa")
 
 
 def caminho(pasta_jogo: Path) -> Path:
@@ -116,7 +121,26 @@ def ajustar(
     if duracao_por_clipe is not None:
         novo["molde"] = {**(novo.get("molde") or {}),
                          "duracao_por_clipe": float(duracao_por_clipe)}
-    return casar(novo, dados)
+    return _caber_no_teto(casar(novo, dados))
+
+
+def _caber_no_teto(dados_receita: dict) -> dict:
+    """Desmarca o que passa do teto daquele formato, do fim da fila para tras.
+
+    So mexe em quem o operador nao tocou: se ele marcou aquele clipe, e porque
+    quer aquele clipe, e o teto e sugestao como todo o resto aqui.
+    """
+    teto = TETO_DO_FORMATO.get(dados_receita.get("formato", ""))
+    if not teto:
+        return dados_receita
+    gasto = 0.0
+    for item in itens_do_video(dados_receita):
+        duracao = item["ate"] - item["de"]
+        if gasto + duracao <= teto or item.get("tocado"):
+            gasto += duracao
+        else:
+            item["entra"] = False
+    return dados_receita
 
 
 def carregar(pasta_jogo: Path, dados: dict) -> dict:
@@ -153,6 +177,22 @@ def mexer(dados_receita: dict, gol: int, canal: str, **campos) -> dict:
             item["tocado"] = True
             return dados_receita
     raise KeyError(f"a receita nao tem o gol {gol} do canal {canal}")
+
+
+def definir_textos(dados_receita: dict, **textos) -> dict:
+    """O gancho e a frase da capa, que sao escolha do operador.
+
+    Moram com a edicao e nao no catalogo: sao opiniao sobre o jogo, e nao fato
+    do jogo. Apagar a receita apaga junto, e e o que se espera.
+    """
+    desconhecidos = sorted(set(textos) - set(TEXTOS_DO_OPERADOR))
+    if desconhecidos:
+        raise KeyError(
+            f"a receita nao tem os textos {', '.join(desconhecidos)} - "
+            f"os que existem sao {', '.join(TEXTOS_DO_OPERADOR)}"
+        )
+    dados_receita["textos"] = {**(dados_receita.get("textos") or {}), **textos}
+    return dados_receita
 
 
 def itens_do_video(dados_receita: dict) -> list[dict]:

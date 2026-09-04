@@ -276,3 +276,49 @@ def test_o_painel_guarda_o_pid_do_render(tmp_path: Path):
     _pedir("POST /api/render", {}, tmp_path, lancar=lambda pasta: 4242)
 
     assert json.loads((tmp_path / estudio.NOME_ESTADO).read_text(encoding="utf-8"))["pid"] == 4242
+
+
+def test_a_frase_da_capa_grava_na_hora(tmp_path: Path):
+    _jogo(tmp_path)
+
+    codigo, corpo = _pedir(
+        "POST /api/textos", {"frase_da_capa": "VERGONHA!", "gancho": "ELIMINADO"},
+        tmp_path,
+    )
+
+    assert codigo == 200
+    assert corpo["textos"]["frase_da_capa"] == "VERGONHA!"
+    do_disco = json.loads((tmp_path / receita.NOME).read_text(encoding="utf-8"))
+    assert do_disco["textos"]["gancho"] == "ELIMINADO"
+
+
+def test_a_capa_sai_da_tela_e_volta_como_imagem(tmp_path: Path):
+    from PIL import Image
+
+    _jogo(tmp_path)
+
+    def rosto_de_mentira(comando):
+        Path(comando[-1]).parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (640, 360), (0, 200, 0)).save(comando[-1])
+
+    codigo, corpo = _pedir(
+        "POST /api/capa", {}, tmp_path, executar=rosto_de_mentira
+    )
+
+    assert codigo == 200
+    assert corpo["arquivo"].startswith("/midia/saida/capa.jpg")
+    assert (tmp_path / "saida" / "capa.jpg").is_file()
+
+
+def test_o_publicar_md_sai_da_tela_com_titulo_e_creditos(tmp_path: Path):
+    _jogo(tmp_path)
+    (tmp_path / "bruto" / "farid-germano-filho").mkdir(parents=True)
+    (tmp_path / "bruto" / "farid-germano-filho" / "gravacao.json").write_text(
+        json.dumps({"url": "https://y/1", "torcida": "inter"}), encoding="utf-8"
+    )
+
+    codigo, corpo = _pedir("POST /api/publicar", {}, tmp_path)
+
+    assert codigo == 200
+    assert "VAMOS RIR DO" in corpo["texto"]
+    assert (tmp_path / "saida" / "publicar.md").is_file()

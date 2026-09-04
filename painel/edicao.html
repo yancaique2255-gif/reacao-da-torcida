@@ -92,6 +92,14 @@
     .recado.erro { color: var(--morta); }
     .recado.ok { color: var(--viva); }
     .aviso { color: var(--alerta); font-size: 12px; }
+    input[type=text] { width: 100%; background: var(--caixa-2); color: var(--texto);
+                       border: 1px solid var(--linha); border-radius: 9px;
+                       padding: 8px 10px; font: inherit; margin-bottom: 8px; }
+    #capa { width: 100%; border-radius: 10px; display: none; margin-top: 8px; }
+    #publicar-texto { width: 100%; height: 180px; background: var(--caixa-2);
+                      color: var(--texto); border: 1px solid var(--linha);
+                      border-radius: 9px; padding: 10px; font: inherit;
+                      font-size: 12px; display: none; margin-top: 8px; }
   </style>
 </head>
 <body>
@@ -120,6 +128,19 @@
       <img id="espiada" alt="quadro com todas as camadas">
       <video id="previa" controls></video>
       <p class="recado" id="recado-espiar">Escolha um clipe e clique em ESPIAR.</p>
+    </div>
+
+    <div class="cartao">
+      <div class="rotulo">capa e publicação</div>
+      <input type="text" id="gancho" placeholder="gancho: ELIMINADO DA COPA DO BRASIL">
+      <input type="text" id="frase" placeholder="frase da capa: VERGONHA! INTER ELIMINADO!">
+      <div class="duas">
+        <button class="abrir" id="botao-capa">CAPA</button>
+        <button class="abrir" id="botao-publicar">PUBLICAR.MD</button>
+      </div>
+      <img id="capa" alt="capa do vídeo">
+      <textarea id="publicar-texto" readonly></textarea>
+      <p class="recado" id="recado-capa"></p>
     </div>
 
     <div class="cartao">
@@ -206,6 +227,8 @@ function desenhar(dados) {
     duracao.append(opcao);
   }
 
+  $("gancho").value = (dados.textos || {}).gancho || "";
+  $("frase").value = (dados.textos || {}).frase_da_capa || "";
   $("tempo").textContent = seg(dados.segundos);
   $("quantos").textContent = `${dados.quantos} clipe(s) · ${dados.alvo.motivo}`;
   $("cache").textContent = `intermediários: ${dados.cache_mb} MB `;
@@ -422,6 +445,42 @@ function vigiar() {
     avisar("recado-render", `rodando: ${estado.mensagem}`);
   }, 2000);
 }
+
+const gravarTextos = () => mandar("/api/textos", {
+  gancho: $("gancho").value.trim(),
+  frase_da_capa: $("frase").value.trim(),
+}, "recado-capa");
+// Grava ao sair do campo, e nao a cada tecla: uma escrita por frase escrita.
+$("gancho").onchange = gravarTextos;
+$("frase").onchange = gravarTextos;
+
+$("botao-capa").onclick = async () => {
+  $("botao-capa").disabled = true;
+  avisar("recado-capa", "compondo a capa…");
+  try {
+    await pedir("/api/textos", {
+      gancho: $("gancho").value.trim(), frase_da_capa: $("frase").value.trim(),
+    });
+    const resposta = await pedir("/api/capa", {});
+    $("capa").src = resposta.arquivo;
+    $("capa").style.display = "block";
+    avisar("recado-capa", "capa pronta em saida\capa.jpg", "ok");
+  } catch (erro) {
+    avisar("recado-capa", erro.message, "erro");
+  }
+  $("botao-capa").disabled = false;
+};
+
+$("botao-publicar").onclick = async () => {
+  try {
+    const resposta = await pedir("/api/publicar", {});
+    $("publicar-texto").value = resposta.texto;
+    $("publicar-texto").style.display = "block";
+    avisar("recado-capa", "publicar.md pronto — copie e cole", "ok");
+  } catch (erro) {
+    avisar("recado-capa", erro.message, "erro");
+  }
+};
 
 $("alvo").onchange = () => mandar("/api/alvo", { torcida: $("alvo").value });
 $("duracao").onchange = () => mandar("/api/molde", { duracao_por_clipe: Number($("duracao").value) });
