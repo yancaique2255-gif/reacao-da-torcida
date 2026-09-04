@@ -56,6 +56,9 @@ TENTATIVAS = 3
 # confirmar. Medido: o `tasklist` demora alguns segundos para enxergar um
 # processo recem-criado.
 CARENCIA_DO_PID = 15.0
+# A ordem das entradas de imagem do clipe. Mora aqui porque o filtro e o
+# comando tem que concordar sobre qual `-i` e qual.
+ORDEM_DAS_FORMAS = ("mascara", "moldura", "etiqueta", "torcida", "placar")
 
 _VIDEO_FINAL = [
     "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
@@ -177,47 +180,167 @@ def texto_da_cartela(dados: dict, numero: int) -> str:
     return f"GOL {numero} - {placar}" if placar else f"GOL {numero}"
 
 
+def titulo_da_torcida(torcida: str) -> str:
+    """"inter" -> "TORCIDA DO INTER", cortado no que cabe na pilula."""
+    nome = (torcida or "").replace("-", " ").upper()
+    if len(nome) > molde.MAXIMO_DA_TORCIDA:
+        nome = nome[: molde.MAXIMO_DA_TORCIDA - 1].rstrip() + "."
+    return f"TORCIDA DO {nome}" if nome else ""
+
+
+def placar_curto(dados: dict, numero: int, cadastrados: dict | None = None) -> str:
+    """"GRÊMIO 3 x 0 INTER" - o placar daquele gol com o nome `curto` do time.
+
+    Nome por extenso estoura a linha do display no pior caso; o `curto` do
+    dados/times.json e o que define o corpo da fonte da cartela. Sem placar
+    anotado, os dois times sem numero: dizer o que se sabe, e nunca inventar um
+    numero na tela.
+    """
+    partida = dados.get("partida") or {}
+    casa = mod_times.achar(partida.get("mandante", ""), cadastrados)
+    fora = mod_times.achar(partida.get("visitante", ""), cadastrados)
+    aqui = casa.get("curto") or casa.get("nome", "")
+    lah = fora.get("curto") or fora.get("nome", "")
+    numeros = numeros_do_gol(dados, numero)
+    return f"{aqui} {numeros} {lah}".strip() if numeros else f"{aqui} x {lah}".strip()
+
+
+def cartela_do_gol(
+    dados: dict, numero: int, cadastrados: dict | None = None
+) -> dict:
+    """As quatro camadas da cartela: onde estamos, o que mudou, e de que jogo e.
+
+    Saia escrita so `GOL 3` no meio da tela. O desenho esta no
+    `docs/DESIGN-DO-VIDEO.md`: um bloco alinhado a esquerda, lido de cima para
+    baixo como uma secao de documento.
+    """
+    partida = dados.get("partida") or {}
+    liga = (partida.get("liga") or "").replace("-", " ").upper()
+    return {
+        # Dois digitos porque a marca vai em mono: "GOL 3" e "GOL 10" com
+        # largura de digito fixa fazem a pilula dancar de um gol para o outro.
+        "marca": f"GOL {int(numero):02d}",
+        "titulo": placar_curto(dados, numero, cadastrados),
+        "meta": " - ".join(
+            parte for parte in (liga, _data_do_jogo(dados)) if parte
+        ),
+    }
+
+
+def _data_do_jogo(dados: dict) -> str:
+    """A data no formato de gente, tirada do nome da pasta do jogo."""
+    nome = (dados.get("jogo") or "")[:10]
+    partes = nome.split("-")
+    if len(partes) != 3 or not all(p.isdigit() for p in partes):
+        return ""
+    ano, mes, dia = partes
+    return f"{dia}/{mes}/{ano}"
+
+
 # ------------------------------------------------------------------- as pecas
 
-def mascaras(pasta_jogo: Path, formato: str) -> tuple[Path, Path]:
-    """Os dois PNGs do quadro: o recorte dos cantos e a borda clara.
+def formas_do_molde(pasta_jogo: Path, formato: str) -> dict[str, Path]:
+    """Os PNGs de forma do molde: o quadro e uma pilula por camada de cromado.
 
-    Cantos arredondados no ffmpeg puro dariam um `geq` caro e ilegivel; com o
-    Pillow sai uma imagem so, feita uma vez por formato e reaproveitada. A
-    geometria vem do molde - o mesmo numero que a previa usa em CSS.
+    Canto arredondado no ffmpeg puro daria um `geq` caro e ilegivel; com o
+    Pillow sai uma imagem por forma, feita uma vez por formato e reaproveitada.
+    A geometria vem do molde - o mesmo numero que a previa usa em CSS.
+
+    - `mascara`: o recorte dos cantos do quadro (`{rounded.lg}`)
+    - `moldura`: o fio de cabelo em volta dele (`{colors.hairline}`)
+    - uma pilula branca por camada de pilula (`{rounded.full}`)
     """
     from PIL import Image, ImageDraw
 
+    pasta = pasta_cache(pasta_jogo) / "formas"
+    pasta.mkdir(parents=True, exist_ok=True)
     quadro = molde.caixa("quadro", formato)
     largura, altura = quadro["largura"], quadro["altura"]
-    canto, borda = quadro["cantos"], quadro["borda"]
-    pasta = pasta_cache(pasta_jogo)
-    pasta.mkdir(parents=True, exist_ok=True)
+    canto, fio = quadro["cantos"], max(1, quadro["borda"])
 
-    alvo_mascara = pasta / f"mascara-{formato}-{largura}x{altura}-{canto}.png"
-    alvo_moldura = pasta / f"moldura-{formato}-{largura}x{altura}-{canto}-{borda}.png"
-
-    if not alvo_mascara.is_file():
+    formas = {
+        "mascara": pasta / f"mascara-{formato}-{largura}x{altura}-{canto}.png",
+        "moldura": pasta / f"moldura-{formato}-{largura}x{altura}-{canto}-{fio}.png",
+    }
+    if not formas["mascara"].is_file():
         imagem = Image.new("L", (largura, altura), 0)
         ImageDraw.Draw(imagem).rounded_rectangle(
             (0, 0, largura - 1, altura - 1), radius=canto, fill=255
         )
-        imagem.save(alvo_mascara)
-
-    if not alvo_moldura.is_file():
+        imagem.save(formas["mascara"])
+    if not formas["moldura"].is_file():
         imagem = Image.new("RGBA", (largura, altura), (0, 0, 0, 0))
         ImageDraw.Draw(imagem).rounded_rectangle(
             (0, 0, largura - 1, altura - 1),
-            radius=canto, outline=(255, 255, 255, 230), width=max(1, borda),
+            radius=canto, outline=_fio_rgba(), width=fio,
         )
-        imagem.save(alvo_moldura)
+        imagem.save(formas["moldura"])
 
-    return alvo_mascara, alvo_moldura
+    for camada in molde.camadas(formato):
+        if not camada.pilula:
+            continue
+        caixa = molde.caixa(camada.nome, formato)
+        alvo = (
+            pasta
+            / f"pilula-{formato}-{camada.nome}-{caixa['largura']}x{caixa['altura']}.png"
+        )
+        formas[camada.nome] = alvo
+        if alvo.is_file():
+            continue
+        imagem = Image.new("RGBA", (caixa["largura"], caixa["altura"]), (0, 0, 0, 0))
+        ImageDraw.Draw(imagem).rounded_rectangle(
+            (0, 0, caixa["largura"] - 1, caixa["altura"] - 1),
+            radius=caixa["cantos"], fill=(255, 255, 255, 255),
+            outline=_rgb_do_molde(molde.COR_FIO_FORTE), width=fio,
+        )
+        imagem.save(alvo)
+    return formas
 
 
-def fonte_de(cfg: dict) -> Path | None:
-    caminho = cfg.get("fonte_cartela") or ""
-    return Path(caminho) if caminho else None
+def _rgb_do_molde(cor: str) -> tuple[int, int, int]:
+    """`#d4d4d4` do molde no RGB que o Pillow desenha."""
+    limpa = cor.lstrip("#")
+    return tuple(int(limpa[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def _fio_rgba() -> tuple[int, int, int, int]:
+    """O `white@0.22` do molde em RGBA, para o Pillow desenhar o mesmo fio."""
+    alfa = float(molde.COR_FIO.split("@")[1]) if "@" in molde.COR_FIO else 1.0
+    return (255, 255, 255, round(255 * alfa))
+
+
+def chrome_do_item(pasta_jogo: Path, formato: str) -> tuple[list[Path], dict[str, str]]:
+    """As formas do clipe na ordem das entradas do ffmpeg, e o mapa de rotulos.
+
+    A ordem e uma so, e sai daqui: o `filtro_do_item` e o `comando_item` tem
+    que concordar sobre qual `-i` e qual, senao o filtro pede a imagem errada.
+    """
+    formas = formas_do_molde(pasta_jogo, formato)
+    arquivos = [formas[nome] for nome in ORDEM_DAS_FORMAS]
+    rotulos = {nome: f"{i + 1}:v" for i, nome in enumerate(ORDEM_DAS_FORMAS)}
+    return arquivos, rotulos
+
+
+def chrome_da_cartela(
+    pasta_jogo: Path, formato: str
+) -> tuple[list[Path], dict[str, str]]:
+    """A pilula da marca do gol. A entrada 0 da cartela e o audio mudo."""
+    formas = formas_do_molde(pasta_jogo, formato)
+    return [formas["cartela-marca"]], {"cartela-marca": "1:v"}
+
+
+def fontes_de(cfg: dict) -> dict[str, Path | None]:
+    """Os tres papeis de letra do `docs/DESIGN-DO-VIDEO.md`.
+
+    Papel sem arquivo proprio cai para o `fonte_cartela`, que e a herdada:
+    fonte que nao existe na maquina nao pode custar o render.
+    """
+    herdada = cfg.get("fonte_cartela") or ""
+    escolhidas = {}
+    for papel in molde.LETRAS:
+        caminho = cfg.get(f"fonte_{papel}") or herdada
+        escolhidas[papel] = Path(caminho) if caminho else None
+    return escolhidas
 
 
 def cor_do_fundo(dados_receita: dict, cadastrados: dict | None = None) -> str:
@@ -239,7 +362,7 @@ def filtro_do_item(
     dados: dict,
     dados_receita: dict,
     cfg: dict,
-    com_mascaras: bool = True,
+    imagens: dict | None = None,
     escala: tuple[int, int] | None = None,
 ) -> tuple[str, str]:
     """O filter_complex do item e o rotulo da saida dele."""
@@ -249,11 +372,10 @@ def filtro_do_item(
         formato,
         cor_fundo=cor_do_fundo(dados_receita),
         canal=titulo_do_canal(clipe["canal"]),
-        torcida=clipe.get("torcida", ""),
+        torcida=titulo_da_torcida(clipe.get("torcida", "")),
         placar=numeros_do_gol(dados, clipe["gol"]),
-        fonte=fonte_de(cfg),
-        mascara="1:v" if com_mascaras else None,
-        moldura="2:v" if com_mascaras else None,
+        fontes=fontes_de(cfg),
+        imagens=imagens,
     )
     if escala:
         filtro += f";[v]scale={escala[0]}:{escala[1]}[menor]"
@@ -266,18 +388,22 @@ def comando_item(
     item: dict,
     filtro: str,
     rotulo: str,
-    mascara: Path,
-    moldura: Path,
+    formas: list[Path],
     destino: Path,
     ffmpeg: str,
     video=None,
 ) -> list[str]:
     duracao = round(float(item["ate"]) - float(item["de"]), 3)
+    entradas = []
+    for forma in formas:
+        # `-t` na ENTRADA de imagem, e nao so na saida. Medido em 03/09:
+        # limitar as entradas fez 3 de 4 renders passarem, contra 1 de 3 sem
+        # isso; trocar o `-shortest` da saida por `-t` piorou (0 de 3).
+        entradas += ["-loop", "1", "-t", str(duracao), "-i", str(forma)]
     return [
         ffmpeg, "-y",
         "-ss", str(item["de"]), "-t", str(duracao), "-i", str(origem),
-        "-loop", "1", "-i", str(mascara),
-        "-loop", "1", "-i", str(moldura),
+        *entradas,
         "-filter_complex", filtro,
         "-map", f"[{rotulo}]",
         # O `?` deixa passar clipe sem faixa de audio: acontece, e nao pode
@@ -290,26 +416,48 @@ def comando_item(
 
 
 def comando_cartela(
-    texto: str, formato: str, cfg: dict, destino: Path, cor_fundo: str
+    peca: dict,
+    formato: str,
+    cfg: dict,
+    destino: Path,
+    cor_fundo: str,
+    formas: list[Path],
+    imagens: dict | None = None,
 ) -> list[str]:
     """A cartela tem audio mudo de proposito.
 
     A emenda e `concat` com copia de fluxo, e o concat exige as MESMAS faixas em
     todas as pecas. Cartela sem audio derrubaria a emenda inteira.
     """
-    filtro = molde.filtro_cartela(
-        formato, texto, cor_fundo=cor_fundo, fonte=fonte_de(cfg),
-        duracao=DURACAO_DA_CARTELA,
-    )
+    filtro = filtro_da_cartela(peca, formato, cfg, cor_fundo, imagens)
+    entradas = []
+    for forma in formas:
+        entradas += ["-loop", "1", "-t", str(DURACAO_DA_CARTELA), "-i", str(forma)]
     return [
         cfg["caminho_ffmpeg"], "-y",
         "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000",
+        *entradas,
         "-filter_complex", filtro,
         "-map", "[v]", "-map", "0:a",
         "-t", str(DURACAO_DA_CARTELA),
         *_VIDEO_FINAL, *_AUDIO,
         str(destino),
     ]
+
+
+def filtro_da_cartela(
+    peca: dict, formato: str, cfg: dict, cor_fundo: str, imagens: dict | None = None
+) -> str:
+    return molde.filtro_cartela(
+        formato,
+        marca=peca.get("marca", ""),
+        titulo=peca.get("titulo", ""),
+        meta=peca.get("meta", ""),
+        cor_fundo=cor_fundo,
+        fontes=fontes_de(cfg),
+        duracao=DURACAO_DA_CARTELA,
+        imagens=imagens,
+    )
 
 
 def comando_concat(lista: Path, saida: Path, ffmpeg: str) -> list[str]:
@@ -366,7 +514,8 @@ def montar(
 
     pasta_jogo = Path(pasta_jogo)
     formato = dados_receita.get("formato", FORMATO_PADRAO)
-    mascara, moldura = mascaras(pasta_jogo, formato)
+    formas, imagens = chrome_do_item(pasta_jogo, formato)
+    da_cartela, imagens_da_cartela = chrome_da_cartela(pasta_jogo, formato)
     cache = pasta_das_pecas(pasta_jogo)
     clipes = _clipes_por_chave(dados)
 
@@ -375,16 +524,16 @@ def montar(
     for item in itens:
         if item["gol"] != gol_anterior:
             gol_anterior = item["gol"]
-            texto = texto_da_cartela(dados, item["gol"])
-            filtro = molde.filtro_cartela(
-                formato, texto, cor_fundo=cor_do_fundo(dados_receita),
-                fonte=fonte_de(cfg), duracao=DURACAO_DA_CARTELA,
+            peca = cartela_do_gol(dados, item["gol"])
+            filtro = filtro_da_cartela(
+                peca, formato, cfg, cor_do_fundo(dados_receita), imagens_da_cartela
             )
             nome = identidade(f"cartela-{item['gol']}", 0, DURACAO_DA_CARTELA, filtro)
             tarefas.append((
                 cache / f"{nome}.mp4",
-                lambda destino, texto=texto: comando_cartela(
-                    texto, formato, cfg, destino, cor_do_fundo(dados_receita)
+                lambda destino, peca=peca: comando_cartela(
+                    peca, formato, cfg, destino, cor_do_fundo(dados_receita),
+                    da_cartela, imagens_da_cartela,
                 ),
                 f"cartela do gol {item['gol']}",
             ))
@@ -393,14 +542,14 @@ def montar(
         if clipe is None:
             avisar(f"o gol {item['gol']} do canal {item['canal']} nao esta no catalogo")
             continue
-        filtro, rotulo = filtro_do_item(clipe, dados, dados_receita, cfg)
+        filtro, rotulo = filtro_do_item(clipe, dados, dados_receita, cfg, imagens)
         nome = identidade(clipe["arquivo"], item["de"], item["ate"], filtro)
         tarefas.append((
             cache / f"{nome}.mp4",
             lambda destino, clipe=clipe, item=item, filtro=filtro, rotulo=rotulo:
                 comando_item(
                     pasta_jogo / clipe["arquivo"], item, filtro, rotulo,
-                    mascara, moldura, destino, cfg["caminho_ffmpeg"],
+                    formas, destino, cfg["caminho_ffmpeg"],
                 ),
             f"{item['canal']} no gol {item['gol']}",
         ))
@@ -456,15 +605,17 @@ def espiar(
     clipe = _clipe_de(dados, gol, canal)
     item = _item_de(dados_receita, gol, canal)
     formato = dados_receita.get("formato", FORMATO_PADRAO)
-    mascara, moldura = mascaras(pasta_jogo, formato)
-    filtro, rotulo = filtro_do_item(clipe, dados, dados_receita, cfg)
+    formas, imagens = chrome_do_item(pasta_jogo, formato)
+    filtro, rotulo = filtro_do_item(clipe, dados, dados_receita, cfg, imagens)
 
+    entradas = []
+    for forma in formas:
+        entradas += ["-loop", "1", "-i", str(forma)]
     destino = pasta_cache(pasta_jogo) / f"espiada-{gol}-{canal}.png"
     executar([
         cfg["caminho_ffmpeg"], "-y",
         "-ss", str(instante_de_espiar(clipe, item)), "-i", str(pasta_jogo / clipe["arquivo"]),
-        "-loop", "1", "-i", str(mascara),
-        "-loop", "1", "-i", str(moldura),
+        *entradas,
         "-filter_complex", filtro,
         "-map", f"[{rotulo}]", "-frames:v", "1", "-update", "1",
         str(destino),
@@ -499,13 +650,15 @@ def previa(
     clipe = _clipe_de(dados, gol, canal)
     item = _item_de(dados_receita, gol, canal)
     formato = dados_receita.get("formato", FORMATO_PADRAO)
-    mascara, moldura = mascaras(pasta_jogo, formato)
-    filtro, rotulo = filtro_do_item(clipe, dados, dados_receita, cfg, escala=PREVIA)
+    formas, imagens = chrome_do_item(pasta_jogo, formato)
+    filtro, rotulo = filtro_do_item(
+        clipe, dados, dados_receita, cfg, imagens, escala=PREVIA
+    )
 
     destino = pasta_cache(pasta_jogo) / f"previa-{gol}-{canal}.mp4"
     codec = cfg.get("codec_previa", "libx264")
     fazer = lambda qual: comando_item(  # noqa: E731
-        pasta_jogo / clipe["arquivo"], item, filtro, rotulo, mascara, moldura,
+        pasta_jogo / clipe["arquivo"], item, filtro, rotulo, formas,
         destino, cfg["caminho_ffmpeg"], video=_video_da_previa(qual),
     )
     try:

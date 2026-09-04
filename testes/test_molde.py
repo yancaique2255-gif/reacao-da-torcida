@@ -10,43 +10,94 @@ geometria de volta do filter_complex, como o ffmpeg leria, e compara com o que a
 pagina recebe para posicionar em CSS.
 """
 import re
+from pathlib import Path
 
 import pytest
 
 from nucleo import molde
 
 
+# ------------------------------------------------ o design do produto publicado
+
+FONTES = {
+    "display": Path(r"C:\Windows\Fonts\bahnschrift.ttf"),
+    "sans": Path(r"C:\Windows\Fonts\segoeuib.ttf"),
+    "mono": Path(r"C:\Windows\Fonts\consolab.ttf"),
+}
+IMAGENS = {
+    "mascara": "1:v", "moldura": "2:v",
+    "etiqueta": "3:v", "torcida": "4:v", "placar": "5:v",
+}
+TITULO = "GREMIO 3 x 0 INTER"
+META = "COPA DO BRASIL - 03/09/2026"
+
+
+def _filtro_cheio(formato: str) -> str:
+    return molde.para_ffmpeg(
+        molde.camadas(formato), formato,
+        canal="BALDASSO TV", torcida="TORCIDA DO INTER", placar="3 x 0",
+        fontes=FONTES, imagens=IMAGENS,
+    )
+
+
+def _da_forma(filtro: str, nome: str) -> dict:
+    """Le a geometria de uma camada de pilula de volta do filter_complex."""
+    marca = nome.replace("-", "_")
+    tamanho = re.search(rf"scale=(\d+):(\d+)\[forma_{marca}\]", filtro)
+    posicao = re.search(rf"\[forma_{marca}\]overlay=(\d+):(\d+)", filtro)
+    corpo = re.search(rf"\[fundo_{marca}\]drawtext=[^;]*?fontsize=(\d+)", filtro)
+    assert tamanho and posicao and corpo, f"{nome} nao esta no filtro"
+    return {
+        "largura": int(tamanho.group(1)), "altura": int(tamanho.group(2)),
+        "esquerda": int(posicao.group(1)), "topo": int(posicao.group(2)),
+        "fonte": int(corpo.group(1)),
+    }
+
+
+def _do_texto(filtro: str, nome: str) -> dict:
+    marca = nome.replace("-", "_")
+    achado = re.search(
+        rf"drawtext=[^;]*?:x=(\d+):y=(\d+):fontsize=(\d+)[^;]*\[posto_{marca}\]",
+        filtro,
+    )
+    assert achado, f"{nome} nao esta no filtro"
+    return {
+        "esquerda": int(achado.group(1)), "topo": int(achado.group(2)),
+        "fonte": int(achado.group(3)),
+    }
+
+
+def _da_pagina(formato: str) -> dict:
+    return {
+        c["nome"]: c
+        for c in molde.para_pagina(molde.camadas(formato), formato)["camadas"]
+    }
+
+
 def _geometria_do_filtro(filtro: str) -> dict:
     """Le de volta o que o ffmpeg vai obedecer, e nao o que quisemos dizer."""
     escala = re.search(r"scale=(\d+):(\d+):force_original_aspect_ratio", filtro)
     posicao = re.search(r"\]overlay=(\d+):(\d+)", filtro)
-    caixas = re.findall(r"drawbox=x=(\d+):y=(\d+):w=(\d+):h=(\d+)", filtro)
-    lido = {
+    return {
         "quadro": {
             "esquerda": int(posicao.group(1)), "topo": int(posicao.group(2)),
             "largura": int(escala.group(1)), "altura": int(escala.group(2)),
         }
     }
-    # Na ordem em que as camadas sao desenhadas: etiqueta e depois placar.
-    for nome, (x, y, w, h) in zip(("etiqueta", "placar"), caixas):
-        lido[nome] = {
-            "esquerda": int(x), "topo": int(y), "largura": int(w), "altura": int(h)
-        }
-    return lido
 
 
 @pytest.mark.parametrize("formato", ["deitado", "em-pe"])
 def test_ffmpeg_e_pagina_concordam_camada_por_camada(formato):
     camadas = molde.camadas(formato)
 
-    filtro = molde.para_ffmpeg(
-        camadas, formato, canal="BALDASSO TV", torcida="inter", placar="GREMIO 1 x 0 INTER"
-    )
+    filtro = _filtro_cheio(formato)
     pagina = molde.para_pagina(camadas, formato)
 
-    do_ffmpeg = _geometria_do_filtro(filtro)
     da_pagina = {c["nome"]: c for c in pagina["camadas"]}
-    for nome, caixa in do_ffmpeg.items():
+    lido = _geometria_do_filtro(filtro)
+    for nome in molde.CROMADO:
+        lido[nome] = _da_forma(filtro, nome)
+    for nome, caixa in lido.items():
         for campo, valor in caixa.items():
             assert da_pagina[nome][campo] == valor, f"{formato}/{nome}/{campo}"
 
@@ -71,7 +122,10 @@ def test_as_camadas_saem_de_baixo_para_cima():
     """A ordem e a pilha: o fundo primeiro, a cartela por cima de tudo."""
     nomes = [c.nome for c in molde.camadas("deitado")]
 
-    assert nomes == ["fundo", "quadro", "etiqueta", "placar", "cartela"]
+    assert nomes == [
+        "fundo", "quadro", "etiqueta", "torcida", "placar",
+        "cartela", "cartela-marca", "cartela-titulo", "cartela-regra", "cartela-meta",
+    ]
 
 
 @pytest.mark.parametrize("formato", ["deitado", "em-pe"])
@@ -121,7 +175,7 @@ def test_texto_do_canal_vai_escapado_para_o_ffmpeg():
 
 def test_sem_mascara_o_filtro_nao_inventa_uma_entrada():
     """Espiar um quadro parado nao tem PNG de cantos: o filtro nao pode pedir um."""
-    filtro = molde.para_ffmpeg(molde.camadas("deitado"), "deitado", mascara=None)
+    filtro = molde.para_ffmpeg(molde.camadas("deitado"), "deitado", imagens=None)
 
     assert "alphamerge" not in filtro
     assert "[1:v]" not in filtro
@@ -129,7 +183,8 @@ def test_sem_mascara_o_filtro_nao_inventa_uma_entrada():
 
 def test_com_mascara_os_cantos_do_quadro_sao_recortados():
     filtro = molde.para_ffmpeg(
-        molde.camadas("deitado"), "deitado", mascara="1:v", moldura="2:v"
+        molde.camadas("deitado"), "deitado",
+        imagens={"mascara": "1:v", "moldura": "2:v"},
     )
 
     assert "alphamerge" in filtro
@@ -137,10 +192,13 @@ def test_com_mascara_os_cantos_do_quadro_sao_recortados():
 
 
 def test_a_cartela_anuncia_o_gol_na_tela_inteira():
-    filtro = molde.filtro_cartela("deitado", "GOL 1 - GREMIO 1 x 0 INTER")
+    filtro = molde.filtro_cartela(
+        "deitado", marca="GOL 01", titulo="GREMIO 1 x 0 INTER", meta="COPA DO BRASIL"
+    )
 
     assert "1920x1080" in filtro
-    assert "GOL 1 - GREMIO 1 x 0 INTER" in filtro
+    assert "GOL 01" in filtro and "GREMIO 1 x 0 INTER" in filtro
+    assert "COPA DO BRASIL" in filtro
 
 
 @pytest.mark.parametrize("formato", ["deitado", "em-pe"])
@@ -159,3 +217,180 @@ def test_o_nome_mais_longo_de_canal_cabe_na_etiqueta(formato):
 @pytest.mark.parametrize("formato", ["deitado", "em-pe"])
 def test_o_placar_cabe_na_caixa_dele(formato):
     assert molde.cabe("10 x 10", molde.caixa("placar", formato)), formato
+
+
+@pytest.mark.parametrize("formato", ["deitado", "em-pe"])
+def test_a_pilula_do_ffmpeg_e_a_da_pagina_camada_por_camada(formato):
+    """As pilulas sao imagem do Pillow, e a posicao delas sai do molde.
+
+    O `scale` no filtro carrega o tamanho e o `overlay` carrega a posicao: da
+    para ler os dois de volta, como o ffmpeg leria, e cobrar que batem com o
+    que a pagina recebe para posicionar em CSS.
+    """
+    filtro = _filtro_cheio(formato)
+    pagina = _da_pagina(formato)
+
+    for nome in ("etiqueta", "torcida", "placar"):
+        for campo, valor in _da_forma(filtro, nome).items():
+            assert pagina[nome][campo] == valor, f"{formato}/{nome}/{campo}"
+
+
+@pytest.mark.parametrize("formato", ["deitado", "em-pe"])
+def test_a_cartela_do_ffmpeg_e_a_da_pagina_camada_por_camada(formato):
+    filtro = molde.filtro_cartela(
+        formato, marca="GOL 03", titulo=TITULO, meta=META,
+        fontes=FONTES, imagens={"cartela-marca": "1:v"},
+    )
+    pagina = _da_pagina(formato)
+
+    for campo, valor in _da_forma(filtro, "cartela-marca").items():
+        assert pagina["cartela-marca"][campo] == valor, f"{formato}/marca/{campo}"
+    for nome in ("cartela-titulo", "cartela-meta"):
+        for campo, valor in _do_texto(filtro, nome).items():
+            assert pagina[nome][campo] == valor, f"{formato}/{nome}/{campo}"
+
+    regua = re.search(
+        r"drawbox=x=(\d+):y=(\d+):w=(\d+):h=(\d+)[^;]*\[posto_cartela_regra\]", filtro
+    )
+    assert regua, "a regua de fio nao esta no filtro"
+    esperada = pagina["cartela-regra"]
+    assert [int(regua.group(n)) for n in (1, 2, 3, 4)] == [
+        esperada["esquerda"], esperada["topo"],
+        esperada["largura"], esperada["altura"],
+    ]
+
+
+@pytest.mark.parametrize("formato", ["deitado", "em-pe"])
+def test_nao_sobrou_degrade_nem_vinheta_em_lugar_nenhum(formato):
+    """A regra numero um do sistema: superficie chapada, sem atmosfera."""
+    cartela = molde.filtro_cartela(formato, "GOL 03", TITULO, META)
+
+    for filtro in (_filtro_cheio(formato), cartela):
+        assert "vignette" not in filtro
+        assert "gradient" not in filtro
+
+
+@pytest.mark.parametrize("formato", ["deitado", "em-pe"])
+def test_nao_sobrou_tarja_translucida_atras_de_texto(formato):
+    """Se precisa de fundo, e pilula branca - e nao caixa preta a 55%."""
+    assert "black@" not in _filtro_cheio(formato)
+
+
+@pytest.mark.parametrize("formato", ["deitado", "em-pe"])
+def test_a_pilula_e_redonda_de_verdade_nos_dois_formatos(formato):
+    """`rounded.full`: o canto e metade da altura, e nao um raio qualquer."""
+    for nome in ("etiqueta", "torcida", "placar", "cartela-marca"):
+        caixa = molde.caixa(nome, formato)
+        assert caixa["cantos"] == caixa["altura"] // 2, f"{formato}/{nome}"
+
+
+@pytest.mark.parametrize("formato", ["deitado", "em-pe"])
+def test_o_quadro_fica_em_canto_medio_e_nao_de_pilula(formato):
+    quadro = molde.caixa("quadro", formato)
+
+    assert 0 < quadro["cantos"] < quadro["altura"] // 4
+
+
+@pytest.mark.parametrize("formato", ["deitado", "em-pe"])
+def test_cada_camada_de_texto_declara_a_letra_que_usa(formato):
+    """Tres papeis, e nenhuma camada de texto sem papel declarado."""
+    for camada in molde.camadas(formato):
+        if camada.fonte:
+            assert camada.letra in molde.LETRAS, f"{formato}/{camada.nome}"
+
+
+def test_o_texto_de_cada_camada_vai_na_fonte_do_papel_dela():
+    """Display so no titulo da cartela; o resto e sans do sistema e mono."""
+    cartela = molde.filtro_cartela(
+        "deitado", marca="GOL 03", titulo=TITULO, meta=META,
+        fontes=FONTES, imagens={"cartela-marca": "1:v"},
+    )
+    item = _filtro_cheio("deitado")
+
+    assert cartela.count("bahnschrift") == 1, "o display e um por peca"
+    assert "consolab" in cartela  # a marca e a meta
+    assert "segoeuib" in item and "consolab" in item
+    assert "bahnschrift" not in item, "o clipe nao tem display nenhum"
+    assert "arialbd" not in item and "arialbd" not in cartela
+
+
+# --- o drawtext nao encolhe nada: o molde e quem garante que cabe -------------
+
+PIOR_CANAL = "X" * molde.MAXIMO_DO_CANAL
+PIOR_TORCIDA = "TORCIDA DO " + "X" * molde.MAXIMO_DA_TORCIDA
+PIOR_TITULO = "PALMEIRAS 10 x 10 PALMEIRAS"
+PIOR_META = "COPA DO BRASIL - 03/09/2026 - 2o TEMPO"
+
+
+@pytest.mark.parametrize("formato", ["deitado", "em-pe"])
+@pytest.mark.parametrize(
+    "camada,texto",
+    [
+        ("etiqueta", PIOR_CANAL),
+        ("torcida", PIOR_TORCIDA),
+        ("placar", "10 x 10"),
+        ("cartela-marca", "GOL 99"),
+        ("cartela-titulo", PIOR_TITULO),
+        ("cartela-meta", PIOR_META),
+    ],
+)
+def test_o_pior_texto_de_cada_camada_cabe_na_caixa_dela(formato, camada, texto):
+    assert molde.cabe(texto, molde.caixa(camada, formato)), f"{formato}/{camada}"
+
+
+@pytest.mark.parametrize("formato", ["deitado", "em-pe"])
+def test_as_duas_pilulas_de_baixo_nao_se_encostam(formato):
+    """Etiqueta e torcida sao duas pilulas: encostadas viram uma tarja so."""
+    etiqueta = molde.caixa("etiqueta", formato)
+    torcida = molde.caixa("torcida", formato)
+
+    cruzam_na_horizontal = (
+        etiqueta["esquerda"] + etiqueta["largura"] > torcida["esquerda"]
+        and torcida["esquerda"] + torcida["largura"] > etiqueta["esquerda"]
+    )
+    if cruzam_na_horizontal:
+        # No em pe elas empilham; ai o que nao pode e cruzar na vertical.
+        assert (
+            etiqueta["topo"] + etiqueta["altura"] <= torcida["topo"]
+            or torcida["topo"] + torcida["altura"] <= etiqueta["topo"]
+        ), formato
+
+
+@pytest.mark.parametrize("formato", ["deitado", "em-pe"])
+def test_toda_pilula_do_clipe_respeita_o_recuo_dentro_do_quadro(formato):
+    """Um recuo so, nos quatro lados - o equivalente ao `{spacing.section}`."""
+    largura, _ = molde.tamanho(formato)
+    quadro = molde.caixa("quadro", formato)
+    recuo = round(molde.RECUO * largura)
+
+    for nome in ("etiqueta", "torcida", "placar"):
+        caixa = molde.caixa(nome, formato)
+        assert caixa["esquerda"] >= quadro["esquerda"] + recuo - 1, f"{formato}/{nome}"
+        assert (
+            caixa["esquerda"] + caixa["largura"]
+            <= quadro["esquerda"] + quadro["largura"] - recuo + 1
+        ), f"{formato}/{nome}"
+
+
+@pytest.mark.parametrize("formato", ["deitado", "em-pe"])
+def test_o_clipe_entra_no_filtro_com_o_relogio_zerado(formato):
+    """Sem zerar o relogio do clipe, o overlay nao acha o primeiro quadro dele.
+
+    Achado na primeira prova depois do conserto do `instante`: com `-ss 80` no
+    clipe, o primeiro quadro dele chega DEPOIS do primeiro quadro do fundo, e o
+    `overlay` deixa passar o fundo pelado. O ESPIAR, que e um quadro so, saia
+    vermelho chapado; no video inteiro era um piscar de cor no comeco de cada
+    clipe. Antes do conserto do `instante` isto nao aparecia porque o ESPIAR
+    sempre pedia o segundo zero.
+    """
+    filtro = _filtro_cheio(formato)
+
+    assert "setpts=PTS-STARTPTS" in filtro
+    assert filtro.index("setpts=PTS-STARTPTS") < filtro.index("overlay=")
+
+
+def test_sem_placar_anotado_a_cartela_nao_inventa_numero():
+    filtro = molde.filtro_cartela("deitado", "GOL 03", "GREMIO x INTER", "COPA")
+
+    assert "GREMIO x INTER" in filtro
+    assert "0 x 0" not in filtro
