@@ -179,6 +179,23 @@ def mexer(dados_receita: dict, gol: int, canal: str, **campos) -> dict:
     raise KeyError(f"a receita nao tem o gol {gol} do canal {canal}")
 
 
+def esquecer_canal(dados_receita: dict, canal: str) -> dict:
+    """Desfaz o `tocado` dos itens de um canal, para eles se re-derivarem.
+
+    Serve para uma coisa so: quando o LADO daquele canal muda. O operador marcou
+    aquele clipe acreditando que o canal era da outra torcida, e item tocado
+    atravessa inteiro - com a marca que ele deixou. Sem isto, trocar a torcida
+    de um canal deixava os clipes dele no video, calado.
+
+    Foi o que aconteceu em 03/09: o `farid-germano-filho` estava cadastrado como
+    `inter`, e e canal do Gremio.
+    """
+    for item in dados_receita.get("itens", []):
+        if item["canal"] == canal:
+            item["tocado"] = False
+    return dados_receita
+
+
 def definir_textos(dados_receita: dict, **textos) -> dict:
     """O gancho e a frase da capa, que sao escolha do operador.
 

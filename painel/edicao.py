@@ -231,6 +231,13 @@ def montar_resposta(
         # O cadastro e a origem: sem consertar la, o buraco volta no proximo jogo.
         torcidas.definir_no_cadastro(canais.ARQUIVO, {corpo["canal"]: corpo["torcida"]})
         dados = catalogo.carregar(pasta_jogo)
+        # Trocar o lado desfaz o que o operador escolheu PARA aquele canal: ele
+        # marcou aquele clipe acreditando que era da outra torcida. Sem isto o
+        # canal continuava no video depois da troca, calado.
+        receita.salvar(
+            pasta_jogo,
+            receita.esquecer_canal(receita.carregar(pasta_jogo, dados), corpo["canal"]),
+        )
         edicao = receita.carregar(pasta_jogo, dados)
         receita.salvar(pasta_jogo, edicao)
         return 200, tela(pasta_jogo, dados, edicao, cfg)

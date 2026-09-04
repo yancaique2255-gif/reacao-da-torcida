@@ -245,3 +245,35 @@ def test_o_deitado_nao_tem_teto_de_dois_minutos():
     feita = receita.padrao(dados)
 
     assert len(receita.itens_do_video(feita)) == 8
+
+
+def test_trocar_o_lado_do_canal_refaz_os_itens_dele(tmp_path: Path):
+    """O operador marcou aquele clipe acreditando que o canal era do outro lado.
+
+    Achado no jogo de 03/09: o `farid-germano-filho` estava cadastrado como
+    `inter` e e canal do Gremio. Trocar o lado tem de tirar os clipes dele do
+    video - so que item `tocado` atravessa inteiro, com a marca que ele deixou,
+    e o canal continuaria no video depois da troca, calado.
+    """
+    dados = _jogo()
+    virado = [c["canal"] for c in dados["clipes"] if c.get("torcida") == "inter"][0]
+    feita = receita.mexer(receita.padrao(dados), 1, virado, de=10.0, ate=70.0)
+    assert virado in [i["canal"] for i in receita.itens_do_video(feita)]
+
+    for clipe in dados["clipes"]:
+        if clipe["canal"] == virado:
+            clipe["torcida"] = "gremio"
+    depois = receita.casar(receita.esquecer_canal(feita, virado), dados)
+
+    assert virado not in [i["canal"] for i in receita.itens_do_video(depois)]
+
+
+def test_esquecer_um_canal_nao_mexe_nos_outros(tmp_path: Path):
+    dados = _jogo()
+    canais_ = sorted({c["canal"] for c in dados["clipes"]})
+    feita = receita.mexer(receita.padrao(dados), 1, canais_[1], de=5.0, ate=65.0)
+
+    depois = receita.esquecer_canal(feita, canais_[0])
+
+    guardado = _item(depois, 1, canais_[1])
+    assert guardado["tocado"] is True and guardado["de"] == 5.0
