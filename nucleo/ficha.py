@@ -17,12 +17,25 @@ ARQUIVO = "JOGO.md"
 ARQUIVO_INDICE = "JOGOS.md"
 
 
-def _data_legivel(nome_do_jogo: str) -> str:
+def data_legivel(nome_do_jogo: str) -> str:
     """"2026-09-03 gremio x internacional" -> "03/09/2026"."""
     try:
         return datetime.strptime(nome_do_jogo[:10], "%Y-%m-%d").strftime("%d/%m/%Y")
     except ValueError:
         return ""
+
+
+def titulo(dados: dict) -> str:
+    """"Gremio x Internacional", ou vazio quando a partida nao foi registrada.
+
+    A recepcao do estudio mostra o mesmo nome que esta ficha: dois lugares
+    montando o titulo de dois jeitos e o caminho para a tela e o arquivo
+    discordarem sobre de que jogo se trata.
+    """
+    partida = dados.get("partida") or {}
+    return (
+        f"{partida.get('mandante', '')} x {partida.get('visitante', '')}"
+    ).strip(" x ")
 
 
 def _lives(pasta_jogo: Path) -> list[dict]:
@@ -57,12 +70,10 @@ def montar(pasta_jogo: Path) -> str:
     partida = dados.get("partida") or {}
     lives = _lives(pasta_jogo)
 
-    mandante = partida.get("mandante") or ""
-    visitante = partida.get("visitante") or ""
-    titulo = f"{mandante} x {visitante}".strip(" x ") or pasta_jogo.name
+    nome = titulo(dados) or pasta_jogo.name
 
-    linhas = [f"# {titulo}", ""]
-    data = _data_legivel(pasta_jogo.name)
+    linhas = [f"# {nome}", ""]
+    data = data_legivel(pasta_jogo.name)
     if data:
         linhas.append(f"- **Data:** {data}")
     if partida.get("liga"):
@@ -137,13 +148,9 @@ def montar_indice(biblioteca: Path) -> str:
     linhas += ["| Data | Jogo | Lives | Gols | Pasta |", "| --- | --- | --- | --- | --- |"]
     for pasta in encontrados:
         dados = catalogo.carregar(pasta)
-        partida = dados.get("partida") or {}
-        titulo = (
-            f"{partida.get('mandante', '')} x {partida.get('visitante', '')}".strip(" x ")
-            or pasta.name[11:]
-        )
+        nome = titulo(dados) or pasta.name[11:]
         linhas.append(
-            f"| {_data_legivel(pasta.name) or '—'} | {titulo} | "
+            f"| {data_legivel(pasta.name) or '—'} | {nome} | "
             f"{len(_lives(pasta))} | {len(dados.get('gols') or [])} | "
             f"[{pasta.name}](<{pasta.name}/{ARQUIVO}>) |"
         )

@@ -3,17 +3,36 @@
 O par visual do `AGENTS.md`. Aquele diz **como o código se escreve**; este diz **como a
 tela se parece**. Leia antes de mexer em qualquer `.html` do projeto.
 
-O projeto tem três telas, e elas não competem:
+O projeto tem quatro telas, e elas não competem:
 
 | Tela | Arquivo | Porta | Quando é usada |
 | --- | --- | --- | --- |
 | Painel da gravação | `painel/gravacao.html` | 8771 | **Durante** o jogo, de canto de olho |
 | Estúdio | `painel/pagina.html` | 8770 | **Depois** do jogo, escolhendo clipe |
 | Estúdio de edição | `painel/edicao.html` | 8772 | **Depois** da escolha, montando o vídeo |
+| Recepção do estúdio | `painel/recepcao.html` | 8773 | **Antes de tudo**: qual jogo, e por onde continuar |
 
-O estúdio de edição nasceu ao lado do da 8770, e não no lugar dele: reforma
-grande não se faz na ferramenta em uso. Os três `:root` têm os mesmos tokens, e
-a bateria reprova se um divergir.
+O estúdio de edição nasceu ao lado do da 8770, e não no lugar dele; a recepção
+nasceu ao lado dos dois. Reforma grande não se faz na ferramenta em uso. Os
+quatro `:root` têm os mesmos tokens, e a bateria reprova se um divergir.
+
+### A recepção são duas telas no mesmo arquivo
+
+`recepcao.html` mostra uma coisa de cada vez, escolhida pelo endereço:
+
+| Endereço | O que aparece | A pílula preta é |
+| --- | --- | --- |
+| `#/` | a lista de jogos | o próximo passo do jogo mais novo que pede trabalho (`#continuar`) |
+| `#/jogo/<pasta>` | a escolha de clipes daquele jogo | IR PARA A EDIÇÃO (`#editar`) |
+
+As duas nunca aparecem juntas, então continua valendo **uma pílula preta por
+tela** — e é por isso que o CSS tem duas regras de pílula preta num arquivo só.
+Se um dia as duas visões couberem na mesma dobra, uma delas perde o preto.
+
+O jogo mora no **endereço**, e não na memória da página: recarregar o navegador
+volta ao mesmo jogo, e trocar de jogo não reinicia servidor nenhum. É a mesma
+regra de sempre, um degrau acima — nada que o operador escolheu pode viver só na
+página aberta.
 
 ---
 
@@ -228,7 +247,8 @@ era um degradê para o conteúdo sumir por baixo, hoje é fundo chapado com fio 
 
 A única exceção é a **superfície invertida**: uma por tela, `--escuro` ou a pílula preta.
 Na gravação são a pílula MARCAR GOL e a faixa do recado que aparece e sai; no estúdio, a
-pílula MONTAR; na edição, a pílula RENDER FINAL. Botão dentro de superfície invertida é
+pílula MONTAR; na edição, a pílula RENDER FINAL; na recepção, o próximo passo do jogo que
+pede trabalho — e, dentro de um jogo, IR PARA A EDIÇÃO. Botão dentro de superfície invertida é
 pílula branca (`--fundo` com `--texto`).
 
 **O preto atrás de foto e de vídeo não conta como superfície**: é passe-partout. O `#000`
@@ -251,7 +271,14 @@ aparecer, e por isso o texto que fica sobre ele vai em `--fundo`, não em `--tex
 **Não pode**
 
 - **Sumir com o que deu errado.** É a regra mais forte do projeto. Canal sem material
-  aparece marcado, não some da lista.
+  aparece marcado, não some da lista. Vale para a lista de jogos também: jogo cujo
+  `catalogo.json` não deu para ler aparece com o selo `não deu para ler`, e não sai da
+  tela levando os outros seis com ele.
+- **Avisar o que não é verdade.** Aviso falso ensina o operador a ignorar o aviso que um
+  dia será verdade. Foi o que derrubou a primeira versão do "renderize de novo": ela
+  comparava a hora dos arquivos, e a tela de edição regrava a receita a cada abertura —
+  todo vídeo parecia velho um minuto depois de sair. Hoje quem responde é a assinatura
+  que o render gravou, e render antigo, sem assinatura, não afirma nada.
 - **Fingir que ainda está trabalhando.** Estado travado que nunca resolve é pior que erro:
   o operador espera por um arquivo que nunca vem.
 - Guardar escolha do operador só na página aberta. Recarregar não pode perder trabalho.

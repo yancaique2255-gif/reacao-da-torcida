@@ -681,6 +681,26 @@ def etapa_estudio(argv=None) -> int:
     return 0
 
 
+def etapa_recepcao(argv=None) -> int:
+    """Abre a recepcao do estudio, na 8773: a biblioteca inteira numa tela.
+
+    Aqui nao se escolhe jogo na largada. O jogo vai na rota, e trocar de jogo e
+    clicar - nada reinicia. O estudio da 8770 continua onde esta: reforma
+    grande nao se faz na ferramenta em uso, e os dois rodam ao mesmo tempo.
+    """
+    from painel import recepcao
+
+    p = argparse.ArgumentParser(description="Abre a recepcao do estudio (porta 8773).")
+    p.add_argument("--porta", type=int, default=8773)
+    p.add_argument(
+        "--biblioteca", help="outra pasta de jogos; sem isto, a do config.json"
+    )
+    args = p.parse_args(argv)
+    cfg = config.carregar()
+    recepcao.servir(Path(args.biblioteca or cfg["biblioteca"]), cfg, args.porta)
+    return 0
+
+
 def etapa_edicao(argv=None) -> int:
     """Abre o estudio de EDICAO, na 8772 - o novo, ao lado do de sempre.
 
@@ -886,6 +906,7 @@ if __name__ == "__main__":
         "gravar": etapa_gravar,
         "cortar": etapa_cortar,
         "estudio": etapa_estudio,
+        "recepcao": etapa_recepcao,
         "edicao": etapa_edicao,
         "render": etapa_render,
         "remedir": etapa_remedir,
@@ -896,7 +917,8 @@ if __name__ == "__main__":
     if len(sys.argv) < 2 or sys.argv[1] not in etapas:
         print(
             "Uso: python -m nucleo.esteira "
-            "canais|gravar|cortar|estudio|edicao|render|remedir|limpar|ficha|torcida ..."
+            "canais|gravar|cortar|estudio|recepcao|edicao|render|remedir|limpar|"
+            "ficha|torcida ..."
         )
         sys.exit(2)
     sys.exit(etapas[sys.argv[1]](sys.argv[2:]))

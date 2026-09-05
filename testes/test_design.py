@@ -13,6 +13,7 @@ TELAS = [
     RAIZ / "painel" / "gravacao.html",
     RAIZ / "painel" / "pagina.html",
     RAIZ / "painel" / "edicao.html",
+    RAIZ / "painel" / "recepcao.html",
 ]
 DESIGN = RAIZ / "DESIGN.md"
 
@@ -114,6 +115,9 @@ def test_a_acao_principal_e_a_pilula_preta():
         "gravacao.html": ".marcar {",
         "pagina.html": "#montar {",
         "edicao.html": "button.render {",
+        # A recepcao e a tela do jogo dividem o arquivo e nunca aparecem
+        # juntas: uma pilula preta em cada uma, e nao duas na mesma dobra.
+        "recepcao.html": "#continuar, #editar {",
     }
     for tela in TELAS:
         css = _css(tela)

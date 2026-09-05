@@ -350,6 +350,75 @@ def _item_de(dados_receita: dict, gol: int, canal: str) -> dict:
     raise KeyError(f"a receita nao tem o gol {gol} do canal {canal}")
 
 
+def planejar(
+    dados: dict,
+    dados_receita: dict,
+    cfg: dict,
+    avisar: Callable[[str], None] | None = None,
+) -> list[dict]:
+    """As pecas deste video, na ordem, cada uma com o nome que tem no cache.
+
+    So contas: nao escreve arquivo nenhum e nao chama ffmpeg. Quem monta usa
+    esta lista para saber o que fazer, e a recepcao usa a MESMA lista para
+    saber se o mp4 que esta no disco ainda e o video que a edicao pede.
+    """
+    formato = dados_receita.get("formato", FORMATO_PADRAO)
+    clipes = _clipes_por_chave(dados)
+    plano = []
+    gol_anterior = None
+    for item in receita.itens_do_video(dados_receita):
+        if item["gol"] != gol_anterior:
+            gol_anterior = item["gol"]
+            texto = texto_da_cartela(dados, item["gol"])
+            filtro = molde.filtro_cartela(
+                formato, texto, cor_fundo=cor_do_fundo(dados_receita),
+                fonte=fonte_de(cfg), duracao=DURACAO_DA_CARTELA,
+            )
+            plano.append({
+                "tipo": "cartela",
+                "nome": identidade(
+                    f"cartela-{item['gol']}", 0, DURACAO_DA_CARTELA, filtro
+                ),
+                "qual": f"cartela do gol {item['gol']}",
+                "texto": texto,
+            })
+
+        clipe = clipes.get((item["gol"], item["canal"]))
+        if clipe is None:
+            if avisar:
+                avisar(
+                    f"o gol {item['gol']} do canal {item['canal']} "
+                    "nao esta no catalogo"
+                )
+            continue
+        filtro, rotulo = filtro_do_item(clipe, dados, dados_receita, cfg)
+        plano.append({
+            "tipo": "item",
+            "nome": identidade(clipe["arquivo"], item["de"], item["ate"], filtro),
+            "qual": f"{item['canal']} no gol {item['gol']}",
+            "clipe": clipe,
+            "item": item,
+            "filtro": filtro,
+            "rotulo": rotulo,
+        })
+    return plano
+
+
+def assinatura(dados: dict, dados_receita: dict, cfg: dict) -> str:
+    """Impressao digital do video que esta edicao geraria.
+
+    E a lista de pecas do plano, que ja carrega corte, molde, formato, cartela,
+    placar e cor - o mesmo truque de `identidade`, um degrau acima. O render
+    guarda esta assinatura no `render.json`; a recepcao compara com a de agora
+    e sabe se o mp4 do disco envelheceu.
+
+    O mtime do arquivo nao serve para isso: a tela de edicao regrava a receita
+    cada vez que abre, e ai todo video parecia velho um minuto depois de sair.
+    """
+    nomes = [peca["nome"] for peca in planejar(dados, dados_receita, cfg)]
+    return hashlib.sha1("|".join(nomes).encode("utf-8")).hexdigest()[:12]
+
+
 def montar(
     pasta_jogo: Path,
     dados: dict,
@@ -371,42 +440,24 @@ def montar(
     formato = dados_receita.get("formato", FORMATO_PADRAO)
     mascara, moldura = mascaras(pasta_jogo, formato)
     cache = pasta_das_pecas(pasta_jogo)
-    clipes = _clipes_por_chave(dados)
 
     tarefas = []
-    gol_anterior = None
-    for item in itens:
-        if item["gol"] != gol_anterior:
-            gol_anterior = item["gol"]
-            texto = texto_da_cartela(dados, item["gol"])
-            filtro = molde.filtro_cartela(
-                formato, texto, cor_fundo=cor_do_fundo(dados_receita),
-                fonte=fonte_de(cfg), duracao=DURACAO_DA_CARTELA,
-            )
-            nome = identidade(f"cartela-{item['gol']}", 0, DURACAO_DA_CARTELA, filtro)
-            tarefas.append((
-                cache / f"{nome}.mp4",
-                lambda destino, texto=texto: comando_cartela(
+    for peca in planejar(dados, dados_receita, cfg, avisar):
+        destino = cache / f"{peca['nome']}.mp4"
+        if peca["tipo"] == "cartela":
+            comando_de = (
+                lambda destino, texto=peca["texto"]: comando_cartela(
                     texto, formato, cfg, destino, cor_do_fundo(dados_receita)
-                ),
-                f"cartela do gol {item['gol']}",
-            ))
-
-        clipe = clipes.get((item["gol"], item["canal"]))
-        if clipe is None:
-            avisar(f"o gol {item['gol']} do canal {item['canal']} nao esta no catalogo")
-            continue
-        filtro, rotulo = filtro_do_item(clipe, dados, dados_receita, cfg)
-        nome = identidade(clipe["arquivo"], item["de"], item["ate"], filtro)
-        tarefas.append((
-            cache / f"{nome}.mp4",
-            lambda destino, clipe=clipe, item=item, filtro=filtro, rotulo=rotulo:
-                comando_item(
-                    pasta_jogo / clipe["arquivo"], item, filtro, rotulo,
-                    mascara, moldura, destino, cfg["caminho_ffmpeg"],
-                ),
-            f"{item['canal']} no gol {item['gol']}",
-        ))
+                )
+            )
+        else:
+            comando_de = (
+                lambda destino, p=peca: comando_item(
+                    pasta_jogo / p["clipe"]["arquivo"], p["item"], p["filtro"],
+                    p["rotulo"], mascara, moldura, destino, cfg["caminho_ffmpeg"],
+                )
+            )
+        tarefas.append((destino, comando_de, peca["qual"]))
 
     total = len(tarefas)
     # O PID e de quem esta montando de verdade: e por ele que o painel sabe
@@ -440,7 +491,8 @@ def montar(
         raise
 
     anotar(pasta_jogo, rodando=False, feito=total, total=total,
-           saida=str(saida), mensagem="pronto")
+           saida=str(saida), mensagem="pronto",
+           assinatura=assinatura(dados, dados_receita, cfg))
     return saida
 
 
@@ -597,7 +649,7 @@ def estado(pasta_jogo: Path, vivo=None) -> dict:
 def _ler_cru(pasta_jogo: Path) -> dict:
     """O que esta no arquivo, sem julgar se o processo ainda vive."""
     padrao = {"rodando": False, "feito": 0, "total": 0, "mensagem": "",
-              "saida": "", "pid": 0, "pid_em": 0.0}
+              "saida": "", "pid": 0, "pid_em": 0.0, "assinatura": ""}
     arquivo = Path(pasta_jogo) / NOME_ESTADO
     if not arquivo.is_file():
         return padrao

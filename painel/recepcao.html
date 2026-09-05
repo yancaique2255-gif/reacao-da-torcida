@@ -1,0 +1,751 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reação da Torcida — Recepção do Estúdio</title>
+  <style>
+    :root {
+      color-scheme: light;
+      /* O sistema da Ollama: uma folha de papel, e o preto como unica marca.
+         O vocabulario inteiro esta no DESIGN.md. */
+      --fundo: #ffffff;
+      --caixa: #ffffff;
+      --caixa-2: #fafafa;
+      --linha: #e5e5e5;
+      --fio-forte: #d4d4d4;
+      --texto: #000000;
+      --fraco: #737373;
+      --escuro: #171717;
+      --viva: #027a48;
+      --morta: #b42318;
+      --alerta: #b54708;
+      --info: #1849a9;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--fundo);
+      color: var(--texto);
+      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      min-height: 100vh;
+    }
+    header, main, footer > div { width: min(1400px, calc(100% - 32px)); margin-inline: auto; }
+    header { padding: 32px 0 16px; display: flex; align-items: end; justify-content: space-between; gap: 24px; }
+    .sobretitulo { color: var(--info); font-size: 12px; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; }
+    h1 { font-size: clamp(30px, 5vw, 54px); line-height: .98; margin: 8px 0 0; letter-spacing: -.04em; }
+    h2 { margin: 0; font-size: 22px; }
+    h3 { margin: 0; font-size: 16px; }
+    #resumo { color: var(--fraco); text-align: right; font-variant-numeric: tabular-nums; }
+
+    /* Pilula para tudo o que se aperta, e o preto so na acao principal. */
+    button {
+      border: 1px solid var(--fio-forte); border-radius: 999px; padding: 9px 18px;
+      font: inherit; font-weight: 600; cursor: pointer; min-height: 36px;
+      background: var(--caixa); color: var(--texto); transition: background-color .12s;
+    }
+    button:hover { background: var(--caixa-2); }
+    button:active { transform: translateY(1px); }
+    button:disabled { opacity: .5; cursor: wait; }
+    button.apagado { color: var(--fraco); }
+    button.abrir { color: var(--info); }
+    button.compacta { padding: 6px 14px; min-height: 28px; font-size: 13px; }
+    #continuar, #editar { background: var(--texto); color: var(--fundo); border-color: var(--texto); }
+    #continuar:hover, #editar:hover { background: var(--escuro); }
+    select, input {
+      background: var(--caixa); color: var(--texto); font: inherit;
+      border: 1px solid var(--fio-forte); border-radius: 999px; padding: 8px 14px;
+    }
+
+    .filtros { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 8px 0 20px; }
+    .filtros button { color: var(--fraco); }
+    .filtros button.ativo { color: var(--texto); border-color: var(--texto); }
+    .separa { width: 1px; align-self: stretch; background: var(--linha); margin: 0 8px; }
+
+    /* ----------------------------------------------------------- recepcao */
+    .lista { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 440px), 1fr)); }
+    .jogo { background: var(--caixa); border: 1px solid var(--linha); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+    .jogo-topo { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
+    .quando { color: var(--fraco); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; }
+    .placar { font-variant-numeric: tabular-nums; color: var(--fraco); font-weight: 700; }
+    .lado { color: var(--fraco); font-size: 13px; }
+    .numeros { display: grid; grid-template-columns: repeat(auto-fit, minmax(72px, 1fr)); gap: 12px;
+               border-top: 1px solid var(--linha); border-bottom: 1px solid var(--linha); padding: 14px 0; }
+    .numero { font-size: 26px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+    .numero.nada { color: var(--fraco); }
+    .rotulo { color: var(--fraco); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; margin-top: 6px; }
+    .recados { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+    .recados li { font-size: 13px; line-height: 1.35; padding-left: 14px; position: relative; color: var(--fraco); }
+    .recados li::before { content: "•"; position: absolute; left: 0; }
+    .recados li.parou { color: var(--morta); }
+    .recados li.confira { color: var(--alerta); }
+    .recados li.vivo { color: var(--viva); }
+    .acoes { display: flex; gap: 8px; flex-wrap: wrap; margin-top: auto; }
+
+    .selo { border-radius: 999px; font-size: 12px; font-weight: 600; padding: 3px 12px;
+            white-space: nowrap; border: 1px solid transparent; }
+    .selo.vivo { background: color-mix(in srgb, var(--viva) 12%, var(--caixa)); color: var(--viva);
+                 border-color: color-mix(in srgb, var(--viva) 40%, var(--caixa)); }
+    .selo.parou { background: color-mix(in srgb, var(--morta) 12%, var(--caixa)); color: var(--morta);
+                  border-color: color-mix(in srgb, var(--morta) 40%, var(--caixa)); }
+    .selo.confira { background: color-mix(in srgb, var(--alerta) 12%, var(--caixa)); color: var(--alerta);
+                    border-color: color-mix(in srgb, var(--alerta) 40%, var(--caixa)); }
+    .selo.neutro { background: var(--caixa-2); color: var(--fraco); border-color: var(--linha); }
+    .bolinha { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--viva); margin-right: 6px; }
+
+    /* --------------------------------------------------------- tela do jogo */
+    .faixa { display: flex; align-items: center; justify-content: space-between;
+             gap: 16px; flex-wrap: wrap; border: 1px solid var(--linha);
+             border-radius: 12px; padding: 16px 20px; margin-bottom: 16px; }
+    .faixa .numeros { display: flex; flex-wrap: wrap; border: 0; padding: 0; gap: 24px 32px; }
+    .faixa .numero { font-size: 20px; }
+    .gol { background: var(--caixa); border: 1px solid var(--linha); border-radius: 12px; padding: 16px 20px; margin-bottom: 16px; }
+    .gol > summary { cursor: pointer; display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; list-style: none; }
+    .gol > summary::-webkit-details-marker { display: none; }
+    .gol > summary::before { content: "▸"; color: var(--fraco); }
+    .gol[open] > summary::before { content: "▾"; }
+    .horario { color: var(--fraco); font-size: 13px; font-variant-numeric: tabular-nums; }
+    .canais { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); gap: 16px; margin-top: 16px; }
+    .clipe { border: 1px solid var(--linha); background: var(--caixa-2); border-radius: 12px; padding: 10px; transition: border-color .12s, opacity .12s; }
+    .clipe:hover { border-color: var(--fio-forte); }
+    .clipe.escolhido { border-color: var(--viva); }
+    .clipe.descartado { opacity: .58; }
+    .clipe.falta { border-style: dashed; align-self: start;
+                   border-color: color-mix(in srgb, var(--morta) 40%, var(--caixa)); }
+    video { width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 8px; display: block; }
+    .meta { display: flex; justify-content: space-between; gap: 8px; align-items: center; margin: 10px 2px 8px; flex-wrap: wrap; }
+    .nome { font-weight: 750; overflow-wrap: anywhere; }
+    .sinal { color: var(--fraco); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .sinal.pico { color: var(--viva); }
+    .nota { color: var(--alerta); font-size: 12px; line-height: 1.35; margin: 0 2px 10px; }
+    .par { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .torcida { font-size: 11px; text-transform: uppercase; letter-spacing: .8px;
+               font-weight: 700; padding: 2px 8px; border-radius: 999px;
+               background: var(--caixa-2); border: 1px solid var(--linha); color: var(--fraco); }
+    .torcida.semlado { background: color-mix(in srgb, var(--morta) 12%, var(--caixa)); color: var(--morta);
+                       border-color: color-mix(in srgb, var(--morta) 40%, var(--caixa)); }
+    .preencher { margin: 0 2px 10px; }
+    .preencher select { width: 100%; color: var(--morta); border-color: var(--morta); font-weight: 600; }
+    .live { background: var(--caixa); border: 1px solid var(--linha); border-radius: 12px; padding: 16px 20px; margin-bottom: 16px; }
+    .live-topo { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    .vazio { border: 1px dashed var(--fio-forte); border-radius: 12px; padding: 50px 20px; text-align: center; color: var(--fraco); }
+
+    footer { position: sticky; bottom: 0; margin-top: 24px; background: var(--fundo); border-top: 1px solid var(--linha); }
+    footer > div { padding: 14px 0 20px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+    #recado { color: var(--fraco); margin: 0; overflow-wrap: anywhere; }
+    @media (max-width: 760px) {
+      header { align-items: start; flex-direction: column; }
+      #resumo { text-align: left; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <div class="sobretitulo" id="trilha">Acervo local</div>
+      <h1 id="titulo">Estúdio</h1>
+    </div>
+    <div id="resumo">Lendo o acervo…</div>
+  </header>
+
+  <main>
+    <section id="tela-recepcao">
+      <div class="filtros" id="filtros"></div>
+      <div class="lista" id="lista"></div>
+    </section>
+    <section id="tela-jogo" hidden>
+      <div class="faixa" id="faixa"></div>
+      <div class="filtros" id="modos"></div>
+      <div id="conteudo"></div>
+    </section>
+  </main>
+
+  <footer>
+    <div id="rodape"></div>
+  </footer>
+
+  <script>
+    const estado = {
+      panorama: null,   // o acervo inteiro
+      jogo: null,       // a tela do jogo aberto
+      pasta: '',        // qual jogo esta aberto ('' = recepcao)
+      peneira: 'todos', // filtro da recepcao
+      modo: 'gol',      // como a tela do jogo agrupa: por gol ou por live
+      torcida: '',      // filtro de torcida dentro do jogo
+      soFalta: false,   // esconder o que ja foi decidido
+      relogio: 0,       // o refresco que so existe com jogo gravando
+    };
+
+    // O estado do jogo em palavra e cor. A cor sozinha exclui quem nao
+    // distingue verde de vermelho, entao o texto vem do servidor junto.
+    const TOM_DA_ETAPA = {
+      gravando: 'vivo', vazio: 'neutro', cortar: 'parou', escolher: 'confira',
+      editar: 'neutro', renderizando: 'confira', pronto: 'vivo', erro: 'parou',
+    };
+    const TORCIDA_NEUTRA = 'neutro';
+
+    function elemento(tag, classe, texto) {
+      const no = document.createElement(tag);
+      if (classe) no.className = classe;
+      if (texto !== undefined) no.textContent = texto;
+      return no;
+    }
+
+    function botao(rotulo, classe, aoClicar, id) {
+      const b = elemento('button', classe, rotulo);
+      b.type = 'button';
+      if (id) b.id = id;
+      b.onclick = aoClicar;
+      return b;
+    }
+
+    function numero(valor, rotulo, apagado) {
+      const caixa = elemento('div');
+      caixa.appendChild(elemento('div', 'numero' + (apagado ? ' nada' : ''), String(valor)));
+      caixa.appendChild(elemento('div', 'rotulo', rotulo));
+      return caixa;
+    }
+
+    function relogio(segundos) {
+      const inteiro = Math.round(Number(segundos) || 0);
+      const minutos = Math.floor(inteiro / 60);
+      return `${minutos}:${String(inteiro % 60).padStart(2, '0')}`;
+    }
+
+    const recado = texto => { document.getElementById('recado').textContent = texto || ''; };
+
+    async function chamar(caminho, corpo) {
+      const resposta = await fetch(caminho, corpo ? {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(corpo),
+      } : undefined);
+      const dados = await resposta.json();
+      if (!resposta.ok) throw new Error(dados.erro || `falha em ${caminho}`);
+      return dados;
+    }
+
+    const rotaDoJogo = pasta => '/api/jogo/' + encodeURIComponent(pasta);
+    const enderecoDoJogo = (pasta, modo) =>
+      '#/jogo/' + encodeURIComponent(pasta) + (modo === 'live' ? '/live' : '');
+    const enderecoMidia = (pasta, arquivo) =>
+      '/midia/' + [pasta, ...arquivo.split('/')].map(encodeURIComponent).join('/');
+
+    // ------------------------------------------------------------- recepcao
+
+    async function abrirNoWindows(pasta, oQue) {
+      try {
+        const dados = await chamar(rotaDoJogo(pasta) + '/abrir', {o_que: oQue});
+        recado(`abri ${dados.caminho}`);
+      } catch (erro) { recado(erro.message); }
+    }
+
+    async function abrirEdicao(pasta) {
+      // A aba abre ANTES da chamada: aba pedida depois de um await o navegador
+      // trata como janela nao pedida e bloqueia.
+      const aba = window.open('about:blank', '_blank');
+      recado('subindo o estúdio de edição deste jogo…');
+      try {
+        const dados = await chamar(rotaDoJogo(pasta) + '/edicao', {});
+        if (aba) { aba.location = dados.url; recado(`edição deste jogo em ${dados.url}`); }
+        else recado(`edição deste jogo em ${dados.url} (o navegador bloqueou a aba nova)`);
+      } catch (erro) {
+        if (aba) aba.close();
+        recado(erro.message);
+      }
+    }
+
+    // O proximo passo de cada etapa. Cartao que nao diz o que fazer agora
+    // devolve ao operador o trabalho de decidir - que e o que a recepcao
+    // existe para poupar.
+    function passoPrincipal(jogo) {
+      const pasta = jogo.pasta;
+      if (jogo.etapa === 'pronto') {
+        return {rotulo: 'VER O VÍDEO', acao: () => abrirNoWindows(pasta, 'video')};
+      }
+      if (jogo.etapa === 'renderizando') {
+        return {rotulo: 'VER O RENDER', acao: () => abrirEdicao(pasta)};
+      }
+      if (jogo.etapa === 'editar') {
+        return {rotulo: 'IR PARA A EDIÇÃO', acao: () => abrirEdicao(pasta)};
+      }
+      if (jogo.etapa === 'gravando' || jogo.etapa === 'vazio' || jogo.etapa === 'erro') {
+        return {rotulo: 'ABRIR A PASTA', acao: () => abrirNoWindows(pasta, 'pasta')};
+      }
+      return {rotulo: 'ESCOLHER CLIPES', acao: () => { location.hash = enderecoDoJogo(pasta); }};
+    }
+
+    function cartaoDoJogo(jogo, ehOProximo) {
+      const caixa = elemento('article', 'jogo');
+
+      const topo = elemento('div', 'jogo-topo');
+      const identidade = elemento('div');
+      identidade.appendChild(elemento(
+        'div', 'quando',
+        [jogo.data, jogo.liga].filter(Boolean).join(' · ') || 'sem data'
+      ));
+      const nome = elemento('h2', '', jogo.titulo);
+      identidade.appendChild(nome);
+      if (jogo.placar) {
+        identidade.appendChild(elemento('div', 'placar', jogo.placar));
+      }
+      if (jogo.alvo && jogo.alvo.torcida) {
+        identidade.appendChild(elemento(
+          'div', 'lado', `vídeo do lado ${jogo.alvo.torcida} (${jogo.alvo.motivo})`
+        ));
+      }
+      topo.appendChild(identidade);
+      const selo = elemento('span', 'selo ' + (TOM_DA_ETAPA[jogo.etapa] || 'neutro'));
+      if (jogo.etapa === 'gravando') selo.appendChild(elemento('span', 'bolinha'));
+      selo.appendChild(document.createTextNode(jogo.etapa_texto));
+      topo.appendChild(selo);
+      caixa.appendChild(topo);
+
+      if (jogo.etapa !== 'erro') {
+        const numeros = elemento('div', 'numeros');
+        numeros.appendChild(numero(jogo.lives.total, 'lives'));
+        numeros.appendChild(numero(jogo.gols, 'gols', !jogo.gols));
+        numeros.appendChild(numero(jogo.clipes.total, 'clipes', !jogo.clipes.total));
+        numeros.appendChild(numero(jogo.no_video, 'no vídeo', !jogo.no_video));
+        numeros.appendChild(numero(relogio(jogo.duracao), 'duração', !jogo.duracao));
+        caixa.appendChild(numeros);
+      }
+
+      const recados = elemento('ul', 'recados');
+      (jogo.pendencias || []).forEach(p => {
+        recados.appendChild(elemento('li', p.tom, p.texto));
+      });
+      if (!(jogo.pendencias || []).length && jogo.video && jogo.video.nome) {
+        recados.appendChild(elemento(
+          'li', 'vivo',
+          `${jogo.video.nome} · ${jogo.video.gb} GB · ${jogo.video.quando}` +
+          (jogo.video.capa ? ' · com capa' : '')
+        ));
+      }
+      caixa.appendChild(recados);
+
+      const acoes = elemento('div', 'acoes');
+      const passo = passoPrincipal(jogo);
+      // A unica pilula preta da recepcao vai no jogo mais novo que ainda pede
+      // trabalho: e a resposta a "por onde eu continuo".
+      acoes.appendChild(botao(
+        passo.rotulo, ehOProximo ? '' : 'abrir', passo.acao,
+        ehOProximo ? 'continuar' : ''
+      ));
+      if (jogo.clipes && jogo.clipes.total && passo.rotulo !== 'ESCOLHER CLIPES') {
+        acoes.appendChild(botao('clipes', 'apagado compacta',
+          () => { location.hash = enderecoDoJogo(jogo.pasta); }));
+      }
+      if (jogo.etapa !== 'erro' && jogo.etapa !== 'renderizando' && jogo.etapa !== 'editar') {
+        acoes.appendChild(botao('edição', 'apagado compacta', () => abrirEdicao(jogo.pasta)));
+      }
+      acoes.appendChild(botao('pasta', 'apagado compacta', () => abrirNoWindows(jogo.pasta, 'pasta')));
+      if (jogo.video && jogo.video.nome && jogo.etapa !== 'pronto') {
+        acoes.appendChild(botao('vídeo', 'apagado compacta', () => abrirNoWindows(jogo.pasta, 'video')));
+      }
+      caixa.appendChild(acoes);
+      return caixa;
+    }
+
+    const PENEIRAS = {
+      todos: () => true,
+      fazer: j => ['cortar', 'escolher', 'editar'].includes(j.etapa),
+      gravando: j => j.etapa === 'gravando',
+      prontos: j => j.etapa === 'pronto',
+    };
+
+    function desenharRecepcao() {
+      const dados = estado.panorama;
+      document.getElementById('trilha').textContent = 'Acervo local';
+      document.getElementById('titulo').textContent = 'Estúdio';
+      document.getElementById('tela-recepcao').hidden = false;
+      document.getElementById('tela-jogo').hidden = true;
+
+      const t = dados.totais;
+      document.getElementById('resumo').textContent =
+        `${t.jogos} jogo(s) · ${t.lives} lives · ${t.gols} gols · ` +
+        `${t.prontos} vídeo(s) pronto(s) · ${t.pendentes} a fazer`;
+
+      const filtros = document.getElementById('filtros');
+      filtros.replaceChildren();
+      [['todos', 'todos'], ['fazer', 'a fazer'], ['gravando', 'gravando'],
+       ['prontos', 'prontos']].forEach(([chave, rotulo]) => {
+        const quantos = dados.jogos.filter(PENEIRAS[chave]).length;
+        filtros.appendChild(botao(
+          `${rotulo} (${quantos})`, estado.peneira === chave ? 'ativo' : '',
+          () => { estado.peneira = chave; desenharRecepcao(); }
+        ));
+      });
+
+      const lista = document.getElementById('lista');
+      lista.replaceChildren();
+      const jogos = dados.jogos.filter(PENEIRAS[estado.peneira]);
+      if (!jogos.length) {
+        lista.appendChild(elemento('div', 'vazio',
+          dados.jogos.length ? 'Nenhum jogo neste filtro.'
+                             : `Nenhum jogo gravado em ${dados.biblioteca}`));
+      }
+      jogos.forEach(jogo => {
+        lista.appendChild(cartaoDoJogo(jogo, jogo.pasta === dados.proximo));
+      });
+
+      const rodape = document.getElementById('rodape');
+      rodape.replaceChildren();
+      rodape.appendChild(botao('atualizar', 'abrir', () => carregarRecepcao()));
+      rodape.appendChild(elemento('p', '', ''));
+      rodape.lastChild.id = 'recado';
+      rodape.lastChild.setAttribute('role', 'status');
+      rodape.lastChild.setAttribute('aria-live', 'polite');
+      const proximo = dados.jogos.find(j => j.pasta === dados.proximo);
+      if (proximo) {
+        recado(`por onde continuar: ${proximo.titulo} — ${proximo.etapa_texto}`);
+      }
+    }
+
+    // -------------------------------------------------------- tela do jogo
+
+    function rotuloTorcida(clipe) { return clipe.torcida || 'sem torcida'; }
+
+    async function escolher(gol, canal, escolhido, botoes) {
+      botoes.forEach(b => b.disabled = true);
+      try {
+        estado.jogo = await chamar(rotaDoJogo(estado.pasta) + '/escolha',
+                                   {gol, canal, escolhido});
+        desenharJogo();
+      } catch (erro) {
+        recado(erro.message);
+        botoes.forEach(b => b.disabled = false);
+      }
+    }
+
+    async function definirTorcida(canal, torcida, campo) {
+      campo.disabled = true;
+      try {
+        estado.jogo = await chamar(rotaDoJogo(estado.pasta) + '/torcida', {canal, torcida});
+        desenharJogo();
+      } catch (erro) {
+        recado(erro.message);
+        campo.disabled = false;
+      }
+    }
+
+    function preencherTorcida(canal) {
+      const caixa = elemento('div', 'preencher');
+      const campo = document.createElement('select');
+      campo.setAttribute('aria-label', `Torcida de ${canal}`);
+      campo.append(new Option('preencher torcida…', ''));
+      (estado.jogo.torcidas || [TORCIDA_NEUTRA]).forEach(t => campo.append(new Option(t, t)));
+      campo.append(new Option('outra…', '?'));
+      campo.onchange = () => {
+        let escolha = campo.value;
+        if (escolha === '?') escolha = (prompt(`De que torcida é ${canal}?`) || '').trim();
+        if (!escolha) { campo.value = ''; return; }
+        definirTorcida(canal, escolha, campo);
+      };
+      caixa.appendChild(campo);
+      return caixa;
+    }
+
+    function cartaoClipe(clipe, comGol) {
+      const caixa = elemento('article', 'clipe');
+      if (clipe.escolhido === true) caixa.classList.add('escolhido');
+      if (clipe.escolhido === false) caixa.classList.add('descartado');
+
+      const video = elemento('video');
+      video.controls = true;
+      // `none` de proposito: sessenta clipes pedindo metadado ao abrir a tela
+      // castigam o disco por nada, e e o que travava a foto da tela no Chrome
+      // sem cabeca. O clipe aparece preto ate tocar, que e como ele aparece.
+      video.preload = 'none';
+      video.src = enderecoMidia(estado.pasta, clipe.arquivo);
+      caixa.appendChild(video);
+
+      const meta = elemento('div', 'meta');
+      const nome = elemento('div', 'nome', comGol ? `Gol ${clipe.gol}` : clipe.canal);
+      if (!comGol || !clipe.torcida) {
+        nome.appendChild(elemento(
+          'span', 'torcida' + (clipe.torcida ? '' : ' semlado'), ' ' + rotuloTorcida(clipe)
+        ));
+      }
+      if (clipe.duracao) {
+        nome.appendChild(elemento('span', 'sinal', ` ${Math.round(clipe.duracao)}s`));
+      }
+      meta.appendChild(nome);
+      const forca = Number(clipe.confianca_db) || 0;
+      meta.appendChild(elemento(
+        'div', 'sinal' + (clipe.tem_pico ? ' pico' : ''),
+        forca ? `${forca.toFixed(1)} dB` : 'sem medida'
+      ));
+      if (clipe.escolhido === true || clipe.escolhido === false) {
+        meta.appendChild(elemento(
+          'span', 'selo ' + (clipe.escolhido ? 'vivo' : 'neutro'),
+          clipe.escolhido ? '✓ no vídeo' : '× fora'
+        ));
+      }
+      caixa.appendChild(meta);
+
+      if (!clipe.torcida) caixa.appendChild(preencherTorcida(clipe.canal));
+
+      const notas = [];
+      if (!clipe.torcida) notas.push(
+        'Sem torcida: o estúdio publica só o lado que perdeu, então este canal ' +
+        'ficaria de fora do vídeo. Diga de que torcida ele é aí em cima.');
+      if (clipe.largo) notas.push(
+        'Janela larga: este canal ainda não tem alinhamento medido, então o clipe ' +
+        'veio com folga. A reação está aqui dentro — apare na edição.');
+      if (clipe.parcial) notas.push(
+        'Parcial: a gravação deste canal não cobria a janela inteira. Veio o que existia.');
+      if (!clipe.tem_pico && !notas.length) notas.push(
+        'Reação fraca neste canal: o áudio quase não subiu.');
+      if (notas.length) caixa.appendChild(elemento('p', 'nota', notas.join(' ')));
+
+      const par = elemento('div', 'par');
+      const usar = botao('✓ Usar', '', null);
+      const fora = botao('× Descartar', 'apagado', null);
+      usar.setAttribute('aria-label', `Usar clipe de ${clipe.canal} no gol ${clipe.gol}`);
+      fora.setAttribute('aria-label', `Descartar clipe de ${clipe.canal} no gol ${clipe.gol}`);
+      usar.onclick = () => escolher(clipe.gol, clipe.canal, true, [usar, fora]);
+      fora.onclick = () => escolher(clipe.gol, clipe.canal, false, [usar, fora]);
+      par.append(usar, fora);
+      caixa.appendChild(par);
+      return caixa;
+    }
+
+    // Canal que gravou o jogo e nao tem clipe daquele gol aparece marcado.
+    // Sumir com o que deu errado e a regra mais forte do projeto.
+    function cartaoFalta(falta, comGol) {
+      const caixa = elemento('article', 'clipe falta');
+      caixa.appendChild(elemento('div', 'nome', comGol ? `Gol ${falta.gol}` : falta.canal));
+      caixa.appendChild(elemento('p', 'nota',
+        `Sem material: não saiu clipe de ${falta.canal} no gol ${falta.gol}. ` +
+        'Ou a gravação não cobria esse instante, ou o corte ainda não rodou ' +
+        '(atalho 3 - CORTAR NA MÃO).'));
+      return caixa;
+    }
+
+    function clipesVisiveis() {
+      return estado.jogo.clipes.filter(c =>
+        (estado.torcida === '' || rotuloTorcida(c) === estado.torcida) &&
+        (!estado.soFalta || c.escolhido === null || c.escolhido === undefined)
+      );
+    }
+
+    function porGol() {
+      const alvo = elemento('div');
+      const visiveis = clipesVisiveis();
+      if (!estado.jogo.gols.length) {
+        alvo.appendChild(elemento('div', 'vazio',
+          'Nenhum gol anotado neste jogo. Quem marca é o painel da gravação.'));
+        return alvo;
+      }
+      estado.jogo.gols.forEach(gol => {
+        const doGol = visiveis.filter(c => c.gol === gol.numero);
+        const faltas = estado.jogo.faltas.filter(f => f.gol === gol.numero);
+        const escolhidos = doGol.filter(c => c.escolhido === true).length;
+        const indecisos = doGol.filter(c => c.escolhido === null || c.escolhido === undefined).length;
+
+        const bloco = elemento('details', 'gol');
+        // Fica aberto o gol que ainda tem decisao pendente: com seis gols e
+        // onze canais, abrir tudo e uma parede.
+        bloco.open = indecisos > 0 || (!doGol.length && faltas.length > 0);
+        const cabeca = elemento('summary');
+        cabeca.appendChild(elemento('h3', '',
+          `Gol ${gol.numero}${gol.descricao ? ' — ' + gol.descricao : ''}`));
+        cabeca.appendChild(elemento('span', 'horario',
+          (gol.horario || '').slice(11, 19) || 'sem horário'));
+        cabeca.appendChild(elemento('span',
+          'selo ' + (escolhidos ? 'vivo' : (doGol.length ? 'confira' : 'parou')),
+          doGol.length ? `${escolhidos}/${doGol.length} no vídeo` : 'sem clipe'));
+        if (faltas.length) {
+          cabeca.appendChild(elemento('span', 'selo parou',
+            `${faltas.length} sem material`));
+        }
+        bloco.appendChild(cabeca);
+
+        const linha = elemento('div', 'canais');
+        // Mais explosivo primeiro: com onze canais por gol, ver na ordem certa
+        // e o que poupa a maior parte do trabalho.
+        doGol.slice()
+          .sort((a, b) => (Number(b.confianca_db) || 0) - (Number(a.confianca_db) || 0))
+          .forEach(c => linha.appendChild(cartaoClipe(c, false)));
+        faltas.forEach(f => linha.appendChild(cartaoFalta(f, false)));
+        bloco.appendChild(linha);
+        alvo.appendChild(bloco);
+      });
+      return alvo;
+    }
+
+    function porLive() {
+      const alvo = elemento('div');
+      const visiveis = clipesVisiveis();
+      estado.jogo.resumo.canais.forEach(canal => {
+        if (estado.torcida !== '' && (canal.torcida || 'sem torcida') !== estado.torcida) return;
+        const doCanal = visiveis.filter(c => c.canal === canal.canal);
+        const faltas = estado.jogo.faltas.filter(f => f.canal === canal.canal);
+
+        const bloco = elemento('section', 'live');
+        const topo = elemento('div', 'live-topo');
+        const identidade = elemento('div');
+        const nome = elemento('h3', '', canal.canal);
+        nome.appendChild(elemento(
+          'span', 'torcida' + (canal.torcida ? '' : ' semlado'),
+          ' ' + (canal.torcida || 'sem torcida')
+        ));
+        identidade.appendChild(nome);
+        identidade.appendChild(elemento('div', 'horario', [
+          `${canal.clipes} clipe(s)`,
+          `${canal.escolhidos} no vídeo`,
+          canal.db ? `${canal.db.toFixed(1)} dB de média` : 'sem medida',
+          canal.mb ? `${canal.mb} MB no bruto` : '',
+          canal.sessoes > 1 ? `religou ${canal.sessoes}x` : '',
+        ].filter(Boolean).join(' · ')));
+        topo.appendChild(identidade);
+        if (canal.gravando) {
+          const selo = elemento('span', 'selo vivo');
+          selo.appendChild(elemento('span', 'bolinha'));
+          selo.appendChild(document.createTextNode('gravando'));
+          topo.appendChild(selo);
+        } else if (faltas.length) {
+          topo.appendChild(elemento('span', 'selo parou', `${faltas.length} sem material`));
+        }
+        if (canal.url) {
+          topo.appendChild(botao('abrir a live', 'abrir compacta',
+            () => window.open(canal.url, '_blank')));
+        }
+        bloco.appendChild(topo);
+        if (!canal.torcida) bloco.appendChild(preencherTorcida(canal.canal));
+
+        const linha = elemento('div', 'canais');
+        doCanal.slice().sort((a, b) => a.gol - b.gol)
+          .forEach(c => linha.appendChild(cartaoClipe(c, true)));
+        faltas.forEach(f => linha.appendChild(cartaoFalta(f, true)));
+        if (!doCanal.length && !faltas.length) {
+          linha.appendChild(elemento('div', 'vazio', 'Nada deste canal neste filtro.'));
+        }
+        bloco.appendChild(linha);
+        alvo.appendChild(bloco);
+      });
+      return alvo;
+    }
+
+    function desenharJogo() {
+      const jogo = estado.jogo.resumo;
+      document.getElementById('tela-recepcao').hidden = true;
+      document.getElementById('tela-jogo').hidden = false;
+      document.getElementById('trilha').textContent =
+        [jogo.data, jogo.liga].filter(Boolean).join(' · ') || 'Estúdio';
+      document.getElementById('titulo').textContent = jogo.titulo;
+      document.getElementById('resumo').textContent =
+        `${jogo.clipes.total} clipes · ${jogo.clipes.escolhidos} escolhidos · ` +
+        `${jogo.clipes.indecisos} sem decisão` +
+        (jogo.placar ? ` · placar ${jogo.placar}` : '');
+
+      const faixa = document.getElementById('faixa');
+      faixa.replaceChildren();
+      const numeros = elemento('div', 'numeros');
+      numeros.appendChild(numero(jogo.lives.total, 'lives'));
+      numeros.appendChild(numero(jogo.gols, 'gols'));
+      numeros.appendChild(numero(jogo.no_video, 'no vídeo', !jogo.no_video));
+      numeros.appendChild(numero(relogio(jogo.duracao), 'duração', !jogo.duracao));
+      faixa.appendChild(numeros);
+      const lado = elemento('div');
+      lado.appendChild(elemento('span', 'selo ' + (TOM_DA_ETAPA[jogo.etapa] || 'neutro'),
+                                jogo.etapa_texto));
+      if (jogo.alvo.torcida) {
+        lado.appendChild(elemento('div', 'lado',
+          `vídeo do lado ${jogo.alvo.torcida} (${jogo.alvo.motivo})`));
+      }
+      faixa.appendChild(lado);
+
+      const modos = document.getElementById('modos');
+      modos.replaceChildren();
+      modos.appendChild(botao('← recepção', 'abrir', () => { location.hash = '#/'; }));
+      modos.appendChild(elemento('div', 'separa'));
+      [['gol', 'por gol'], ['live', 'por live']].forEach(([chave, rotulo]) => {
+        modos.appendChild(botao(rotulo, estado.modo === chave ? 'ativo' : '',
+          () => { location.hash = enderecoDoJogo(estado.pasta, chave); }));
+      });
+      modos.appendChild(elemento('div', 'separa'));
+      const torcidas = [...new Set(estado.jogo.clipes.map(rotuloTorcida))].sort();
+      if (torcidas.length > 1) {
+        [['', 'todas'], ...torcidas.map(t => [t, t])].forEach(([valor, rotulo]) => {
+          modos.appendChild(botao(rotulo, estado.torcida === valor ? 'ativo' : '',
+            () => { estado.torcida = valor; desenharJogo(); }));
+        });
+        modos.appendChild(elemento('div', 'separa'));
+      }
+      modos.appendChild(botao(
+        jogo.clipes.indecisos ? `só os ${jogo.clipes.indecisos} sem decisão` : 'só sem decisão',
+        estado.soFalta ? 'ativo' : '',
+        () => { estado.soFalta = !estado.soFalta; desenharJogo(); }));
+
+      const conteudo = document.getElementById('conteudo');
+      conteudo.replaceChildren(estado.modo === 'gol' ? porGol() : porLive());
+
+      const rodape = document.getElementById('rodape');
+      rodape.replaceChildren();
+      // A pilula preta desta tela: o proximo passo depois de escolher e montar
+      // o video, e quem monta e o estudio de edicao.
+      rodape.appendChild(botao('IR PARA A EDIÇÃO →', '', () => abrirEdicao(estado.pasta), 'editar'));
+      rodape.appendChild(botao('pasta', 'apagado compacta',
+        () => abrirNoWindows(estado.pasta, 'pasta')));
+      if (jogo.video && jogo.video.nome) {
+        rodape.appendChild(botao('vídeo pronto', 'abrir compacta',
+          () => abrirNoWindows(estado.pasta, 'video')));
+      }
+      const linha = elemento('p', '', '');
+      linha.id = 'recado';
+      linha.setAttribute('role', 'status');
+      linha.setAttribute('aria-live', 'polite');
+      rodape.appendChild(linha);
+      (jogo.pendencias || []).slice(0, 1).forEach(p => recado(p.texto));
+    }
+
+    // ---------------------------------------------------------------- rotas
+
+    async function carregarRecepcao() {
+      estado.panorama = await chamar('/api/panorama');
+      estado.pasta = '';
+      desenharRecepcao();
+      // Refresco so existe com jogo no ar. Nada pisca a toa.
+      clearInterval(estado.relogio);
+      if (estado.panorama.jogos.some(j => j.etapa === 'gravando')) {
+        estado.relogio = setInterval(() => {
+          if (!estado.pasta) carregarRecepcao().catch(() => {});
+        }, 10000);
+      }
+    }
+
+    async function carregarJogo(pasta) {
+      estado.pasta = pasta;
+      estado.jogo = await chamar(rotaDoJogo(pasta));
+      clearInterval(estado.relogio);
+      desenharJogo();
+    }
+
+    function mostrarFalha(erro) {
+      document.getElementById('lista').replaceChildren(
+        elemento('div', 'vazio', `Não deu para ler o acervo: ${erro.message}`));
+      document.getElementById('tela-recepcao').hidden = false;
+      document.getElementById('tela-jogo').hidden = true;
+    }
+
+    function rotear() {
+      const partes = (location.hash || '#/').replace(/^#\/?/, '').split('/');
+      if (partes[0] === 'jogo' && partes[1]) {
+        const pasta = decodeURIComponent(partes[1]);
+        estado.modo = partes[2] === 'live' ? 'live' : 'gol';
+        // Trocar de visao e o mesmo jogo: redesenha com o que ja esta na mao,
+        // sem pedir tudo de novo ao servidor.
+        if (estado.pasta === pasta && estado.jogo) { desenharJogo(); return; }
+        carregarJogo(pasta).catch(mostrarFalha);
+        return;
+      }
+      carregarRecepcao().catch(mostrarFalha);
+    }
+
+    window.addEventListener('hashchange', rotear);
+    rotear();
+  </script>
+</body>
+</html>

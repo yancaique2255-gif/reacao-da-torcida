@@ -30,8 +30,22 @@ Os atalhos numerados na raiz da pasta são a ordem de uso, e cada um chama o
    quadro pronto na hora; PRÉVIA renderiza o trecho pequeno; RENDER FINAL vai
    para a fila em outro processo, e você pode fechar a tela sem matar o render.
 
+7. **6 - ESTUDIO DE TODOS OS JOGOS** (porta 8773) — a recepção: a biblioteca
+   inteira numa tela. Um cartão por jogo com a etapa em que ele está (falta
+   cortar, falta escolher, pronto para editar, renderizando, vídeo pronto), o
+   que falta escrito por extenso, e o próximo passo daquele jogo num botão. A
+   pílula preta fica no jogo mais novo que ainda pede trabalho — é a resposta a
+   "por onde eu continuo". Clicar num jogo abre a escolha de clipes dele: aqui
+   **o jogo vai na rota**, então trocar de jogo é clicar, e não fechar a janela
+   e abrir de novo. A escolha pode ser vista **por gol** (todos os canais de um
+   lance) ou **por live** (todos os lances de um canal), que é o que faz sentido
+   quando são onze canais. O botão de edição sobe o estúdio da 8772 daquele
+   jogo, um por jogo, na 8780 para cima.
+
 As telas podem ficar abertas ao mesmo tempo: moram em portas diferentes. A 8770
-continua sendo a de trabalhar; a 8772 nasceu ao lado dela, e não no lugar.
+continua sendo a de trabalhar; a 8772 e a 8773 nasceram ao lado dela, e não no
+lugar. A 8773 é a única que enxerga mais de um jogo — as outras servem a pasta
+que receberam na largada.
 
 O detector de pico não decide mais sozinho onde está o gol — quem marca é o
 operador, ou o placar da ESPN. Ele é usado para duas coisas: medir a força da
