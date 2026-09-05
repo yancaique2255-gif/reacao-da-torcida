@@ -46,6 +46,9 @@ def jogo(
     clipes_do_gol=None,
     escolhidos: bool | None = True,
     placar=(3, 1),
+    liga: str = "copa-do-brasil",
+    rodada: str = "",
+    times=("Gremio", "Internacional"),
 ) -> Path:
     """Uma pasta de jogo completa: lives no bruto e catalogo com gols e clipes."""
     pasta = biblioteca / nome
@@ -53,9 +56,9 @@ def jogo(
     for canal, torcida, _ in canais:
         _canal(pasta, canal, torcida)
 
-    dados = catalogo.registrar_partida(
-        catalogo.novo(nome), "copa-do-brasil", "Gremio", "Internacional"
-    )
+    dados = catalogo.registrar_partida(catalogo.novo(nome), liga, *times)
+    if rodada:
+        dados = catalogo.registrar_rodada(dados, rodada)
     if placar:
         dados = catalogo.registrar_placar(dados, *placar)
     for numero in range(1, gols + 1):
@@ -278,6 +281,99 @@ def test_render_que_morreu_no_meio_aparece_como_parou(tmp_path: Path):
     recado = next(p for p in r["pendencias"] if "parou no meio" in p["texto"])
     assert recado["tom"] == "parou"
     assert "codigo 1" in recado["texto"]
+
+
+# --- prateleira: campeonato, rodada e time ---------------------------------
+
+
+def test_o_campeonato_sai_escrito_e_a_liga_desconhecida_nao_some():
+    assert acervo.campeonato("copa-do-brasil") == "Copa do Brasil"
+    assert acervo.campeonato("brasileirao") == "Brasileirão"
+    # Liga que ninguem cadastrou vale pelo proprio apelido, legivel.
+    assert acervo.campeonato("libertadores") == "Libertadores"
+    assert acervo.campeonato("") == ""
+
+
+def test_a_rodada_aceita_numero_e_fase():
+    """Forcar numero obrigaria a inventar um para a fase - e numero inventado
+    ordena errado a prateleira."""
+    assert acervo.rodada_texto("23") == "rodada 23"
+    assert acervo.rodada_texto("Semifinal") == "Semifinal"
+    assert acervo.rodada_texto("") == "sem rodada"
+
+
+def test_prateleira_por_campeonato_e_gaveta_por_rodada(tmp_path: Path):
+    jogo(tmp_path, "2026-09-06 corinthians x sao paulo", liga="brasileirao",
+         rodada="24", times=("Corinthians", "Sao Paulo"))
+    jogo(tmp_path, "2026-09-05 flamengo x fluminense", liga="brasileirao",
+         rodada="24", times=("Flamengo", "Fluminense"))
+    jogo(tmp_path, "2026-08-30 santos x palmeiras", liga="brasileirao",
+         rodada="23", times=("Santos", "Palmeiras"))
+    jogo(tmp_path, "2026-09-03 gremio x internacional", rodada="Semifinal")
+
+    tudo = acervo.panorama(tmp_path, AGORA, CFG, vivo=lambda pid: False)
+
+    assert [(g["campeonato_texto"], g["jogos"]) for g in tudo["grupos"]] == [
+        ("Brasileirão", 3), ("Copa do Brasil", 1),
+    ]
+    brasileirao = tudo["grupos"][0]
+    assert [r["rodada_texto"] for r in brasileirao["rodadas"]] == [
+        "rodada 24", "rodada 23",
+    ]
+    assert brasileirao["rodadas"][0]["pastas"] == [
+        "2026-09-06 corinthians x sao paulo",
+        "2026-09-05 flamengo x fluminense",
+    ]
+    assert tudo["grupos"][1]["rodadas"][0]["rodada_texto"] == "Semifinal"
+
+
+def test_a_prateleira_abre_pelo_jogo_mais_novo_que_ela_tem(tmp_path: Path):
+    """Ordenar rodada por numero deixaria a fase de fora. A ordem e a do jogo
+    mais recente da prateleira - serve para o numero e para o nome."""
+    jogo(tmp_path, "2026-08-20 santos x palmeiras", liga="brasileirao",
+         rodada="21", times=("Santos", "Palmeiras"))
+    jogo(tmp_path, "2026-09-03 gremio x internacional", rodada="Semifinal")
+
+    grupos = acervo.panorama(tmp_path, AGORA, CFG, vivo=lambda pid: False)["grupos"]
+
+    assert [g["campeonato"] for g in grupos] == ["Copa do Brasil", "Brasileirão"]
+
+
+def test_jogo_sem_liga_fica_na_prateleira_sem_campeonato(tmp_path: Path):
+    """Gravar sem `--liga` e comum, e o jogo nao pode sumir por causa disso."""
+    jogo(tmp_path, liga="")
+
+    grupos = acervo.panorama(tmp_path, AGORA, CFG, vivo=lambda pid: False)["grupos"]
+
+    assert grupos[0]["campeonato_texto"] == "sem campeonato"
+    assert grupos[0]["rodadas"][0]["rodada_texto"] == "sem rodada"
+
+
+def test_o_apelido_da_torcida_e_o_nome_do_time_sao_o_mesmo_time(tmp_path: Path):
+    """Sem o cadastro no meio, "Internacional" e "inter" viravam dois times na
+    lista - e o filtro de time mostraria o mesmo clube duas vezes."""
+    jogo(tmp_path, "2026-09-03 gremio x internacional", times=("Gremio", "Internacional"))
+    jogo(tmp_path, "2026-08-30 internacional x vasco", times=("inter", "Vasco da Gama"))
+
+    times = acervo.panorama(tmp_path, AGORA, CFG, vivo=lambda pid: False)["times"]
+
+    por_chave = {t["chave"]: t for t in times}
+    assert por_chave["inter"]["jogos"] == 2
+    assert por_chave["inter"]["nome"] == "Internacional"
+    assert por_chave["gremio"]["jogos"] == 1
+    assert [t["nome"] for t in times] == ["Grêmio", "Internacional", "Vasco da Gama"]
+
+
+def test_time_fora_do_cadastro_entra_pelo_proprio_nome(tmp_path: Path):
+    """`dados/times.json` comeca pequeno e cresce. Time de fora nao quebra a
+    tela e nao ganha apelido inventado."""
+    jogo(tmp_path, times=("Corinthians", "Sao Paulo"))
+
+    times = acervo.panorama(tmp_path, AGORA, CFG, vivo=lambda pid: False)["times"]
+
+    assert [(t["chave"], t["curto"]) for t in times] == [
+        ("corinthians", "CORINTHIANS"), ("sao-paulo", "SAO PAULO"),
+    ]
 
 
 # --- a biblioteca inteira --------------------------------------------------

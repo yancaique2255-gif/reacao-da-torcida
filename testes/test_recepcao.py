@@ -290,6 +290,51 @@ def test_a_acao_principal_da_recepcao_e_a_pilula_preta():
     assert "box-shadow" not in html, "o sistema da Ollama separa por fio"
 
 
+def test_preencher_a_rodada_muda_o_jogo_de_gaveta(tmp_path: Path):
+    """O jogo chega do gravador sem rodada. Mandar o operador abrir o
+    `catalogo.json` a mao e o jeito garantido de a gaveta "sem rodada" nunca
+    esvaziar - entao a tela que mostra a falta e a que conserta.
+    """
+    jogo(tmp_path, NOME)
+
+    codigo, corpo = _pedir("POST " + _rota(NOME, "rodada"), {"rodada": "Semifinal"},
+                           tmp_path)
+
+    assert codigo == 200
+    # A recepcao inteira volta: mudar a rodada muda de prateleira, e trocar so
+    # o texto do cartao mostraria o jogo na gaveta errada.
+    assert corpo["grupos"][0]["rodadas"][0]["rodada_texto"] == "Semifinal"
+    assert corpo["jogos"][0]["rodada"] == "Semifinal"
+    # E no disco na hora, nao so na tela.
+    do_disco = catalogo.carregar(tmp_path / NOME)
+    assert do_disco["partida"]["rodada"] == "Semifinal"
+    assert "**Rodada:** Semifinal" in (tmp_path / NOME / "JOGO.md").read_text(
+        encoding="utf-8"
+    )
+
+
+def test_apagar_a_rodada_devolve_o_jogo_para_sem_rodada(tmp_path: Path):
+    jogo(tmp_path, NOME, rodada="24")
+
+    codigo, corpo = _pedir("POST " + _rota(NOME, "rodada"), {"rodada": ""}, tmp_path)
+
+    assert codigo == 200
+    assert corpo["grupos"][0]["rodadas"][0]["rodada_texto"] == "sem rodada"
+    assert "rodada" not in catalogo.carregar(tmp_path / NOME)["partida"]
+
+
+def test_a_tela_agrupa_com_o_que_o_servidor_manda():
+    """Prateleira montada na pagina discordaria da contagem do servidor no dia
+    em que a regra mudar num dos dois lados."""
+    pagina = PAGINA.read_text(encoding="utf-8")
+
+    assert "dados.grupos" in pagina
+    assert "campeonato_texto" in pagina and "rodada_texto" in pagina
+    # O filtro de time compara a chave que o servidor calculou, e nao o nome
+    # escrito na tela: "Internacional" e "inter" sao o mesmo clube.
+    assert "t.chave === estado.time" in pagina
+
+
 def test_nada_da_tela_vive_so_na_pagina_aberta():
     """Recarregar nao pode perder trabalho: escolha vai para o disco na hora."""
     html = _html()

@@ -192,6 +192,19 @@ def montar_resposta(
         torcidas.definir_no_cadastro(canais.ARQUIVO, {corpo["canal"]: corpo["torcida"]})
         return 200, _tela_do_jogo(pasta_jogo, agora, cfg)
 
+    if metodo == "POST" and acao == "rodada":
+        # A rodada é o que organiza a prateleira, e o lugar de preenchê-la é a
+        # tela onde a falta aparece. Mandar o operador abrir o `catalogo.json` à
+        # mão é o jeito garantido de a gaveta "sem rodada" nunca esvaziar.
+        dados = catalogo.registrar_rodada(
+            catalogo.carregar(pasta_jogo), corpo.get("rodada", "")
+        )
+        catalogo.salvar(pasta_jogo, dados)
+        ficha.escrever(pasta_jogo)  # a ficha do jogo anuncia a rodada também
+        # A recepção inteira de volta: mudar a rodada muda de gaveta, e a tela
+        # que só trocasse o texto do cartão mostraria o jogo na prateleira errada.
+        return 200, acervo.panorama(biblioteca, agora, cfg)
+
     if metodo == "POST" and acao == "abrir":
         # `Path("")` e a pasta atual, e ela existe: sem este `or None`, pedir o
         # video de um jogo que ainda nao renderizou abria a pasta do servidor.

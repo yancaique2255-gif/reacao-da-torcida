@@ -78,6 +78,8 @@ def montar(pasta_jogo: Path) -> str:
         linhas.append(f"- **Data:** {data}")
     if partida.get("liga"):
         linhas.append(f"- **Competição:** {partida['liga']}")
+    if partida.get("rodada"):
+        linhas.append(f"- **Rodada:** {partida['rodada']}")
     linhas.append(f"- **Pasta:** `{pasta_jogo.name}`")
     linhas.append("")
 

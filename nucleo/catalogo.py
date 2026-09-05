@@ -37,6 +37,22 @@ def registrar_partida(
     return dados
 
 
+def registrar_rodada(dados: dict, rodada: str) -> dict:
+    """Em que rodada - ou fase - o jogo foi. Texto livre, e nao numero.
+
+    O Brasileirao tem "23" e a Copa do Brasil tem "Semifinal". Exigir numero
+    obrigaria a inventar um para a fase, e numero inventado ordena errado na
+    prateleira do estudio. Vazio apaga o campo em vez de gravar "".
+    """
+    partida = dados.setdefault("partida", {})
+    rodada = str(rodada or "").strip()
+    if rodada:
+        partida["rodada"] = rodada
+    else:
+        partida.pop("rodada", None)
+    return dados
+
+
 def registrar_placar(dados: dict, gols_mandante: int, gols_visitante: int) -> dict:
     """Guarda o placar, porque a ESPN so responde enquanto o jogo esta no ar.
 

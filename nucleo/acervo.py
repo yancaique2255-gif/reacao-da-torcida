@@ -12,7 +12,10 @@ Nada aqui é informação nova: tudo o que este módulo diz já está gravado no
 from datetime import datetime
 from pathlib import Path
 
-from nucleo import catalogo, estudio, ficha, monitor, perdedor, receita
+from nucleo import (
+    canais, catalogo, estudio, ficha, monitor, perdedor, receita,
+    times as mod_times,
+)
 
 ETAPAS = {
     "gravando": "gravando agora",
@@ -24,6 +27,57 @@ ETAPAS = {
     "pronto": "vídeo pronto",
     "erro": "não deu para ler",
 }
+
+# O apelido de pasta virando nome escrito. As chaves sao as mesmas que o
+# `placar.LIGAS` aceita, porque e o operador quem digita no `--liga`.
+CAMPEONATOS = {
+    "copa-do-brasil": "Copa do Brasil",
+    "brasileirao": "Brasileirão",
+    "supercopa": "Supercopa do Brasil",
+}
+
+
+def campeonato(liga: str) -> str:
+    """O campeonato como se escreve. Liga que ninguém cadastrou vale pelo apelido."""
+    if not liga:
+        return ""
+    return CAMPEONATOS.get(liga) or liga.replace("-", " ").replace("_", " ").title()
+
+
+def rodada_texto(rodada: str) -> str:
+    """"23" -> "rodada 23"; "Semifinal" -> "Semifinal"; vazio -> "sem rodada".
+
+    A fase já se nomeia sozinha - escrever "rodada Semifinal" seria estranho.
+    """
+    rodada = str(rodada or "").strip()
+    if not rodada:
+        return "sem rodada"
+    return f"rodada {rodada}" if rodada.isdigit() else rodada
+
+
+def times_do_jogo(dados: dict, cadastrados: dict | None = None) -> list[dict]:
+    """Os dois times da partida, cada um com a chave que a tela filtra.
+
+    A chave sai da torcida cadastrada quando o time está no `dados/times.json`:
+    sem isso, "Internacional" e "inter" viram dois times diferentes na lista.
+    Time de fora do cadastro não quebra nada - vale pelo próprio nome.
+    """
+    cadastrados = mod_times.carregar() if cadastrados is None else cadastrados
+    partida = dados.get("partida") or {}
+    lista = []
+    for papel in ("mandante", "visitante"):
+        nome = (partida.get(papel) or "").strip()
+        if not nome:
+            continue
+        ficha_do_time = mod_times.achar(nome, cadastrados)
+        lista.append({
+            "chave": canais.normalizar_torcida(ficha_do_time.get("torcida") or nome),
+            "nome": ficha_do_time.get("nome") or nome,
+            "curto": ficha_do_time.get("curto") or nome.upper(),
+            "papel": papel,
+        })
+    return lista
+
 
 # As etapas que ainda pedem o operador. Serve à recepção para achar por onde
 # continuar: jogo gravando não é trabalho de estúdio, e jogo pronto acabou.
@@ -194,7 +248,9 @@ def _canais_do_jogo(pasta_jogo: Path, dados: dict, agora: float) -> list[dict]:
     return canais
 
 
-def resumo(pasta_jogo: Path, agora: float, cfg: dict, vivo=None) -> dict:
+def resumo(
+    pasta_jogo: Path, agora: float, cfg: dict, vivo=None, cadastrados=None
+) -> dict:
     """Um jogo inteiro numa resposta: identidade, contagem, etapa e pendência."""
     pasta_jogo = Path(pasta_jogo)
     dados = catalogo.carregar(pasta_jogo)
@@ -217,6 +273,10 @@ def resumo(pasta_jogo: Path, agora: float, cfg: dict, vivo=None) -> dict:
         "titulo": ficha.titulo(dados) or pasta_jogo.name[11:] or pasta_jogo.name,
         "data": ficha.data_legivel(pasta_jogo.name),
         "liga": partida.get("liga", ""),
+        "campeonato": campeonato(partida.get("liga", "")),
+        "rodada": partida.get("rodada", ""),
+        "rodada_texto": rodada_texto(partida.get("rodada", "")),
+        "times": times_do_jogo(dados, cadastrados),
         "placar": placar,
         "alvo": {"torcida": alvo.torcida, "time": alvo.time, "motivo": alvo.motivo},
         "lives": {
@@ -269,16 +329,84 @@ def _quebrado(pasta_jogo: Path, erro: Exception) -> dict:
         "data": ficha.data_legivel(Path(pasta_jogo).name),
         "etapa": "erro",
         "etapa_texto": ETAPAS["erro"],
+        # A tela agrupa por campeonato e filtra por time: sem estes campos o
+        # jogo quebrado sumiria da prateleira em vez de aparecer marcado.
+        "liga": "",
+        "campeonato": "",
+        "rodada": "",
+        "rodada_texto": rodada_texto(""),
+        "times": [],
         "pendencias": [{"tom": "parou", "texto": f"{type(erro).__name__}: {erro}"}],
     }
+
+
+def grupos(jogos: list[dict]) -> list[dict]:
+    """Os jogos em prateleiras: campeonato, e dentro dele a rodada.
+
+    A ordem, dentro e fora, é a mesma da lista solta - jogo mais novo primeiro -
+    porque a lista chega assim e o primeiro que cai em cada prateleira é o que a
+    abre. Ordenar rodada por número deixaria "Semifinal" de fora; ordenar pelo
+    jogo mais recente da prateleira serve para o número e para a fase, e não
+    inventa ordem para quem não tem.
+    """
+    prateleiras: dict[str, dict] = {}
+    for jogo in jogos:
+        nome = jogo.get("campeonato") or ""
+        prateleira = prateleiras.setdefault(nome, {
+            "campeonato": nome,
+            "campeonato_texto": nome or "sem campeonato",
+            "liga": jogo.get("liga", ""),
+            "rodadas": {},
+        })
+        rodada = str(jogo.get("rodada") or "")
+        gaveta = prateleira["rodadas"].setdefault(rodada, {
+            "rodada": rodada,
+            "rodada_texto": rodada_texto(rodada),
+            "pastas": [],
+        })
+        gaveta["pastas"].append(jogo["pasta"])
+
+    return [
+        {
+            "campeonato": p["campeonato"],
+            "campeonato_texto": p["campeonato_texto"],
+            "liga": p["liga"],
+            "rodadas": list(p["rodadas"].values()),
+            "jogos": sum(len(r["pastas"]) for r in p["rodadas"].values()),
+        }
+        for p in prateleiras.values()
+    ]
+
+
+def por_time(jogos: list[dict]) -> list[dict]:
+    """Os times que aparecem na biblioteca, com quantos jogos cada um tem.
+
+    É o filtro "time" da recepção: com a temporada andando, "os jogos do Inter"
+    é uma pergunta mais frequente que "os jogos de setembro".
+    """
+    achados: dict[str, dict] = {}
+    for jogo in jogos:
+        for time in jogo.get("times") or []:
+            ficha_do_time = achados.setdefault(
+                time["chave"],
+                {"chave": time["chave"], "nome": time["nome"],
+                 "curto": time["curto"], "jogos": 0},
+            )
+            ficha_do_time["jogos"] += 1
+    return sorted(achados.values(), key=lambda t: t["nome"].lower())
 
 
 def panorama(biblioteca: Path, agora: float, cfg: dict, vivo=None) -> dict:
     """A biblioteca inteira, do jogo mais novo para o mais velho."""
     jogos = []
+    # Um jogo por pasta, mas o dicionário dos times é lido uma vez só: com a
+    # temporada cheia seria uma leitura de arquivo por jogo, sem necessidade.
+    cadastrados = mod_times.carregar()
     for pasta in ficha.jogos(biblioteca):
         try:
-            jogos.append(resumo(pasta, agora, cfg, vivo=vivo))
+            jogos.append(
+                resumo(pasta, agora, cfg, vivo=vivo, cadastrados=cadastrados)
+            )
         except Exception as erro:  # noqa: BLE001 - ver _quebrado
             jogos.append(_quebrado(pasta, erro))
 
@@ -286,6 +414,11 @@ def panorama(biblioteca: Path, agora: float, cfg: dict, vivo=None) -> dict:
     return {
         "biblioteca": str(biblioteca),
         "jogos": jogos,
+        # As prateleiras trazem o nome da pasta, e não o jogo inteiro de novo:
+        # dois retratos do mesmo jogo na mesma resposta é o caminho para a tela
+        # mostrar um número na lista e outro na prateleira.
+        "grupos": grupos(jogos),
+        "times": por_time(jogos),
         "totais": {
             "jogos": len(jogos),
             "lives": sum(j.get("lives", {}).get("total", 0) for j in jogos),

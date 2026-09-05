@@ -42,6 +42,16 @@ Os atalhos numerados na raiz da pasta são a ordem de uso, e cada um chama o
    quando são onze canais. O botão de edição sobe o estúdio da 8772 daquele
    jogo, um por jogo, na 8780 para cima.
 
+   Os jogos ficam **em prateleiras**: uma por campeonato, e dentro dela uma
+   gaveta por rodada — "Brasileirão / rodada 24", "Copa do Brasil / Semifinal".
+   A rodada é texto livre, porque nem toda competição conta por número; jogo
+   gravado sem ela cai na gaveta "sem rodada", e a pílula azul do cartão
+   preenche ali mesmo. Quem grava já pode dizer:
+   `python -m nucleo.esteira gravar inter Gremio Internacional --liga copa-do-brasil --rodada Semifinal`.
+   Ainda há o **filtro por time**, que responde "os jogos do Inter" sem abrir
+   pasta: até oito clubes ele é uma fileira de pílulas, e daí para cima vira
+   lista — vinte pílulas seriam uma parede na frente dos jogos.
+
 As telas podem ficar abertas ao mesmo tempo: moram em portas diferentes. A 8770
 continua sendo a de trabalhar; a 8772 e a 8773 nasceram ao lado dela, e não no
 lugar. A 8773 é a única que enxerga mais de um jogo — as outras servem a pasta

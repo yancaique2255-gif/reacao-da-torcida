@@ -127,6 +127,10 @@ def etapa_gravar(argv=None) -> int:
         help="acompanha o placar e marca os gols sozinho, ex: copa-do-brasil",
     )
     p.add_argument(
+        "--rodada", default="",
+        help="rodada ou fase, ex: 23 ou Semifinal - organiza a prateleira do estudio",
+    )
+    p.add_argument(
         "--sem-cortar", action="store_true",
         help="com --liga, marca os gols mas nao corta sozinho",
     )
@@ -149,8 +153,11 @@ def etapa_gravar(argv=None) -> int:
     (pasta_jogo / "supervisor.pid").write_text(str(os.getpid()), encoding="utf-8")
     catalogo.salvar(
         pasta_jogo,
-        catalogo.registrar_partida(
-            catalogo.carregar(pasta_jogo), args.liga, args.mandante, args.visitante
+        catalogo.registrar_rodada(
+            catalogo.registrar_partida(
+                catalogo.carregar(pasta_jogo), args.liga, args.mandante, args.visitante
+            ),
+            args.rodada,
         ),
     )
     ficha.escrever(pasta_jogo)

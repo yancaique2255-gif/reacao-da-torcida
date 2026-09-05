@@ -34,6 +34,36 @@ volta ao mesmo jogo, e trocar de jogo não reinicia servidor nenhum. É a mesma
 regra de sempre, um degrau acima — nada que o operador escolheu pode viver só na
 página aberta.
 
+### Prateleira organiza; filtro recorta
+
+Com um jogo, lista basta. Com uma temporada, não: a lista da recepção é
+**agrupada** por campeonato, e dentro dele por rodada. São duas coisas
+diferentes e a tela não as mistura:
+
+| | O que faz | Onde aparece |
+| --- | --- | --- |
+| **Prateleira** | organiza o que existe, sem esconder nada | cabeçalho de campeonato + rótulo de rodada |
+| **Filtro** | recorta o que aparece (etapa, time) | as pílulas do alto |
+
+Quem decide o rótulo e a ordem é o servidor (`acervo.grupos`), e a página só
+desenha o que recebeu: prateleira montada na tela discordaria da contagem do
+servidor no dia em que a regra mudasse num dos dois lados.
+
+A ordem, dentro e fora, é a do **jogo mais novo primeiro**. Ordenar rodada por
+número deixaria "Semifinal" de fora — fase não é número, e número inventado
+ordena errado. Ordenar cada prateleira pelo jogo mais recente que ela tem serve
+para os dois casos e não inventa ordem para quem não tem.
+
+Rodada que ninguém preencheu não vira prateleira escondida: aparece como
+**"sem rodada"**, e o cartão traz uma pílula azul que preenche dali mesmo — é a
+mesma regra do canal sem torcida. Mandar o operador abrir o `catalogo.json` à
+mão é o jeito garantido de a gaveta "sem rodada" nunca esvaziar.
+
+**Filtro que cresce troca de forma.** Até oito times, uma fileira de pílulas.
+Passando disso, uma lista: uma temporada são vinte clubes, e vinte pílulas viram
+uma parede na frente dos jogos. A pílula é o padrão, não uma obrigação de
+enfileirar tudo.
+
 ---
 
 ## 0. O sistema: a folha da Ollama

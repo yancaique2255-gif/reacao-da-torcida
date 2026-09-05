@@ -64,6 +64,14 @@
 
     /* ----------------------------------------------------------- recepcao */
     .lista { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 440px), 1fr)); }
+    #lista { display: grid; gap: 30px; }
+    .prateleira { display: grid; gap: 14px; }
+    .prateleira-topo { display: flex; align-items: baseline; justify-content: space-between;
+      gap: 12px; border-bottom: 1px solid var(--fio-forte); padding-bottom: 8px; }
+    .prateleira-topo .conta { color: var(--fraco); font-size: 13px; font-variant-numeric: tabular-nums; }
+    .gaveta { display: grid; gap: 10px; }
+    .gaveta-topo { color: var(--fraco); font-size: 12px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: .5px; }
     .jogo { background: var(--caixa); border: 1px solid var(--linha); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 16px; }
     .jogo-topo { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
     .quando { color: var(--fraco); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; }
@@ -151,7 +159,7 @@
   <main>
     <section id="tela-recepcao">
       <div class="filtros" id="filtros"></div>
-      <div class="lista" id="lista"></div>
+      <div id="lista"></div>
     </section>
     <section id="tela-jogo" hidden>
       <div class="faixa" id="faixa"></div>
@@ -170,6 +178,7 @@
       jogo: null,       // a tela do jogo aberto
       pasta: '',        // qual jogo esta aberto ('' = recepcao)
       peneira: 'todos', // filtro da recepcao
+      time: '',         // filtro de time da recepcao ('' = todos)
       modo: 'gol',      // como a tela do jogo agrupa: por gol ou por live
       torcida: '',      // filtro de torcida dentro do jogo
       soFalta: false,   // esconder o que ja foi decidido
@@ -282,7 +291,8 @@
       const identidade = elemento('div');
       identidade.appendChild(elemento(
         'div', 'quando',
-        [jogo.data, jogo.liga].filter(Boolean).join(' · ') || 'sem data'
+        [jogo.data, jogo.campeonato, jogo.rodada && jogo.rodada_texto]
+          .filter(Boolean).join(' · ') || 'sem data'
       ));
       const nome = elemento('h2', '', jogo.titulo);
       identidade.appendChild(nome);
@@ -339,6 +349,13 @@
       if (jogo.etapa !== 'erro' && jogo.etapa !== 'renderizando' && jogo.etapa !== 'editar') {
         acoes.appendChild(botao('edição', 'apagado compacta', () => abrirEdicao(jogo.pasta)));
       }
+      if (jogo.etapa !== 'erro') {
+        acoes.appendChild(botao(
+          jogo.rodada ? 'rodada' : 'sem rodada',
+          jogo.rodada ? 'apagado compacta' : 'abrir compacta',
+          () => definirRodada(jogo)
+        ));
+      }
       acoes.appendChild(botao('pasta', 'apagado compacta', () => abrirNoWindows(jogo.pasta, 'pasta')));
       if (jogo.video && jogo.video.nome && jogo.etapa !== 'pronto') {
         acoes.appendChild(botao('vídeo', 'apagado compacta', () => abrirNoWindows(jogo.pasta, 'video')));
@@ -354,6 +371,126 @@
       prontos: j => j.etapa === 'pronto',
     };
 
+    // Os dois filtros valem juntos: etapa recorta o trabalho, time recorta o
+    // clube. A prateleira e outra coisa - ela organiza o que passou.
+    function passaPeloTime(jogo) {
+      if (!estado.time) return true;
+      return (jogo.times || []).some(t => t.chave === estado.time);
+    }
+
+    function filtrosDaRecepcao(dados) {
+      const filtros = document.getElementById('filtros');
+      filtros.replaceChildren();
+      [['todos', 'todos'], ['fazer', 'a fazer'], ['gravando', 'gravando'],
+       ['prontos', 'prontos']].forEach(([chave, rotulo]) => {
+        const quantos = dados.jogos.filter(PENEIRAS[chave]).filter(passaPeloTime).length;
+        filtros.appendChild(botao(
+          `${rotulo} (${quantos})`, estado.peneira === chave ? 'ativo' : '',
+          () => { estado.peneira = chave; desenharRecepcao(); }
+        ));
+      });
+
+      // O filtro de time so aparece com mais de um time no acervo: pilula que
+      // nunca muda nada e ruido na tela.
+      const times = dados.times || [];
+      if (times.length < 2) return;
+      filtros.appendChild(elemento('span', 'separa'));
+
+      // Uma temporada inteira sao 20 clubes, e 20 pilulas viram uma parede que
+      // esconde os jogos. Passando de OITO o filtro vira lista.
+      if (times.length > 8) {
+        const campo = document.createElement('select');
+        campo.setAttribute('aria-label', 'Filtrar por time');
+        campo.append(new Option(`todos os times (${dados.jogos.length})`, ''));
+        times.forEach(time => campo.append(
+          new Option(`${time.nome} (${time.jogos})`, time.chave)
+        ));
+        campo.value = estado.time;
+        campo.onchange = () => { estado.time = campo.value; desenharRecepcao(); };
+        filtros.appendChild(campo);
+        return;
+      }
+
+      filtros.appendChild(botao(
+        'todos os times', estado.time ? '' : 'ativo',
+        () => { estado.time = ''; desenharRecepcao(); }
+      ));
+      times.forEach(time => {
+        filtros.appendChild(botao(
+          `${time.curto} (${time.jogos})`,
+          estado.time === time.chave ? 'ativo' : '',
+          () => { estado.time = time.chave; desenharRecepcao(); }
+        ));
+      });
+    }
+
+    // Uma prateleira por campeonato, uma gaveta por rodada. Prateleira que
+    // ficou sem jogo nenhum no filtro nao aparece vazia: sai da tela.
+    function desenharPrateleiras(dados, visiveis) {
+      const lista = document.getElementById('lista');
+      lista.replaceChildren();
+      const porPasta = new Map(visiveis.map(jogo => [jogo.pasta, jogo]));
+      let mostrados = 0;
+
+      (dados.grupos || []).forEach(grupo => {
+        const gavetas = (grupo.rodadas || []).map(rodada => ({
+          rotulo: rodada.rodada_texto,
+          jogos: rodada.pastas.map(pasta => porPasta.get(pasta)).filter(Boolean),
+        })).filter(gaveta => gaveta.jogos.length);
+        if (!gavetas.length) return;
+
+        const quantos = gavetas.reduce((soma, g) => soma + g.jogos.length, 0);
+        const prateleira = elemento('section', 'prateleira');
+        const topo = elemento('div', 'prateleira-topo');
+        topo.appendChild(elemento('h2', '', grupo.campeonato_texto));
+        topo.appendChild(elemento('span', 'conta',
+          quantos === 1 ? '1 jogo' : `${quantos} jogos`));
+        prateleira.appendChild(topo);
+
+        gavetas.forEach(gaveta => {
+          const caixa = elemento('div', 'gaveta');
+          caixa.appendChild(elemento('div', 'gaveta-topo', gaveta.rotulo));
+          const grade = elemento('div', 'lista');
+          gaveta.jogos.forEach(jogo => grade.appendChild(
+            cartaoDoJogo(jogo, jogo.pasta === dados.proximo)
+          ));
+          caixa.appendChild(grade);
+          prateleira.appendChild(caixa);
+        });
+        lista.appendChild(prateleira);
+        mostrados += quantos;
+      });
+
+      if (mostrados) return;
+      lista.appendChild(elemento('div', 'vazio',
+        dados.jogos.length ? 'Nenhum jogo neste filtro.'
+                           : `Nenhum jogo gravado em ${dados.biblioteca}`));
+    }
+
+    async function definirRodada(jogo) {
+      const atual = jogo.rodada || '';
+      const resposta = prompt(
+        `Rodada ou fase de ${jogo.titulo} — ex: 23, Semifinal (vazio apaga)`, atual
+      );
+      if (resposta === null || resposta.trim() === atual) return;
+      try {
+        estado.panorama = await chamar(
+          rotaDoJogo(jogo.pasta) + '/rodada', {rodada: resposta}
+        );
+        desenharRecepcao();
+        recado(resposta.trim()
+          ? `${jogo.titulo}: ${acervoRodada(resposta)}`
+          : `${jogo.titulo} ficou sem rodada`);
+      } catch (erro) { recado(erro.message); }
+    }
+
+    // O mesmo texto que o servidor escreve, para o recado nao discordar da tela.
+    function acervoRodada(rodada) {
+      const limpo = String(rodada || '').trim();
+      if (!limpo) return 'sem rodada';
+      return /^[0-9]+$/.test(limpo) ? `rodada ${limpo}` : limpo;
+    }
+
     function desenharRecepcao() {
       const dados = estado.panorama;
       document.getElementById('trilha').textContent = 'Acervo local';
@@ -366,28 +503,10 @@
         `${t.jogos} jogo(s) · ${t.lives} lives · ${t.gols} gols · ` +
         `${t.com_video} com vídeo no disco · ${t.pendentes} a fazer`;
 
-      const filtros = document.getElementById('filtros');
-      filtros.replaceChildren();
-      [['todos', 'todos'], ['fazer', 'a fazer'], ['gravando', 'gravando'],
-       ['prontos', 'prontos']].forEach(([chave, rotulo]) => {
-        const quantos = dados.jogos.filter(PENEIRAS[chave]).length;
-        filtros.appendChild(botao(
-          `${rotulo} (${quantos})`, estado.peneira === chave ? 'ativo' : '',
-          () => { estado.peneira = chave; desenharRecepcao(); }
-        ));
-      });
-
-      const lista = document.getElementById('lista');
-      lista.replaceChildren();
-      const jogos = dados.jogos.filter(PENEIRAS[estado.peneira]);
-      if (!jogos.length) {
-        lista.appendChild(elemento('div', 'vazio',
-          dados.jogos.length ? 'Nenhum jogo neste filtro.'
-                             : `Nenhum jogo gravado em ${dados.biblioteca}`));
-      }
-      jogos.forEach(jogo => {
-        lista.appendChild(cartaoDoJogo(jogo, jogo.pasta === dados.proximo));
-      });
+      filtrosDaRecepcao(dados);
+      desenharPrateleiras(
+        dados, dados.jogos.filter(PENEIRAS[estado.peneira]).filter(passaPeloTime)
+      );
 
       const rodape = document.getElementById('rodape');
       rodape.replaceChildren();

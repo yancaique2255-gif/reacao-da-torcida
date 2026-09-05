@@ -98,6 +98,20 @@ def test_mover_gol_que_nao_existe_reclama():
         raise AssertionError("deveria ter reclamado")
 
 
+def test_rodada_aceita_numero_e_fase_e_vazio_apaga():
+    """A rodada e texto livre porque nem toda competicao conta por numero."""
+    dados = catalogo.registrar_partida(
+        catalogo.novo("2026-09-03 gremio x internacional"),
+        "copa-do-brasil", "Gremio", "Internacional",
+    )
+
+    assert catalogo.registrar_rodada(dados, "23")["partida"]["rodada"] == "23"
+    assert catalogo.registrar_rodada(dados, " Semifinal ")["partida"]["rodada"] == "Semifinal"
+    # Vazio apaga em vez de gravar "" - campo vazio no json ordena junto com
+    # quem tem rodada de verdade.
+    assert "rodada" not in catalogo.registrar_rodada(dados, "")["partida"]
+
+
 def test_placar_final_fica_gravado_junto_da_partida():
     """O estudio edita dias depois, quando a ESPN ja nao responde por este jogo.
 
