@@ -719,3 +719,173 @@ def test_a_assinatura_do_video_muda_quando_a_moldagem_muda(tmp_path: Path):
     )
 
     assert antes != depois
+
+
+def _arte(caminho: Path, tamanho=(1920, 1080), cor=(12, 90, 40)) -> Path:
+    """Uma arte de fundo de mentira: PNG chapado, sem texto, como a do Canva."""
+    from PIL import Image
+
+    caminho.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", tamanho, cor).save(caminho)
+    return caminho
+
+
+def _com_arte(tmp_path: Path, **campos) -> dict:
+    return {
+        **identidade.PADROES,
+        "arte_de_fundo": str(_arte(tmp_path / "arte.png")),
+        **campos,
+    }
+
+
+def test_sem_arte_nenhuma_o_palco_nao_existe(tmp_path: Path):
+    """Campo vazio e camada que nao existe - e sem camada nenhuma, sem PNG."""
+    moldagem = identidade.moldagem(identidade.PADROES)
+
+    assert estudio.camadas_do_palco(identidade.PADROES, "deitado", moldagem) == []
+    assert estudio.palco(
+        tmp_path, "deitado", identidade.PADROES, moldagem, "#101418"
+    ) is None
+
+
+def test_com_arte_o_palco_sai_do_tamanho_do_formato(tmp_path: Path):
+    from PIL import Image
+
+    ident = _com_arte(tmp_path)
+    moldagem = identidade.moldagem(ident)
+
+    png = estudio.palco(tmp_path, "deitado", ident, moldagem, "#101418")
+
+    assert Image.open(png).size == (1920, 1080)
+    assert png.parent.name == estudio.PASTA_FORMAS
+
+
+def test_a_arte_de_outro_tamanho_cobre_o_palco_sem_deformar(tmp_path: Path):
+    """Redimensiona cobrindo e corta o excesso: arte esticada tem cara de erro."""
+    from PIL import Image
+
+    ident = {
+        **identidade.PADROES,
+        "arte_de_fundo": str(_arte(tmp_path / "quadrada.png", (800, 800))),
+    }
+
+    png = estudio.palco(
+        tmp_path, "deitado", ident, identidade.moldagem(ident), "#101418"
+    )
+
+    imagem = Image.open(png).convert("RGB")
+    assert imagem.size == (1920, 1080)
+    assert imagem.getpixel((960, 540)) == (12, 90, 40), "a arte cobriu o meio"
+
+
+def test_arte_que_nao_abre_avisa_e_cai_na_cor_do_time(tmp_path: Path):
+    """O render nao para por causa de um PNG quebrado - so avisa."""
+    from PIL import Image
+
+    quebrada = tmp_path / "quebrada.png"
+    quebrada.write_bytes(b"isto nao e um png")
+    ident = {**identidade.PADROES, "arte_de_fundo": str(quebrada)}
+    recados = []
+
+    png = estudio.palco(
+        tmp_path, "deitado", ident, identidade.moldagem(ident), "#c8102e",
+        avisar=recados.append,
+    )
+
+    assert png is not None
+    assert any("arte" in r.lower() for r in recados), "nunca sumir calado"
+    # No meio, onde a vinheta e mais fraca, sobra a cor do time.
+    assert Image.open(png).convert("RGB").getpixel((960, 540)) == (200, 16, 46)
+
+
+def test_o_fundo_da_cor_do_time_tem_as_pontas_mais_escuras_que_o_meio(tmp_path: Path):
+    """A vinheta era do ffmpeg e passou a ser do PIL: o efeito e que continua.
+
+    O caminho da cor chapada e o mesmo da arte que nao abre, e e por ele que se
+    mede - com arte de verdade a vinheta nao aparece, porque a arte cobre tudo.
+    """
+    from PIL import Image
+
+    quebrada = tmp_path / "sem-vinheta.png"
+    quebrada.write_bytes(b"isto nao e um png")
+    ident = {**identidade.PADROES, "arte_de_fundo": str(quebrada)}
+
+    png = estudio.palco(
+        tmp_path, "deitado", ident, identidade.moldagem(ident), "#c8102e"
+    )
+
+    imagem = Image.open(png).convert("RGB")
+    assert sum(imagem.getpixel((5, 5))) < sum(imagem.getpixel((960, 540)))
+
+
+def test_o_palco_pronto_nao_e_desenhado_de_novo(tmp_path: Path):
+    ident = _com_arte(tmp_path)
+    moldagem = identidade.moldagem(ident)
+    primeiro = estudio.palco(tmp_path, "deitado", ident, moldagem, "#101418")
+    quando = primeiro.stat().st_mtime_ns
+
+    segundo = estudio.palco(tmp_path, "deitado", ident, moldagem, "#101418")
+
+    assert segundo == primeiro
+    assert segundo.stat().st_mtime_ns == quando, "reaproveitou em vez de redesenhar"
+
+
+def test_trocar_a_arte_gera_outro_palco(tmp_path: Path):
+    """Mesmo nome de arquivo, outro conteudo: o cache tem que perceber."""
+    ident = _com_arte(tmp_path)
+    moldagem = identidade.moldagem(ident)
+    primeiro = estudio.palco(tmp_path, "deitado", ident, moldagem, "#101418")
+
+    _arte(tmp_path / "arte.png", (1920, 1080), (200, 16, 46))
+    segundo = estudio.palco(tmp_path, "deitado", ident, moldagem, "#101418")
+
+    assert segundo != primeiro
+
+
+def test_a_cor_do_time_entra_na_assinatura_do_palco():
+    ident = identidade.PADROES
+    moldagem = identidade.moldagem(ident)
+
+    um = estudio.assinatura_do_palco("deitado", ident, moldagem, "#c8102e")
+    outro = estudio.assinatura_do_palco("deitado", ident, moldagem, "#101418")
+
+    assert um != outro
+
+
+def test_o_palco_entra_como_a_quarta_entrada_do_ffmpeg(tmp_path: Path):
+    """Depois da mascara e da moldura: assim 1:v e 2:v continuam sendo elas."""
+    dados = _jogo(tmp_path)
+    ident = _com_arte(tmp_path)
+    executor = Executor()
+
+    estudio.montar(tmp_path, dados, receita.padrao(dados), CFG,
+                   executar=executor, ident=ident)
+
+    comando = executor.comandos[0]
+    entradas = [comando[i + 1] for i, arg in enumerate(comando) if arg == "-i"]
+    assert len(entradas) == 4
+    assert "palco-deitado-" in entradas[3] and entradas[3].endswith(".png")
+    assert "[3:v]scale=1920:1080" in " ".join(comando)
+
+
+def test_trocar_a_arte_refaz_as_pecas(tmp_path: Path):
+    """A arte muda a imagem da peca; o cache por item tem que perceber sozinho."""
+    dados = _jogo(tmp_path)
+    feita = receita.padrao(dados)
+    estudio.montar(tmp_path, dados, feita, CFG, executar=Executor(),
+                   ident=identidade.PADROES)
+
+    depois = Executor()
+    estudio.montar(tmp_path, dados, feita, CFG, executar=depois,
+                   ident=_com_arte(tmp_path))
+
+    assert len(depois.comandos) == 3, "os dois clipes e a emenda"
+
+
+def test_a_previa_continua_com_a_mesma_chave_de_cache():
+    """O palco entra na chave so quando existe: acrescentar o campo sempre
+    renomearia de uma vez todo o cache que ja esta no disco."""
+    antes = estudio.chave_da_peca("clipes/x.mp4", 10.0, 70.0, "crua")
+
+    assert estudio.chave_da_peca("clipes/x.mp4", 10.0, 70.0, "crua", "") == antes
+    assert estudio.chave_da_peca("clipes/x.mp4", 10.0, 70.0, "crua", "abc") != antes

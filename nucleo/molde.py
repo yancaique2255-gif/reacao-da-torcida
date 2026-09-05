@@ -217,19 +217,33 @@ def para_ffmpeg(
     mascara: str | None = None,
     moldura: str | None = None,
     fps: int = FPS,
+    palco: str | None = None,
 ) -> str:
     """O filter_complex de um item, montado das mesmas camadas.
 
     `mascara` e `moldura` sao entradas de imagem que o estudio gera com PIL: os
     cantos arredondados e a borda clara. Sem elas o filtro nao as menciona - e
     o que permite espiar um quadro parado sem PNG nenhum no disco.
+
+    `palco` e a entrada de imagem do cenario do canal, um PNG so, ja com arte de
+    fundo, logo e barra compostos pelo PIL. Com ele, a linha do fundo troca cor
+    chapada por imagem - e e a UNICA linha que muda. Sem ele, o filtro sai
+    identico ao de antes de o palco existir.
     """
     largura, altura = tamanho(formato)
     # `em_pixels` e nao `caixa`: as camadas chegam aqui JA ajustadas, e reler a
     # tabela pelo nome desfaria a escala e o deslocamento em silencio.
     caixas = {c.nome: em_pixels(c, formato) for c in camadas_}
     quadro = caixas["quadro"]
-    partes = [f"color=c={cor_fundo}:s={largura}x{altura}:r={fps},vignette=PI/4[fundo]"]
+    if palco:
+        # Imagem nao tem relogio. Sem o `fps`, a base do overlay chega com a
+        # taxa que o ffmpeg inventa para um `-loop 1` e o tempo do video sai
+        # torto. A vinheta, que era do ffmpeg, agora vem desenhada no PNG.
+        partes = [f"[{palco}]scale={largura}:{altura},setsar=1,fps={fps}[fundo]"]
+    else:
+        partes = [
+            f"color=c={cor_fundo}:s={largura}x{altura}:r={fps},vignette=PI/4[fundo]"
+        ]
 
     corte = (
         # `setpts=PTS-STARTPTS` primeiro, e nao por capricho: com `-ss` no

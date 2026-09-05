@@ -37,6 +37,12 @@ PASTA_CACHE = "intermediarios"
 # .mp4 de 48 bytes que o render seguinte reaproveitava como peca boa - a
 # compilacao de 03/09 saiu 60s mais curta sem uma linha de aviso.
 PASTA_PECAS = "pecas"
+# O cenario do canal mora numa prateleira propria do cache: e forma, e nao peca
+# de video, e da para abrir no visualizador e conferir antes de gastar treze
+# minutos de render.
+PASTA_FORMAS = "formas"
+# O ar entre a arte e a marca, medido no palco de 1920x1080.
+VAO_DO_PALCO = 16
 PASTA_SAIDA = "saida"
 NOME_ESTADO = "render.json"
 FORMATO_PADRAO = "deitado"
@@ -114,7 +120,9 @@ def fazer_peca(
         return
 
 
-def chave_da_peca(origem: str, de: float, ate: float, filtro: str) -> str:
+def chave_da_peca(
+    origem: str, de: float, ate: float, filtro: str, palco: str = ""
+) -> str:
     """Hash de tudo o que afeta a imagem daquela peca.
 
     O filtro ja carrega molde, formato, textos e cores: mudar qualquer um deles
@@ -124,9 +132,16 @@ def chave_da_peca(origem: str, de: float, ate: float, filtro: str) -> str:
     O nome era `identidade`, e virou `chave_da_peca` quando a identidade DO
     CANAL passou a ser um modulo: duas coisas com o mesmo nome no mesmo arquivo
     e defeito esperando hora.
+
+    O `palco` e a assinatura do cenario, e entra na chave SO QUANDO EXISTE: o
+    filtro nomeia a entrada do palco ([3:v]), mas nao diz qual PNG e - trocar a
+    arte mudaria a imagem sem mudar a chave. Acrescentar o campo sempre, mesmo
+    vazio, renomearia de uma vez todo o cache que ja esta no disco.
     """
     crua = json.dumps(
-        [origem, round(float(de), 3), round(float(ate), 3), filtro], ensure_ascii=False
+        [origem, round(float(de), 3), round(float(ate), 3), filtro]
+        + ([palco] if palco else []),
+        ensure_ascii=False,
     )
     return hashlib.sha1(crua.encode("utf-8")).hexdigest()[:16]
 
@@ -190,6 +205,149 @@ def mascaras(
     return alvo_mascara, alvo_moldura
 
 
+# -------------------------------------------------------------------- o palco
+
+def camadas_do_palco(ident: dict, formato: str, moldagem: dict) -> list[str]:
+    """Quais camadas de marca este palco desenha, na ordem em que vao ao PNG.
+
+    E a regra central da identidade num lugar so: **campo vazio e camada que NAO
+    EXISTE** - nao e camada transparente, nao e espaco reservado.
+    """
+    desenhar = []
+    if _arquivo_de(ident.get("arte_de_fundo")):
+        desenhar.append("arte_de_fundo")
+    return desenhar
+
+
+def tem_o_que_desenhar(ident: dict, formato: str, moldagem: dict) -> bool:
+    """Sem nada de marca, o palco nem existe - e o filtro e o de sempre."""
+    return bool(camadas_do_palco(ident, formato, moldagem))
+
+
+def assinatura_do_palco(
+    formato: str, ident: dict, moldagem: dict, cor_fundo: str
+) -> str:
+    """Impressao digital do cenario: identidade, moldagem e cor do time.
+
+    Mudou qualquer um, gera outro arquivo; nao mudou nada, reaproveita - o mesmo
+    mecanismo do `mascaras()`. O relogio e o tamanho dos arquivos de arte vao
+    junto: trocar o PNG por outro com o MESMO nome tem que gerar outro palco,
+    senao o cache serve o cenario velho para sempre.
+    """
+    crua = json.dumps(
+        [
+            formato,
+            {c: ident.get(c, "") for c in ("arte_de_fundo", "logo", "chamada")},
+            ident.get("redes") or {},
+            moldagem,
+            cor_fundo,
+            [_relogio_do_arquivo(ident.get(c)) for c in ("arte_de_fundo", "logo")],
+        ],
+        ensure_ascii=False, sort_keys=True,
+    )
+    return hashlib.sha1(crua.encode("utf-8")).hexdigest()[:16]
+
+
+def palco(
+    pasta_jogo: Path,
+    formato: str,
+    ident: dict,
+    moldagem: dict,
+    cor_fundo: str,
+    avisar: Callable[[str], None] | None = None,
+) -> Path | None:
+    """O PNG do cenario do canal: arte de fundo, logo e barra ja compostos.
+
+    `None` quando nao ha nada de marca para desenhar, e ai o render segue com a
+    cor do time e a vinheta do ffmpeg, como antes de o palco existir.
+
+    Um PNG so, e nao tres entradas de imagem: o filtro nao cresce, o numero de
+    entradas do ffmpeg nao muda, e o palco vira um arquivo que se abre no
+    visualizador e se confere antes de gastar treze minutos de render.
+    """
+    if not tem_o_que_desenhar(ident, formato, moldagem):
+        return None
+    marca = assinatura_do_palco(formato, ident, moldagem, cor_fundo)
+    destino = pasta_cache(pasta_jogo) / PASTA_FORMAS / f"palco-{formato}-{marca}.png"
+    if destino.is_file():
+        return destino
+
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    tela = _fundo_do_palco(ident, molde.tamanho(formato), cor_fundo, avisar)
+    # Nome provisorio ate o arquivo estar inteiro, como as pecas de video: PNG
+    # truncado tem nome, tamanho e data de arquivo bom, e o render seguinte o
+    # reaproveitaria como cenario pronto.
+    meio = destino.with_name(f"parcial-{destino.name}")
+    tela.convert("RGB").save(meio)
+    os.replace(meio, destino)
+    return destino
+
+
+def _arquivo_de(caminho) -> Path | None:
+    """O caminho que existe no disco, ou `None`. Campo vazio nao desenha."""
+    if not caminho:
+        return None
+    arquivo = Path(str(caminho))
+    return arquivo if arquivo.is_file() else None
+
+
+def _relogio_do_arquivo(caminho) -> list:
+    arquivo = _arquivo_de(caminho)
+    if arquivo is None:
+        return []
+    ficha = arquivo.stat()
+    return [ficha.st_mtime_ns, ficha.st_size]
+
+
+def _fundo_do_palco(ident: dict, tamanho: tuple[int, int], cor_fundo: str, avisar):
+    from PIL import Image
+
+    arte = _arquivo_de(ident.get("arte_de_fundo"))
+    if arte:
+        try:
+            return _cobrindo(Image.open(arte).convert("RGB"), tamanho)
+        except OSError as erro:
+            # Arte que nao abre nao para um render de treze minutos: avisa e cai
+            # na cor do time. Nunca sumir calado vale aqui tambem.
+            if avisar:
+                avisar(f"a arte de fundo nao abriu ({erro}) - fica a cor do time")
+    return _vinheta(Image.new("RGB", tamanho, _rgb_do_palco(cor_fundo)))
+
+
+def _cobrindo(imagem, tamanho: tuple[int, int]):
+    """Redimensiona cobrindo o palco, sem deformar, e corta o excesso."""
+    largura, altura = tamanho
+    proporcao = max(largura / imagem.width, altura / imagem.height)
+    imagem = imagem.resize((
+        max(1, round(imagem.width * proporcao)),
+        max(1, round(imagem.height * proporcao)),
+    ))
+    esquerda = (imagem.width - largura) // 2
+    topo = (imagem.height - altura) // 2
+    return imagem.crop((esquerda, topo, esquerda + largura, topo + altura))
+
+
+def _vinheta(tela):
+    """Escurece as pontas, como o `vignette=PI/4` fazia no fundo chapado.
+
+    E aproximacao, e nao a mesma conta: o filtro do ffmpeg e otica de lente. O
+    que importa e o efeito - meio claro, pontas escuras, para a janela ter
+    contra o que aparecer. Sem marca nenhuma o palco nem existe, e ai o render
+    continua usando a vinheta do proprio ffmpeg.
+    """
+    from PIL import Image
+
+    escuro = Image.radial_gradient("L").resize(tela.size)
+    escuro = escuro.point(lambda valor: int(210 * (valor / 255) ** 2))
+    tela.paste(Image.new("RGB", tela.size, (0, 0, 0)), (0, 0), escuro)
+    return tela
+
+
+def _rgb_do_palco(cor: str) -> tuple[int, int, int]:
+    cor = (cor or molde.COR_FUNDO).lstrip("#")
+    return tuple(int(cor[i:i + 2], 16) for i in (0, 2, 4))
+
+
 def fonte_de(cfg: dict) -> Path | None:
     """A fonte pesada da CAPA. O video em si nao escreve nada."""
     caminho = cfg.get("fonte_cartela") or ""
@@ -231,6 +389,9 @@ def filtro_do_item(
         cor_fundo=cor_do_fundo(dados_receita),
         mascara="1:v" if com_mascaras else None,
         moldura="2:v" if com_mascaras else None,
+        palco="3:v" if (
+            com_mascaras and tem_o_que_desenhar(ident, formato, moldagem)
+        ) else None,
     )
     return filtro, "v"
 
@@ -245,6 +406,7 @@ def comando_item(
     destino: Path,
     ffmpeg: str,
     video=None,
+    palco: Path | None = None,
 ) -> list[str]:
     duracao = round(float(item["ate"]) - float(item["de"]), 3)
     return [
@@ -255,6 +417,9 @@ def comando_item(
         # isso; trocar o `-shortest` da saida por `-t` piorou (0 de 3).
         "-loop", "1", "-t", str(duracao), "-i", str(mascara),
         "-loop", "1", "-t", str(duracao), "-i", str(moldura),
+        # O palco e a QUARTA entrada, depois da mascara e da moldura: assim 1:v
+        # e 2:v continuam sendo elas, e o filtro de hoje nao se mexe.
+        *(["-loop", "1", "-t", str(duracao), "-i", str(palco)] if palco else []),
         "-filter_complex", filtro,
         "-map", f"[{rotulo}]",
         # O `?` deixa passar clipe sem faixa de audio: acontece, e nao pode
@@ -315,6 +480,15 @@ def planejar(
     """
     ident = identidade.carregar() if ident is None else ident
     clipes = _clipes_por_chave(dados)
+    formato = dados_receita.get("formato", FORMATO_PADRAO)
+    moldagem = identidade.moldagem(ident, dados_receita)
+    # A assinatura do palco entra na chave das pecas: o filtro nomeia a entrada
+    # ([3:v]) mas nao diz qual PNG e. Sem isto, trocar a arte deixaria o cache
+    # servindo pecas com o cenario velho.
+    marca = (
+        assinatura_do_palco(formato, ident, moldagem, cor_do_fundo(dados_receita))
+        if tem_o_que_desenhar(ident, formato, moldagem) else ""
+    )
     # Um filtro so para todas as pecas: sem texto, o molde nao tem nada de
     # individual para desenhar. O que separa uma peca da outra e o corte.
     filtro, rotulo = filtro_do_item(dados_receita, ident)
@@ -329,7 +503,9 @@ def planejar(
                 )
             continue
         plano.append({
-            "nome": chave_da_peca(clipe["arquivo"], item["de"], item["ate"], filtro),
+            "nome": chave_da_peca(
+                clipe["arquivo"], item["de"], item["ate"], filtro, marca
+            ),
             "qual": f"{item['canal']} no gol {item['gol']}",
             "clipe": clipe,
             "item": item,
@@ -377,6 +553,9 @@ def montar(
     formato = dados_receita.get("formato", FORMATO_PADRAO)
     moldagem = identidade.moldagem(ident, dados_receita)
     mascara, moldura = mascaras(pasta_jogo, formato, moldagem)
+    cenario = palco(
+        pasta_jogo, formato, ident, moldagem, cor_do_fundo(dados_receita), avisar
+    )
     cache = pasta_das_pecas(pasta_jogo)
 
     tarefas = []
@@ -386,6 +565,7 @@ def montar(
             lambda destino, p=peca: comando_item(
                 pasta_jogo / p["clipe"]["arquivo"], p["item"], p["filtro"],
                 p["rotulo"], mascara, moldura, destino, cfg["caminho_ffmpeg"],
+                palco=cenario,
             )
         )
         tarefas.append((destino, comando_de, peca["qual"]))
@@ -447,6 +627,10 @@ def espiar(
     mascara, moldura = mascaras(
         pasta_jogo, formato, identidade.moldagem(ident, dados_receita)
     )
+    cenario = palco(
+        pasta_jogo, formato, ident, identidade.moldagem(ident, dados_receita),
+        cor_do_fundo(dados_receita),
+    )
     filtro, rotulo = filtro_do_item(dados_receita, ident)
 
     destino = pasta_cache(pasta_jogo) / f"espiada-{gol}-{canal}.png"
@@ -455,6 +639,7 @@ def espiar(
         "-ss", str(instante_de_espiar(clipe, item)), "-i", str(pasta_jogo / clipe["arquivo"]),
         "-loop", "1", "-i", str(mascara),
         "-loop", "1", "-i", str(moldura),
+        *(["-loop", "1", "-i", str(cenario)] if cenario else []),
         "-filter_complex", filtro,
         "-map", f"[{rotulo}]", "-frames:v", "1", "-update", "1",
         str(destino),

@@ -299,3 +299,33 @@ def test_arranjo_que_nao_existe_reclama_e_ensina_os_que_existem():
         molde.camadas("deitado", "palco-do-mickey")
 
     assert "palco-alto" in str(erro.value) and "quadro-cheio" in str(erro.value)
+
+
+def test_com_palco_o_fundo_vira_uma_entrada_de_imagem():
+    """A seccao 5 da spec: UMA linha muda, e o resto do filtro fica intacto."""
+    filtro = molde.para_ffmpeg(
+        molde.camadas("deitado", "palco-alto"), "deitado",
+        mascara="1:v", moldura="2:v", palco="3:v",
+    )
+
+    assert "[3:v]scale=1920:1080,setsar=1,fps=30[fundo]" in filtro
+    assert "color=c=" not in filtro, "com palco nao ha cor chapada"
+    assert "vignette" not in filtro, "a vinheta agora vem desenhada no PNG"
+    # O recorte, a mascara, a sobreposicao e a moldura seguem iguais.
+    assert "alphamerge[quadro]" in filtro
+    assert "[fundo][quadro]overlay=320:280:shortest=1[com-quadro]" in filtro
+
+
+def test_sem_palco_o_filtro_e_a_cor_chapada_de_sempre():
+    filtro = molde.para_ffmpeg(molde.camadas("deitado"), "deitado")
+
+    assert "color=c=#101418:s=1920x1080:r=30,vignette=PI/4[fundo]" in filtro
+    assert "[3:v]" not in filtro
+
+
+def test_o_palco_entra_com_a_taxa_de_quadros_declarada():
+    """Imagem nao tem relogio: sem `fps`, a base do overlay chega com a taxa que
+    o ffmpeg inventa para um `-loop 1` e o tempo do video sai torto."""
+    filtro = molde.para_ffmpeg(molde.camadas("deitado"), "deitado", palco="3:v")
+
+    assert f"fps={molde.FPS}[fundo]" in filtro
