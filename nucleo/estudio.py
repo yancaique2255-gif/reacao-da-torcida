@@ -43,6 +43,9 @@ PASTA_PECAS = "pecas"
 PASTA_FORMAS = "formas"
 # O ar entre a arte e a marca, medido no palco de 1920x1080.
 VAO_DO_PALCO = 16
+# Os icones das redes vao versionados no repositorio, em PNG branco com
+# transparencia, com o nome da chave em `identidade.redes`.
+PASTA_DOS_ICONES = Path(__file__).resolve().parent.parent / "dados" / "icones"
 PASTA_SAIDA = "saida"
 NOME_ESTADO = "render.json"
 FORMATO_PADRAO = "deitado"
@@ -211,12 +214,44 @@ def camadas_do_palco(ident: dict, formato: str, moldagem: dict) -> list[str]:
     """Quais camadas de marca este palco desenha, na ordem em que vao ao PNG.
 
     E a regra central da identidade num lugar so: **campo vazio e camada que NAO
-    EXISTE** - nao e camada transparente, nao e espaco reservado.
+    EXISTE** - nao e camada transparente, nao e espaco reservado. Arranjo sem
+    sobra tambem nao tem onde por logo nem barra, e ai elas nao entram nem com
+    os campos preenchidos.
     """
+    tem = {c.nome for c in molde.camadas(formato, **moldagem)}
     desenhar = []
     if _arquivo_de(ident.get("arte_de_fundo")):
         desenhar.append("arte_de_fundo")
+    if "logo" in tem and _arquivo_de(ident.get("logo")):
+        desenhar.append("logo")
+    if "barra" in tem and arrobas(ident):
+        desenhar.append("barra")
     return desenhar
+
+
+def arrobas(ident: dict) -> list[tuple[str, str]]:
+    """As redes preenchidas, na ordem do arquivo. Rede vazia nao ocupa espaco."""
+    return [
+        (rede, str(arroba).strip())
+        for rede, arroba in (ident.get("redes") or {}).items()
+        if str(arroba).strip()
+    ]
+
+
+def icone(rede: str, corpo: int):
+    """O PNG branco de `dados/icones/<rede>.png`, no tamanho da letra.
+
+    Sem icone no disco, a barra sai so com texto: o dono ainda vai por os
+    arquivos la, e esperar por eles nao pode travar o palco.
+    """
+    arquivo = PASTA_DOS_ICONES / f"{rede}.png"
+    if not arquivo.is_file():
+        return None
+    from PIL import Image
+
+    desenhado = Image.open(arquivo).convert("RGBA")
+    desenhado.thumbnail((corpo, corpo))
+    return desenhado
 
 
 def tem_o_que_desenhar(ident: dict, formato: str, moldagem: dict) -> bool:
@@ -225,7 +260,8 @@ def tem_o_que_desenhar(ident: dict, formato: str, moldagem: dict) -> bool:
 
 
 def assinatura_do_palco(
-    formato: str, ident: dict, moldagem: dict, cor_fundo: str
+    formato: str, ident: dict, moldagem: dict, cor_fundo: str,
+    fonte: Path | None = None,
 ) -> str:
     """Impressao digital do cenario: identidade, moldagem e cor do time.
 
@@ -242,6 +278,7 @@ def assinatura_do_palco(
             moldagem,
             cor_fundo,
             [_relogio_do_arquivo(ident.get(c)) for c in ("arte_de_fundo", "logo")],
+            str(fonte or ""),
         ],
         ensure_ascii=False, sort_keys=True,
     )
@@ -254,6 +291,7 @@ def palco(
     ident: dict,
     moldagem: dict,
     cor_fundo: str,
+    fonte: Path | None = None,
     avisar: Callable[[str], None] | None = None,
 ) -> Path | None:
     """O PNG do cenario do canal: arte de fundo, logo e barra ja compostos.
@@ -267,13 +305,15 @@ def palco(
     """
     if not tem_o_que_desenhar(ident, formato, moldagem):
         return None
-    marca = assinatura_do_palco(formato, ident, moldagem, cor_fundo)
+    marca = assinatura_do_palco(formato, ident, moldagem, cor_fundo, fonte)
     destino = pasta_cache(pasta_jogo) / PASTA_FORMAS / f"palco-{formato}-{marca}.png"
     if destino.is_file():
         return destino
 
     destino.parent.mkdir(parents=True, exist_ok=True)
     tela = _fundo_do_palco(ident, molde.tamanho(formato), cor_fundo, avisar)
+    _desenhar_logo(tela, ident, formato, moldagem)
+    _desenhar_barra(tela, ident, formato, moldagem, fonte)
     # Nome provisorio ate o arquivo estar inteiro, como as pecas de video: PNG
     # truncado tem nome, tamanho e data de arquivo bom, e o render seguinte o
     # reaproveitaria como cenario pronto.
@@ -341,6 +381,90 @@ def _vinheta(tela):
     escuro = escuro.point(lambda valor: int(210 * (valor / 255) ** 2))
     tela.paste(Image.new("RGB", tela.size, (0, 0, 0)), (0, 0), escuro)
     return tela
+
+
+def _desenhar_logo(tela, ident: dict, formato: str, moldagem: dict) -> None:
+    arquivo = _arquivo_de(ident.get("logo"))
+    caixa = _caixa_ou_nada("logo", formato, moldagem)
+    if not (arquivo and caixa):
+        return
+    from PIL import Image
+
+    desenhada = Image.open(arquivo).convert("RGBA")
+    # `thumbnail` e nao `resize`: a logo cabe INTEIRA na caixa, sem deformar e
+    # sem ser cortada. Logo cortada nao e logo.
+    desenhada.thumbnail((caixa["largura"], caixa["altura"]))
+    tela.paste(
+        desenhada,
+        (
+            caixa["esquerda"] + (caixa["largura"] - desenhada.width) // 2,
+            caixa["topo"] + (caixa["altura"] - desenhada.height) // 2,
+        ),
+        desenhada,
+    )
+
+
+def _desenhar_barra(
+    tela, ident: dict, formato: str, moldagem: dict, fonte: Path | None
+) -> None:
+    """A faixa de redes: um par icone + arroba por rede que existir.
+
+    Monta da DIREITA para a esquerda, com o que existir: rede vazia nao deixa
+    buraco. A chamada entra no que sobrar a esquerda, e so se couber - o PIL
+    sabe medir texto, e texto cortado na borda e pior do que texto ausente.
+    """
+    caixa = _caixa_ou_nada("barra", formato, moldagem)
+    escritas = arrobas(ident)
+    if not (caixa and escritas):
+        return
+    from PIL import ImageDraw
+
+    desenho = ImageDraw.Draw(tela)
+    corpo = max(14, caixa["altura"] // 3)
+    letra = _letra_do_palco(fonte, corpo)
+    meio = caixa["topo"] + caixa["altura"] // 2
+    direita = caixa["esquerda"] + caixa["largura"]
+
+    for rede, arroba in reversed(escritas):
+        _texto_do_palco(desenho, arroba, (direita, meio), letra, "rm")
+        direita -= round(desenho.textlength(arroba, font=letra)) + VAO_DO_PALCO
+        marca = icone(rede, corpo)
+        if marca:
+            tela.paste(marca, (direita - marca.width, meio - marca.height // 2), marca)
+            direita -= marca.width + VAO_DO_PALCO
+
+    chamada = str(ident.get("chamada") or "").strip()
+    livre = direita - caixa["esquerda"] - VAO_DO_PALCO
+    if chamada and desenho.textlength(chamada, font=letra) <= livre:
+        _texto_do_palco(desenho, chamada, (caixa["esquerda"], meio), letra, "lm")
+
+
+def _caixa_ou_nada(nome: str, formato: str, moldagem: dict) -> dict | None:
+    """A caixa daquela camada, ou `None` se o arranjo nao tiver onde por."""
+    try:
+        return molde.caixa(nome, formato, **moldagem)
+    except KeyError:
+        return None
+
+
+def _letra_do_palco(fonte: Path | None, corpo: int):
+    """A fonte da barra. Sem arquivo, a letra do sistema: feia, mas legivel.
+
+    Nao se importa do `capa.py` porque o `capa` importa o estudio - importar de
+    volta fecharia o ciclo. Sao seis linhas; o ciclo custaria mais.
+    """
+    from PIL import ImageFont
+
+    if fonte and Path(fonte).is_file():
+        return ImageFont.truetype(str(fonte), corpo)
+    return ImageFont.load_default()
+
+
+def _texto_do_palco(desenho, texto: str, posicao, letra, ancora: str) -> None:
+    """Letra branca com sombra dura atras: a barra vai sobre arte clara e escura."""
+    x, y = posicao
+    desenho.text((x + 2, y + 2), texto, font=letra, fill=(0, 0, 0), anchor=ancora)
+    desenho.text((x, y), texto, font=letra, fill=(255, 255, 255), anchor=ancora)
 
 
 def _rgb_do_palco(cor: str) -> tuple[int, int, int]:
@@ -471,6 +595,7 @@ def planejar(
     dados_receita: dict,
     avisar: Callable[[str], None] | None = None,
     ident: dict | None = None,
+    fonte: Path | None = None,
 ) -> list[dict]:
     """As pecas deste video, na ordem, cada uma com o nome que tem no cache.
 
@@ -486,7 +611,9 @@ def planejar(
     # ([3:v]) mas nao diz qual PNG e. Sem isto, trocar a arte deixaria o cache
     # servindo pecas com o cenario velho.
     marca = (
-        assinatura_do_palco(formato, ident, moldagem, cor_do_fundo(dados_receita))
+        assinatura_do_palco(
+            formato, ident, moldagem, cor_do_fundo(dados_receita), fonte
+        )
         if tem_o_que_desenhar(ident, formato, moldagem) else ""
     )
     # Um filtro so para todas as pecas: sem texto, o molde nao tem nada de
@@ -515,7 +642,10 @@ def planejar(
     return plano
 
 
-def assinatura(dados: dict, dados_receita: dict, ident: dict | None = None) -> str:
+def assinatura(
+    dados: dict, dados_receita: dict, ident: dict | None = None,
+    fonte: Path | None = None,
+) -> str:
     """Impressao digital do video que esta edicao geraria.
 
     E a lista de pecas do plano, que ja carrega corte, molde, formato e cor - o
@@ -526,7 +656,10 @@ def assinatura(dados: dict, dados_receita: dict, ident: dict | None = None) -> s
     O mtime do arquivo nao serve para isso: a tela de edicao regrava a receita
     cada vez que abre, e ai todo video parecia velho um minuto depois de sair.
     """
-    nomes = [peca["nome"] for peca in planejar(dados, dados_receita, ident=ident)]
+    nomes = [
+        peca["nome"]
+        for peca in planejar(dados, dados_receita, ident=ident, fonte=fonte)
+    ]
     return hashlib.sha1("|".join(nomes).encode("utf-8")).hexdigest()[:12]
 
 
@@ -553,13 +686,15 @@ def montar(
     formato = dados_receita.get("formato", FORMATO_PADRAO)
     moldagem = identidade.moldagem(ident, dados_receita)
     mascara, moldura = mascaras(pasta_jogo, formato, moldagem)
+    fonte = fonte_de(cfg)
     cenario = palco(
-        pasta_jogo, formato, ident, moldagem, cor_do_fundo(dados_receita), avisar
+        pasta_jogo, formato, ident, moldagem, cor_do_fundo(dados_receita),
+        fonte, avisar,
     )
     cache = pasta_das_pecas(pasta_jogo)
 
     tarefas = []
-    for peca in planejar(dados, dados_receita, avisar, ident):
+    for peca in planejar(dados, dados_receita, avisar, ident, fonte):
         destino = cache / f"{peca['nome']}.mp4"
         comando_de = (
             lambda destino, p=peca: comando_item(
@@ -603,7 +738,7 @@ def montar(
 
     anotar(pasta_jogo, rodando=False, feito=total, total=total,
            saida=str(saida), mensagem="pronto",
-           assinatura=assinatura(dados, dados_receita, ident))
+           assinatura=assinatura(dados, dados_receita, ident, fonte))
     return saida
 
 
@@ -629,7 +764,7 @@ def espiar(
     )
     cenario = palco(
         pasta_jogo, formato, ident, identidade.moldagem(ident, dados_receita),
-        cor_do_fundo(dados_receita),
+        cor_do_fundo(dados_receita), fonte_de(cfg),
     )
     filtro, rotulo = filtro_do_item(dados_receita, ident)
 

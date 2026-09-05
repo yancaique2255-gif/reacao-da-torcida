@@ -889,3 +889,172 @@ def test_a_previa_continua_com_a_mesma_chave_de_cache():
 
     assert estudio.chave_da_peca("clipes/x.mp4", 10.0, 70.0, "crua", "") == antes
     assert estudio.chave_da_peca("clipes/x.mp4", 10.0, 70.0, "crua", "abc") != antes
+
+
+FONTE = Path(CFG["fonte_cartela"])
+
+
+def _logo(caminho: Path, tamanho=(400, 400)) -> Path:
+    from PIL import Image
+
+    Image.new("RGBA", tamanho, (255, 0, 0, 255)).save(caminho)
+    return caminho
+
+
+def _quantos_claros(imagem, caixa) -> int:
+    """Pixels quase brancos dentro da caixa: e a letra e o icone desenhados."""
+    recorte = imagem.crop((
+        caixa["esquerda"], caixa["topo"],
+        caixa["esquerda"] + caixa["largura"], caixa["topo"] + caixa["altura"],
+    )).convert("L")
+    # `get_flattened_data` no Pillow 12; `getdata` no que vier antes.
+    pixels = getattr(recorte, "get_flattened_data", recorte.getdata)()
+    return sum(1 for valor in pixels if valor > 200)
+
+
+def test_sem_logo_nao_ha_camada_de_logo(tmp_path: Path):
+    ident = {**identidade.PADROES, "arranjo": "palco-alto",
+             "redes": {**identidade.PADROES["redes"], "youtube": "@veiabanguela"}}
+
+    camadas = estudio.camadas_do_palco(ident, "deitado", identidade.moldagem(ident))
+
+    assert "logo" not in camadas and "barra" in camadas
+
+
+def test_todas_as_redes_em_branco_nao_desenham_barra(tmp_path: Path):
+    ident = {**identidade.PADROES, "arranjo": "palco-alto",
+             "logo": str(_logo(tmp_path / "logo.png"))}
+
+    camadas = estudio.camadas_do_palco(ident, "deitado", identidade.moldagem(ident))
+
+    assert camadas == ["logo"]
+
+
+def test_rede_em_branco_nao_ocupa_espaco_na_barra():
+    """Instagram vazio nao aparece; a barra se monta com o que existir."""
+    ident = {**identidade.PADROES, "redes": {
+        "youtube": "@veiabanguela", "instagram": "", "tiktok": "@veiatk"
+    }}
+
+    assert estudio.arrobas(ident) == [
+        ("youtube", "@veiabanguela"), ("tiktok", "@veiatk")
+    ]
+
+
+def test_o_quadro_cheio_nao_tem_onde_por_logo_nem_barra(tmp_path: Path):
+    """Sem sobra nao ha camada, mesmo com tudo preenchido - e sem camada, sem PNG."""
+    ident = {**identidade.PADROES, "logo": str(_logo(tmp_path / "logo.png")),
+             "redes": {**identidade.PADROES["redes"], "youtube": "@veiabanguela"}}
+    moldagem = identidade.moldagem(ident)
+
+    assert estudio.camadas_do_palco(ident, "deitado", moldagem) == []
+    assert estudio.palco(tmp_path, "deitado", ident, moldagem, "#101418") is None
+
+
+def test_a_logo_cai_exatamente_na_caixa_que_a_pagina_promete(tmp_path: Path):
+    """O terceiro renderizador: o PIL desenha nas caixas do MESMO molde.
+
+    A previa da tela e o palco do render leem a mesma geometria. Este teste e o
+    que impede as duas de divergirem depois de alguem mexer num numero de um
+    lado so - o mesmo papel do `test_ffmpeg_e_pagina_concordam`.
+    """
+    from PIL import Image
+
+    ident = {**identidade.PADROES, "arranjo": "palco-alto",
+             "logo": str(_logo(tmp_path / "logo.png"))}
+    moldagem = identidade.moldagem(ident)
+
+    png = estudio.palco(tmp_path, "deitado", ident, moldagem, "#101418")
+
+    caixa = molde.caixa("logo", "deitado", **moldagem)
+    imagem = Image.open(png).convert("RGB")
+    assert imagem.getpixel((caixa["esquerda"], caixa["topo"])) == (255, 0, 0)
+    assert imagem.getpixel((
+        caixa["esquerda"] + caixa["largura"] - 1,
+        caixa["topo"] + caixa["altura"] - 1,
+    )) == (255, 0, 0)
+    assert imagem.getpixel((caixa["esquerda"] - 3, caixa["topo"] - 3)) != (255, 0, 0)
+
+
+def test_a_logo_cabe_inteira_na_caixa_sem_ser_cortada(tmp_path: Path):
+    """Logo cortada nao e logo: cabe dentro, e nao cobre a caixa a forca."""
+    from PIL import Image
+
+    ident = {**identidade.PADROES, "arranjo": "palco-lateral",
+             "logo": str(_logo(tmp_path / "comprida.png", (600, 200)))}
+    moldagem = identidade.moldagem(ident)
+
+    png = estudio.palco(tmp_path, "deitado", ident, moldagem, "#101418")
+
+    caixa = molde.caixa("logo", "deitado", **moldagem)
+    imagem = Image.open(png).convert("RGB")
+    # 600x200 numa caixa de 320x320: a logo fica 320x107, centrada - e as quinas
+    # de cima da caixa continuam sendo cenario, nao logo.
+    assert imagem.getpixel((caixa["esquerda"], caixa["topo"])) != (255, 0, 0)
+    assert imagem.getpixel((
+        caixa["esquerda"] + caixa["largura"] // 2,
+        caixa["topo"] + caixa["altura"] // 2,
+    )) == (255, 0, 0)
+
+
+def test_a_barra_desenha_o_arroba_de_cada_rede(tmp_path: Path):
+    from PIL import Image
+
+    ident = {**identidade.PADROES, "arranjo": "palco-alto", "chamada": "",
+             "redes": {"youtube": "@veiabanguela", "instagram": "", "tiktok": ""}}
+    moldagem = identidade.moldagem(ident)
+
+    png = estudio.palco(tmp_path, "deitado", ident, moldagem, "#101418", fonte=FONTE)
+
+    claros = _quantos_claros(
+        Image.open(png), molde.caixa("barra", "deitado", **moldagem)
+    )
+    assert claros > 100, "a barra saiu vazia"
+
+
+def test_a_chamada_grande_demais_nao_sai_cortada_na_borda(tmp_path: Path):
+    """O PIL sabe MEDIR texto: o que nao cabe nao entra, em vez de estourar a caixa."""
+    from PIL import Image
+
+    ident = {**identidade.PADROES, "arranjo": "palco-alto",
+             "chamada": "SE INSCREVE NO CANAL " * 12,
+             "redes": {"youtube": "@veiabanguela", "instagram": "", "tiktok": ""}}
+    moldagem = identidade.moldagem(ident)
+
+    png = estudio.palco(tmp_path, "deitado", ident, moldagem, "#101418", fonte=FONTE)
+
+    caixa = molde.caixa("barra", "deitado", **moldagem)
+    quarto_da_esquerda = {**caixa, "largura": caixa["largura"] // 4}
+    assert _quantos_claros(Image.open(png), quarto_da_esquerda) == 0
+
+
+def test_sem_icone_no_disco_a_barra_sai_so_com_texto():
+    """O dono ainda vai por os PNGs la; esperar por eles nao pode travar o palco."""
+    assert estudio.icone("orkut", 32) is None
+
+
+def test_o_icone_do_disco_entra_no_tamanho_da_letra(tmp_path: Path, monkeypatch):
+    from PIL import Image
+
+    monkeypatch.setattr(estudio, "PASTA_DOS_ICONES", tmp_path)
+    Image.new("RGBA", (512, 512), (255, 255, 255, 255)).save(tmp_path / "youtube.png")
+
+    desenhado = estudio.icone("youtube", 40)
+
+    assert desenhado is not None and desenhado.size == (40, 40)
+
+
+def test_trocar_o_arroba_gera_outro_palco(tmp_path: Path):
+    ident = {**identidade.PADROES, "arranjo": "palco-alto",
+             "redes": {**identidade.PADROES["redes"], "youtube": "@um"}}
+    moldagem = identidade.moldagem(ident)
+    primeiro = estudio.palco(
+        tmp_path, "deitado", ident, moldagem, "#101418", fonte=FONTE
+    )
+
+    outro = {**ident, "redes": {**ident["redes"], "youtube": "@outro"}}
+    segundo = estudio.palco(
+        tmp_path, "deitado", outro, moldagem, "#101418", fonte=FONTE
+    )
+
+    assert segundo != primeiro
