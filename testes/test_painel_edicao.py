@@ -505,7 +505,9 @@ def test_a_tela_traz_a_moldagem_do_canal_ja_resolvida(tmp_path: Path):
     assert corpo["moldagem"] == {
         "arranjo": "quadro-cheio", "escala": 1.0, "deslocamento": 0.0
     }
-    assert corpo["arranjos"] == ["quadro-cheio", "palco-alto", "palco-lateral"]
+    assert corpo["arranjos"] == [
+        "quadro-cheio", "palco-alto", "palco-lateral", "palco-largo"
+    ]
     assert corpo["fora_do_padrao"] is False
     assert corpo["palco_desenha"] == [], "identidade vazia nao desenha nada"
 

@@ -369,3 +369,15 @@ ffmpeg obedece — nenhuma constante de geometria mora no HTML.
 Os arranjos são pílulas comuns com `.ativo` no escolhido; a pílula preta da tela
 continua sendo uma só, o RENDER FINAL. `input.numero` é a pílula dos dois
 ajustes, com `tabular-nums` porque são números que se comparam.
+
+### O arranjo `palco-largo`
+
+Desenhado pelo dono em 05/09, por cima de um quadro do `palco-alto`: a logo desce
+para o meio da coluna da esquerda, a janela cresce e cola na direita, e o vão que
+sobrava em cima vira a faixa das redes.
+
+É o único arranjo que **amplia** a fonte — 1472×828 contra os 1280×720 do clipe,
+15% a mais. Os outros três mantêm o 1:1. A troca foi escolhida olhando o
+resultado renderizado, e não no papel: o vão vazio incomodava mais do que a perda
+de definição. Quem for medir nitidez depois encontra o número no
+`testes/test_molde.py`, não escondido.

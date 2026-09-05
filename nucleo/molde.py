@@ -90,6 +90,20 @@ _ARRANJOS = {
                 cantos=_CANTOS, borda=_BORDA,
             ),
         ],
+        # A janela MAIOR, colada na direita, com a logo no meio da coluna da
+        # esquerda: foi o dono que desenhou este, em 05/09, olhando o palco
+        # lateral pronto. E o unico arranjo que AMPLIA a fonte - 1472x828 contra
+        # os 1280x720 do clipe, 15% a mais - e a troca foi escolhida de olho no
+        # resultado: o vao vazio incomodava mais do que a perda de definicao.
+        "palco-largo": [
+            Camada("fundo", 0.0, 0.0, 1.0, 1.0),
+            Camada("logo", 64 / 1920, 444 / 1080, 192 / 1920, 192 / 1080),
+            Camada("barra", 64 / 1920, 48 / 1080, 1792 / 1920, 96 / 1080),
+            Camada(
+                "quadro", 384 / 1920, 214 / 1080, 1472 / 1920, 828 / 1080,
+                cantos=_CANTOS, borda=_BORDA,
+            ),
+        ],
     },
     # Em pe: quadro colado na largura, no terco de cima - a altura de 608/1920 e
     # o 16:9 do clipe deitado na tela em pe, sem esticar nada. Nesta rodada o

@@ -184,8 +184,10 @@ def test_o_quadro_cheio_sai_caractere_por_caractere_igual_ao_de_hoje():
     assert filtro == FILTRO_DE_HOJE_DEITADO
 
 
-def test_os_tres_arranjos_do_deitado_existem():
-    assert molde.arranjos("deitado") == ["quadro-cheio", "palco-alto", "palco-lateral"]
+def test_os_arranjos_do_deitado_existem():
+    assert molde.arranjos("deitado") == [
+        "quadro-cheio", "palco-alto", "palco-lateral", "palco-largo"
+    ]
 
 
 def test_o_em_pe_tem_um_arranjo_so_nesta_rodada():
@@ -329,3 +331,46 @@ def test_o_palco_entra_com_a_taxa_de_quadros_declarada():
     filtro = molde.para_ffmpeg(molde.camadas("deitado"), "deitado", palco="3:v")
 
     assert f"fps={molde.FPS}[fundo]" in filtro
+
+
+def test_o_palco_largo_e_a_janela_maior_colada_na_direita():
+    """O arranjo desenhado pelo dono em 05/09: a janela cresce para a direita e
+    o vao que sobrava em cima passa a ser a faixa das redes."""
+    quadro = molde.caixa("quadro", "deitado", "palco-largo")
+
+    assert (quadro["largura"], quadro["altura"]) == (1472, 828)
+    assert (quadro["esquerda"], quadro["topo"]) == (384, 214)
+    assert 1920 - (quadro["esquerda"] + quadro["largura"]) == 64, "a margem da casa"
+
+
+def test_o_palco_largo_poe_a_logo_no_meio_da_coluna_da_esquerda():
+    """Meio da altura, e nao no alto: foi a seta que o dono desenhou."""
+    logo = molde.caixa("logo", "deitado", "palco-largo")
+
+    assert logo["esquerda"] == 64
+    assert logo["topo"] + logo["altura"] // 2 == 540, "centrada na vertical"
+
+
+def test_no_palco_largo_a_janela_nao_encosta_na_logo_nem_na_barra():
+    """Janela por cima da marca e marca que nao existe."""
+    caixas = {
+        c.nome: molde.em_pixels(c, "deitado")
+        for c in molde.camadas("deitado", "palco-largo")
+    }
+    quadro, logo, barra = caixas["quadro"], caixas["logo"], caixas["barra"]
+
+    assert logo["esquerda"] + logo["largura"] < quadro["esquerda"]
+    assert barra["topo"] + barra["altura"] < quadro["topo"]
+
+
+def test_o_palco_largo_estica_o_720p_e_isso_e_escolha_declarada():
+    """Este arranjo AMPLIA a fonte - 1280x720 vira 1472x828, 15% a mais.
+
+    E o unico que faz isso, e por decisao do dono em 05/09: o vao vazio
+    incomodava mais do que a perda de definicao. Fica o numero registrado para
+    quem for medir nitidez depois saber por que ele existe.
+    """
+    quadro = molde.caixa("quadro", "deitado", "palco-largo")
+
+    assert quadro["largura"] / 1280 == quadro["altura"] / 720
+    assert round(quadro["largura"] / 1280, 2) == 1.15
