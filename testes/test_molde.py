@@ -31,9 +31,13 @@ def _geometria_do_filtro(filtro: str) -> dict:
     }
 
 
-@pytest.mark.parametrize("formato", ["deitado", "em-pe"])
-def test_ffmpeg_e_pagina_concordam_camada_por_camada(formato):
-    camadas = molde.camadas(formato)
+@pytest.mark.parametrize(
+    "formato,arranjo",
+    [("deitado", "quadro-cheio"), ("deitado", "palco-alto"),
+     ("deitado", "palco-lateral"), ("em-pe", "quadro-cheio")],
+)
+def test_ffmpeg_e_pagina_concordam_camada_por_camada(formato, arranjo):
+    camadas = molde.camadas(formato, arranjo)
 
     filtro = molde.para_ffmpeg(camadas, formato)
     pagina = molde.para_pagina(camadas, formato)
@@ -42,7 +46,7 @@ def test_ffmpeg_e_pagina_concordam_camada_por_camada(formato):
     da_pagina = {c["nome"]: c for c in pagina["camadas"]}
     for nome, caixa in do_ffmpeg.items():
         for campo, valor in caixa.items():
-            assert da_pagina[nome][campo] == valor, f"{formato}/{nome}/{campo}"
+            assert da_pagina[nome][campo] == valor, f"{formato}/{arranjo}/{nome}/{campo}"
 
 
 def test_o_quadro_deitado_e_o_que_o_desenho_diz():
@@ -178,3 +182,120 @@ def test_o_quadro_cheio_sai_caractere_por_caractere_igual_ao_de_hoje():
     )
 
     assert filtro == FILTRO_DE_HOJE_DEITADO
+
+
+def test_os_tres_arranjos_do_deitado_existem():
+    assert molde.arranjos("deitado") == ["quadro-cheio", "palco-alto", "palco-lateral"]
+
+
+def test_o_em_pe_tem_um_arranjo_so_nesta_rodada():
+    """A spec e explicita: nesta rodada, so o deitado ganha palco."""
+    assert molde.arranjos("em-pe") == ["quadro-cheio"]
+
+
+@pytest.mark.parametrize("arranjo", ["palco-alto", "palco-lateral"])
+def test_a_janela_do_palco_e_1280x720_cravado(arranjo):
+    """A seccao 6: os pixels da fonte caem 1:1, sem reamostrar.
+
+    Se alguem mexer num numero e quebrar o 1:1, a bateria reprova - e nao o olho
+    de quem for assistir o proximo compilado.
+    """
+    quadro = molde.caixa("quadro", "deitado", arranjo)
+
+    assert (quadro["largura"], quadro["altura"]) == (1280, 720)
+
+
+def test_o_palco_alto_deixa_a_faixa_de_cima_livre():
+    """280px em cima, que e onde a logo e a barra moram."""
+    quadro = molde.caixa("quadro", "deitado", "palco-alto")
+
+    assert (quadro["esquerda"], quadro["topo"]) == (320, 280)
+
+
+def test_o_palco_lateral_deixa_a_coluna_da_esquerda_livre():
+    quadro = molde.caixa("quadro", "deitado", "palco-lateral")
+
+    assert quadro["esquerda"] == 576
+    assert 1920 - (quadro["esquerda"] + quadro["largura"]) == 64
+
+
+def test_o_quadro_cheio_nao_tem_logo_nem_barra():
+    """Sem sobra, nao ha camada: o de hoje continua sendo o de hoje."""
+    nomes = [c.nome for c in molde.camadas("deitado", "quadro-cheio")]
+
+    assert nomes == ["fundo", "quadro"]
+
+
+@pytest.mark.parametrize("arranjo", ["palco-alto", "palco-lateral"])
+def test_o_palco_tem_logo_e_barra(arranjo):
+    nomes = [c.nome for c in molde.camadas("deitado", arranjo)]
+
+    assert nomes == ["fundo", "logo", "barra", "quadro"]
+
+
+@pytest.mark.parametrize("arranjo", ["palco-alto", "palco-lateral"])
+def test_a_logo_e_a_barra_nao_encostam_na_janela(arranjo):
+    """O palco e o cenario ATRAS e AO REDOR: nada se sobrepoe a cena."""
+    quadro = molde.caixa("quadro", "deitado", arranjo)
+    for nome in ("logo", "barra"):
+        caixa = molde.caixa(nome, "deitado", arranjo)
+        ao_lado = (
+            caixa["esquerda"] + caixa["largura"] <= quadro["esquerda"]
+            or caixa["esquerda"] >= quadro["esquerda"] + quadro["largura"]
+        )
+        acima_ou_abaixo = (
+            caixa["topo"] + caixa["altura"] <= quadro["topo"]
+            or caixa["topo"] >= quadro["topo"] + quadro["altura"]
+        )
+        assert ao_lado or acima_ou_abaixo, f"{arranjo}/{nome} invade a janela"
+
+
+@pytest.mark.parametrize("arranjo", ["palco-alto", "palco-lateral"])
+def test_a_logo_e_a_barra_cabem_no_palco(arranjo):
+    for nome in ("logo", "barra"):
+        caixa = molde.caixa(nome, "deitado", arranjo)
+        assert caixa["esquerda"] >= 0 and caixa["topo"] >= 0, f"{arranjo}/{nome}"
+        assert caixa["esquerda"] + caixa["largura"] <= 1920, f"{arranjo}/{nome}"
+        assert caixa["topo"] + caixa["altura"] <= 1080, f"{arranjo}/{nome}"
+
+
+def test_a_escala_encolhe_a_janela_em_torno_do_centro():
+    """Encolher tem que manter a janela onde estava, e nao empurra-la para um canto."""
+    quadro = molde.caixa("quadro", "deitado", "palco-alto", escala=0.75)
+
+    assert (quadro["largura"], quadro["altura"]) == (960, 540)
+    assert (quadro["esquerda"], quadro["topo"]) == (480, 370)
+
+
+def test_o_deslocamento_sobe_a_janela_inteira():
+    """0,1 de 1080 = 108px, e so no eixo vertical."""
+    quadro = molde.caixa("quadro", "deitado", "palco-alto", deslocamento=-0.1)
+
+    assert (quadro["esquerda"], quadro["largura"]) == (320, 1280)
+    assert quadro["topo"] == 172
+
+
+def test_a_pagina_mostra_a_janela_JA_ajustada():
+    """A previa le a mesma geometria; ler a tabela de novo divergiria do render."""
+    camadas = molde.camadas("deitado", "palco-alto", escala=0.75)
+
+    pagina = molde.para_pagina(camadas, "deitado")
+
+    quadro = {c["nome"]: c for c in pagina["camadas"]}["quadro"]
+    assert (quadro["largura"], quadro["altura"]) == (960, 540)
+
+
+def test_o_ffmpeg_obedece_a_janela_ajustada():
+    filtro = molde.para_ffmpeg(
+        molde.camadas("deitado", "palco-alto", escala=0.75), "deitado"
+    )
+
+    assert "scale=960:540:force_original_aspect_ratio=increase" in filtro
+    assert "overlay=480:370" in filtro
+
+
+def test_arranjo_que_nao_existe_reclama_e_ensina_os_que_existem():
+    with pytest.raises(ValueError) as erro:
+        molde.camadas("deitado", "palco-do-mickey")
+
+    assert "palco-alto" in str(erro.value) and "quadro-cheio" in str(erro.value)
