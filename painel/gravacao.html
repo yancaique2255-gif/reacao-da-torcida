@@ -124,6 +124,32 @@
            background: color-mix(in srgb, var(--morta) 12%, var(--caixa));
            border-color: color-mix(in srgb, var(--morta) 40%, var(--caixa)); }
   .parar:hover { border-color: var(--morta); }
+  /* Arquivar e o oposto de parar: nao mexe em nada, so tira da area de trabalho. */
+  .encerrar { color: var(--viva); font-size: 13px; padding: 9px 18px;
+              background: color-mix(in srgb, var(--viva) 12%, var(--caixa));
+              border-color: color-mix(in srgb, var(--viva) 40%, var(--caixa)); }
+  .encerrar:hover { border-color: var(--viva); }
+  .encerrados { margin-top: 34px; border-top: 1px solid var(--fio-forte); padding-top: 18px; }
+  .encerrados > h2 {
+    font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--fraco); margin: 0 0 12px; display: flex; align-items: center; gap: 10px;
+  }
+  details.arquivado {
+    border: 1px solid var(--linha); border-radius: 12px;
+    background: var(--caixa-2); margin-bottom: 8px;
+  }
+  details.arquivado > summary {
+    list-style: none; cursor: pointer; padding: 12px 16px; font-size: 14px;
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  }
+  details.arquivado > summary::-webkit-details-marker { display: none; }
+  details.arquivado > summary::before { content: '▸'; color: var(--fraco); }
+  details.arquivado[open] > summary::before { content: '▾'; }
+  details.arquivado[open] > summary { border-bottom: 1px solid var(--linha); }
+  details.arquivado .jogo { margin: 16px 16px 4px; }
+  details.arquivado .jogo h2 { display: none; }
+  summary button { padding: 4px 12px; font-size: 12px; min-height: 26px; }
+  summary .reabrir { color: var(--info); }
   #lupa {
     position: fixed; inset: 0; background: rgba(23,23,23,.94); display: none;
     align-items: center; justify-content: center; flex-direction: column;
@@ -221,6 +247,9 @@ const alvo = document.getElementById('jogos');
 const campoAtraso = document.getElementById('atraso');
 const recado = document.getElementById('recado');
 let ultimoEstado = null;
+// Quais jogos encerrados estao abertos. A pagina se redesenha a cada 3s: sem
+// isto, o <details> que o usuario acabou de abrir fecharia sozinho na volta.
+const abertos = new Set();
 
 campoAtraso.value = localStorage.getItem('atraso') || '0';
 campoAtraso.addEventListener('change', () => localStorage.setItem('atraso', campoAtraso.value));
@@ -255,7 +284,10 @@ function apitar() {
 
 function vigiarQuedas(d) {
   const agora = new Map();
-  d.jogos.forEach(j => j.canais.forEach(c => agora.set(j.jogo + '/' + c.canal, c.gravando)));
+  // Canal de jogo encerrado nao esta caido, ele acabou: acusar os 6 canais de
+  // uma partida de anteontem afogava o unico canal que caiu de verdade hoje.
+  d.jogos.filter(j => !j.encerrado)
+    .forEach(j => j.canais.forEach(c => agora.set(j.jogo + '/' + c.canal, c.gravando)));
 
   const caidos = [...agora].filter(([, vivo]) => !vivo).map(([chave]) => chave.split('/')[1]);
   if (caidos.length) {
@@ -354,7 +386,8 @@ async function marcarGol(jogo) {
 document.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT') return;
   const i = Number(e.key) - 1;
-  if (ultimoEstado && ultimoEstado.jogos[i]) marcarGol(ultimoEstado.jogos[i].jogo);
+  const ativos = ultimoEstado ? ultimoEstado.jogos.filter(j => !j.encerrado) : [];
+  if (ativos[i]) marcarGol(ativos[i].jogo);
 });
 
 async function atualizar() {
@@ -369,7 +402,7 @@ async function atualizar() {
   vigiarQuedas(d);
   document.getElementById('r-gravando').textContent = d.gravando + ' / ' + d.total;
   document.getElementById('r-mb').textContent = mb(d.mb);
-  document.getElementById('r-jogos').textContent = d.jogos.length;
+  document.getElementById('r-jogos').textContent = d.jogos_ativos;
   document.getElementById('r-hora').textContent = d.hora;
 
   if (!d.jogos.length) {
@@ -381,7 +414,7 @@ async function atualizar() {
   // e pedir a cada 3s so faria o navegador buscar de novo a mesma foto.
   const selo = Math.floor(Date.now() / 15000);
 
-  alvo.innerHTML = d.jogos.map((j, i) => {
+  const bloco = (j, i) => {
     const linhas = j.canais.slice().sort((a, b) =>
       (b.gravando - a.gravando) || (b.mb - a.mb)
     ).map(c => `
@@ -426,9 +459,11 @@ async function atualizar() {
                   title="Abre a pasta de clipes no Explorador: um gol por subpasta">📂 abrir clipes</button>` : ''}
         </h2>
         <div class="barra-gol">
-          <button class="marcar" data-acao="marcar" data-jogo="${j.jogo}">⚽ MARCAR GOL AGORA <kbd>${i + 1}</kbd></button>
+          <button class="marcar" data-acao="marcar" data-jogo="${j.jogo}">⚽ MARCAR GOL AGORA${i === null ? '' : ` <kbd>${i + 1}</kbd>`}</button>
           <div class="marcas">${marcas}</div>
           <button class="parar" data-acao="parar" data-jogo="${j.jogo}">■ PARAR ESTE JOGO</button>
+          ${j.encerrado ? '' : `<button class="encerrar" data-acao="encerrar" data-jogo="${j.jogo}"
+                  title="Tira este jogo da área de trabalho. Não para a gravação e não apaga nada.">✓ ENCERRAR</button>`}
         </div>
         <div class="quadros">${quadros}</div>
         <table>
@@ -436,7 +471,32 @@ async function atualizar() {
           <tbody>${linhas}</tbody>
         </table>
       </div>`;
-  }).join('');
+  };
+
+  const ativos = d.jogos.filter(j => !j.encerrado);
+  const arquivados = d.jogos.filter(j => j.encerrado);
+  alvo.innerHTML = ativos.map(bloco).join('') + secaoEncerrados(arquivados, bloco);
+}
+
+function secaoEncerrados(arquivados, bloco) {
+  if (!arquivados.length) return '';
+  const linhas = arquivados.map(j => `
+    <details class="arquivado" ${abertos.has(j.jogo) ? 'open' : ''}>
+      <summary data-jogo="${j.jogo}">
+        <b>${j.jogo}</b>
+        <span class="placar">${j.total} canais · ${mb(j.mb)} · ${(j.gols || []).length} gols</span>
+        ${j.tem_clipes ? `<button class="abrir" data-acao="abrir" data-jogo="${j.jogo}"
+                title="Abre a pasta de clipes no Explorador">📂 abrir clipes</button>` : ''}
+        <button class="reabrir" data-acao="reabrir" data-jogo="${j.jogo}"
+                title="Devolve o jogo para a área de trabalho">↺ reabrir</button>
+      </summary>
+      ${bloco(j, null)}
+    </details>`).join('');
+  return `
+    <section class="encerrados">
+      <h2>Encerrados <span class="placar">${arquivados.length} fora da área de trabalho</span></h2>
+      ${linhas}
+    </section>`;
 }
 
 const lupa = document.getElementById('lupa');
@@ -549,7 +609,16 @@ alvo.addEventListener('click', async (e) => {
   if (foto) { abrirLupa(foto.dataset.jogo, foto.dataset.canal); return; }
 
   const b = e.target.closest('button');
-  if (!b) return;
+  if (!b) {
+    const cabeca = e.target.closest('summary[data-jogo]');
+    if (cabeca) {
+      const jogo = cabeca.dataset.jogo;
+      if (abertos.has(jogo)) abertos.delete(jogo); else abertos.add(jogo);
+    }
+    return;
+  }
+  // Botao dentro do <summary> abriria ou fecharia a gaveta junto com a acao.
+  if (e.target.closest('summary')) e.preventDefault();
   const {acao, jogo, n, s} = b.dataset;
   if (acao === 'marcar') marcarGol(jogo);
   if (acao === 'mover') enviar('/api/mover', {jogo, numero: Number(n), segundos: Number(s)});
@@ -579,6 +648,22 @@ alvo.addEventListener('click', async (e) => {
 O que já foi gravado continua no disco, mas daqui em diante nada mais é gravado.`)) return;
     const d = await enviar('/api/parar', {jogo});
     if (d) avisar(`gravação parada (${d.derrubados} processo(s))`);
+  }
+  if (acao === 'encerrar') {
+    const vivo = (ultimoEstado.jogos.find(j => j.jogo === jogo) || {}).gravando;
+    if (vivo && !confirm(`"${jogo}" ainda tem ${vivo} canal(is) GRAVANDO.
+
+Encerrar só tira o jogo da área de trabalho — a gravação continua.
+Arquivar mesmo assim?`)) return;
+    await enviar('/api/encerrar', {jogo});
+    avisar(`"${jogo}" foi para os encerrados. Nada foi apagado.`);
+    atualizar();
+  }
+  if (acao === 'reabrir') {
+    await enviar('/api/reabrir', {jogo});
+    abertos.delete(jogo);
+    avisar(`"${jogo}" voltou para a área de trabalho.`);
+    atualizar();
   }
 });
 

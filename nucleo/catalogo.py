@@ -53,6 +53,20 @@ def registrar_rodada(dados: dict, rodada: str) -> dict:
     return dados
 
 
+def registrar_encerramento(dados: dict, quando: str | None) -> dict:
+    """Marca que o jogo acabou, para o painel tirar da area de trabalho.
+
+    So mexe na tela: nao para gravacao, nao apaga video e nao toca nos gols.
+    `None` desmarca - apagando o campo em vez de gravar vazio, porque
+    `"encerrado": ""` leria como encerrado em qualquer teste ingenuo.
+    """
+    if quando:
+        dados["encerrado"] = quando
+    else:
+        dados.pop("encerrado", None)
+    return dados
+
+
 def registrar_placar(dados: dict, gols_mandante: int, gols_visitante: int) -> dict:
     """Guarda o placar, porque a ESPN so responde enquanto o jogo esta no ar.
 

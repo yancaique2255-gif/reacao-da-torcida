@@ -29,6 +29,9 @@ def estado(biblioteca: Path, agora: float) -> dict:
     """O que a pagina precisa: os jogos, com seus canais, e a hora da medicao."""
     jogos = monitor.panorama(biblioteca, agora)
     for j in jogos:
+        j["encerrado"] = catalogo.carregar(
+            Path(biblioteca) / j["jogo"]
+        ).get("encerrado")
         j["gols"] = gols_do_jogo(biblioteca, j["jogo"], j["total"], agora)
         medidos = alinhamento.deslocamentos_do_jogo(
             Path(biblioteca) / j["jogo"] / "bruto"
@@ -40,12 +43,17 @@ def estado(biblioteca: Path, agora: float) -> dict:
             j["espn"] = espn_do_jogo(biblioteca, j["jogo"], agora)
         except Exception:
             j["espn"] = None  # placar e um extra: nunca derruba o painel
+    # Os numeros do topo sao a area de trabalho de agora: canal de jogo
+    # encerrado nao esta "parado", ele acabou - somar os dois fazia o painel
+    # anunciar "3 / 10" com 6 canais de uma partida de dois dias atras.
+    ativos = [j for j in jogos if not j["encerrado"]]
     return {
         "hora": time.strftime("%H:%M:%S", time.localtime(agora)),
         "jogos": jogos,
-        "gravando": sum(j["gravando"] for j in jogos),
-        "total": sum(j["total"] for j in jogos),
-        "mb": sum(j["mb"] for j in jogos),
+        "gravando": sum(j["gravando"] for j in ativos),
+        "total": sum(j["total"] for j in ativos),
+        "mb": sum(j["mb"] for j in ativos),
+        "jogos_ativos": len(ativos),
     }
 
 
@@ -81,6 +89,34 @@ def marcar(biblioteca: Path, jogo: str, agora: datetime, atraso: float = 0.0) ->
     )
     catalogo.salvar(pasta, dados)
     return {"numero": numero, "horario": momento.strftime("%H:%M:%S")}
+
+
+def encerrar(biblioteca: Path, jogo: str, agora: datetime) -> dict:
+    """Tira o jogo da area de trabalho do painel. So isso.
+
+    Nao para gravacao, nao apaga video, nao mexe nos gols: quem some da tela
+    continua inteiro no disco, e `reabrir` traz de volta. A marca vai no
+    catalogo do jogo, e nao na pagina aberta, senao recarregar a tela
+    desarquivaria tudo.
+    """
+    pasta = _pasta_do_jogo(biblioteca, jogo)
+    if not (pasta / "bruto").is_dir():
+        raise ValueError(f"jogo nao existe: {jogo}")
+    quando = agora.isoformat(timespec="seconds")
+    catalogo.salvar(
+        pasta, catalogo.registrar_encerramento(catalogo.carregar(pasta), quando)
+    )
+    return {"encerrado": quando}
+
+
+def reabrir(biblioteca: Path, jogo: str) -> dict:
+    pasta = _pasta_do_jogo(biblioteca, jogo)
+    if not (pasta / "bruto").is_dir():
+        raise ValueError(f"jogo nao existe: {jogo}")
+    catalogo.salvar(
+        pasta, catalogo.registrar_encerramento(catalogo.carregar(pasta), None)
+    )
+    return {"encerrado": None}
 
 
 def mover(biblioteca: Path, jogo: str, numero: int, segundos: float) -> dict:
@@ -395,6 +431,10 @@ class _Manipulador(BaseHTTPRequestHandler):
                 self.biblioteca, c["jogo"], int(c["numero"])
             ),
             "/api/parar": lambda c: parar_gravacao(self.biblioteca, c["jogo"]),
+            "/api/encerrar": lambda c: encerrar(
+                self.biblioteca, c["jogo"], datetime.now()
+            ),
+            "/api/reabrir": lambda c: reabrir(self.biblioteca, c["jogo"]),
             "/api/cronometrar": lambda c: cronometrar(
                 self.biblioteca, c["jogo"], c["canal"], c["relogio"],
                 int(c.get("tempo", 0)), c["instante"], self.cfg,

@@ -151,3 +151,26 @@ def test_registrar_o_placar_de_um_gol_guarda_o_momento_daquele_gol():
 def test_registrar_placar_de_gol_inexistente_reclama():
     with pytest.raises(KeyError):
         catalogo.registrar_placar_do_gol(catalogo.novo("jogo"), 7, 1, 0)
+
+
+def test_encerrar_guarda_quando_o_jogo_foi_arquivado():
+    dados = catalogo.registrar_encerramento(
+        catalogo.novo("jogo"), "2026-09-05T17:50:00"
+    )
+
+    assert dados["encerrado"] == "2026-09-05T17:50:00"
+
+
+def test_reabrir_apaga_a_marca_em_vez_de_gravar_vazio():
+    """Campo vazio no disco leria como encerrado em qualquer teste de verdade."""
+    dados = catalogo.registrar_encerramento(
+        catalogo.novo("jogo"), "2026-09-05T17:50:00"
+    )
+
+    dados = catalogo.registrar_encerramento(dados, None)
+
+    assert "encerrado" not in dados
+
+
+def test_jogo_novo_nasce_sem_marca_de_encerrado():
+    assert "encerrado" not in catalogo.novo("jogo")

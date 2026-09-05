@@ -4,6 +4,8 @@ import os
 import time
 from pathlib import Path
 
+import pytest
+
 from nucleo import catalogo
 from painel import gravacao
 
@@ -601,3 +603,81 @@ def test_estado_diz_se_o_jogo_ja_tem_clipes_para_abrir(tmp_path: Path):
     _mp4_do_corte(tmp_path, jogo, 1, "arena")
 
     assert gravacao.estado(tmp_path, time.time())["jogos"][0]["tem_clipes"] is True
+
+
+def test_encerrar_marca_o_jogo_sem_tocar_no_que_esta_no_disco(tmp_path: Path):
+    """Arquivar e so tirar da tela: nao para gravacao e nao apaga video."""
+    jogo = "2026-09-03 gremio x internacional"
+    _canal(tmp_path / jogo / "bruto", "radio-imortal", 1)
+
+    r = gravacao.encerrar(tmp_path, jogo, datetime(2026, 9, 5, 17, 50, 0))
+
+    assert r["encerrado"] == "2026-09-05T17:50:00"
+    salvo = json.loads((tmp_path / jogo / "catalogo.json").read_text(encoding="utf-8"))
+    assert salvo["encerrado"] == "2026-09-05T17:50:00"
+    assert (tmp_path / jogo / "bruto" / "radio-imortal" / "s01-parte-000.ts").is_file()
+
+
+def test_encerrar_preserva_os_gols_ja_anotados(tmp_path: Path):
+    jogo = "2026-09-03 gremio x internacional"
+    _canal(tmp_path / jogo / "bruto", "radio-imortal", 1)
+    gravacao.marcar(tmp_path, jogo, datetime(2026, 9, 3, 21, 30, 1))
+
+    gravacao.encerrar(tmp_path, jogo, datetime(2026, 9, 5, 17, 50, 0))
+
+    salvo = json.loads((tmp_path / jogo / "catalogo.json").read_text(encoding="utf-8"))
+    assert len(salvo["gols"]) == 1
+
+
+def test_reabrir_devolve_o_jogo_para_os_ativos(tmp_path: Path):
+    jogo = "2026-09-03 gremio x internacional"
+    _canal(tmp_path / jogo / "bruto", "radio-imortal", 1)
+    gravacao.encerrar(tmp_path, jogo, datetime(2026, 9, 5, 17, 50, 0))
+
+    r = gravacao.reabrir(tmp_path, jogo)
+
+    assert r["encerrado"] is None
+    assert gravacao.estado(tmp_path, time.time())["jogos"][0]["encerrado"] is None
+
+
+def test_estado_diz_por_jogo_se_esta_encerrado(tmp_path: Path):
+    velho = "2026-09-03 gremio x internacional"
+    novo = "2026-09-05 bragantino x bahia"
+    _canal(tmp_path / velho / "bruto", "radio-imortal", 500)
+    _canal(tmp_path / novo / "bruto", "bahea-zone", 1)
+    gravacao.encerrar(tmp_path, velho, datetime(2026, 9, 5, 17, 50, 0))
+
+    por_nome = {j["jogo"]: j for j in gravacao.estado(tmp_path, time.time())["jogos"]}
+
+    assert por_nome[velho]["encerrado"] == "2026-09-05T17:50:00"
+    assert por_nome[novo]["encerrado"] is None
+
+
+def test_totais_do_topo_ignoram_jogo_encerrado(tmp_path: Path):
+    """O `3 / 10` e o `JOGOS 2` contavam canal de jogo que ja acabou."""
+    velho = "2026-09-03 gremio x internacional"
+    novo = "2026-09-05 bragantino x bahia"
+    _canal(tmp_path / velho / "bruto", "radio-imortal", 500)
+    _canal(tmp_path / velho / "bruto", "bage-tv", 500)
+    _canal(tmp_path / novo / "bruto", "bahea-zone", 1)
+
+    antes = gravacao.estado(tmp_path, time.time())
+    assert antes["total"] == 3 and antes["jogos_ativos"] == 2
+
+    gravacao.encerrar(tmp_path, velho, datetime(2026, 9, 5, 17, 50, 0))
+    depois = gravacao.estado(tmp_path, time.time())
+
+    assert depois["total"] == 1 and depois["gravando"] == 1
+    assert depois["jogos_ativos"] == 1
+    assert len(depois["jogos"]) == 2, "o jogo encerrado continua na lista, so nao conta"
+
+
+def test_encerrar_jogo_que_nao_existe_reclama(tmp_path: Path):
+    with pytest.raises(ValueError):
+        gravacao.encerrar(tmp_path, "2026-01-01 nao existe", datetime(2026, 9, 5))
+
+
+def test_pagina_tem_a_secao_de_encerrados(tmp_path: Path):
+    html = gravacao.PAGINA.read_text(encoding="utf-8")
+    assert "/api/encerrar" in html and "/api/reabrir" in html
+    assert 'class="encerrados"' in html and ">Encerrados " in html
