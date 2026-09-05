@@ -354,3 +354,18 @@ Ao gerar ou mexer em interface deste projeto:
 > a 12%, texto na cor cheia, com o estado repetido por escrito."
 
 > "Unifique os tokens desta tela com o DESIGN.md, sem mudar o layout."
+
+## O cartão MOLDAGEM
+
+Fica no `aside` da `edicao.html`, entre a capa e o RENDER FINAL — depois de
+escolher os clipes, antes de gerar o vídeo.
+
+A prévia do palco é um retângulo `16/9` em `--caixa-2` com uma caixa
+absolutamente posicionada por camada, em porcentagem: a janela da reação em
+`--viva` com a tinta de estado a 12%, a logo e a barra em `--fio-forte` com
+rótulo em `--fraco`. As medidas vêm do `molde.para_pagina`, as mesmas que o
+ffmpeg obedece — nenhuma constante de geometria mora no HTML.
+
+Os arranjos são pílulas comuns com `.ativo` no escolhido; a pílula preta da tela
+continua sendo uma só, o RENDER FINAL. `input.numero` é a pílula dos dois
+ajustes, com `tabular-nums` porque são números que se comparam.

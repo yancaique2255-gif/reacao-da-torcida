@@ -10,7 +10,9 @@ operador grava em disco NA HORA, e nada some calado da tela.
 import json
 from pathlib import Path
 
-from nucleo import catalogo, estudio, receita
+import pytest
+
+from nucleo import catalogo, estudio, identidade, receita
 from painel import edicao
 
 CFG = {
@@ -483,3 +485,202 @@ def test_o_render_comeca_com_o_total_que_o_painel_prometeu(tmp_path: Path):
     _pedir("POST /api/render", {}, tmp_path, lancar=lambda p: 4242)
 
     assert estudio.estado(tmp_path, vivo=lambda p: True)["total"] == tela["pecas"]
+
+
+@pytest.fixture(autouse=True)
+def identidade_isolada(tmp_path: Path, monkeypatch):
+    """Nenhum teste escreve na identidade real da maquina.
+
+    As rotas gravam com `identidade.salvar()` sem caminho, e ele resolve o
+    `ARQUIVO` do modulo na hora - trocar o atributo aqui basta.
+    """
+    monkeypatch.setattr(identidade, "ARQUIVO", tmp_path / "dados" / "identidade.json")
+
+
+def test_a_tela_traz_a_moldagem_do_canal_ja_resolvida(tmp_path: Path):
+    _jogo(tmp_path)
+
+    _, corpo = _pedir("GET /api/edicao", {}, tmp_path)
+
+    assert corpo["moldagem"] == {
+        "arranjo": "quadro-cheio", "escala": 1.0, "deslocamento": 0.0
+    }
+    assert corpo["arranjos"] == ["quadro-cheio", "palco-alto", "palco-lateral"]
+    assert corpo["fora_do_padrao"] is False
+    assert corpo["palco_desenha"] == [], "identidade vazia nao desenha nada"
+
+
+def test_escolher_o_arranjo_grava_na_identidade_do_canal(tmp_path: Path):
+    """O palco e o estilo da casa: escolher aqui vale para todo jogo."""
+    _jogo(tmp_path)
+
+    codigo, corpo = _pedir("POST /api/moldagem", {"arranjo": "palco-alto"}, tmp_path)
+
+    assert codigo == 200
+    assert corpo["moldagem"]["arranjo"] == "palco-alto"
+    assert identidade.carregar()["arranjo"] == "palco-alto"
+    assert corpo["fora_do_padrao"] is False
+
+
+def test_so_neste_jogo_grava_o_desvio_na_receita_e_marca(tmp_path: Path):
+    _jogo(tmp_path)
+
+    codigo, corpo = _pedir(
+        "POST /api/moldagem",
+        {"arranjo": "palco-lateral", "so_neste_jogo": True},
+        tmp_path,
+    )
+
+    assert codigo == 200
+    assert corpo["fora_do_padrao"] is True
+    assert corpo["moldagem"]["arranjo"] == "palco-lateral"
+    gravada = json.loads((tmp_path / receita.NOME).read_text(encoding="utf-8"))
+    assert gravada["moldagem"]["arranjo"] == "palco-lateral"
+    assert identidade.carregar()["arranjo"] == "quadro-cheio", "o canal nao mudou"
+
+
+def test_mexer_no_padrao_do_canal_apaga_o_desvio_do_jogo(tmp_path: Path):
+    _jogo(tmp_path)
+    _pedir("POST /api/moldagem", {"escala": 0.8, "so_neste_jogo": True}, tmp_path)
+
+    _, corpo = _pedir("POST /api/moldagem", {"escala": 0.9}, tmp_path)
+
+    assert corpo["fora_do_padrao"] is False
+    assert corpo["moldagem"]["escala"] == 0.9
+
+
+def test_escala_acima_de_um_e_recusada_pela_rota(tmp_path: Path):
+    """O navegador ja prende o campo; quem garante e este lado."""
+    _jogo(tmp_path)
+
+    codigo, corpo = _pedir("POST /api/moldagem", {"escala": 1.5}, tmp_path)
+
+    assert codigo == 400
+    assert "1280x720" in corpo["erro"]
+    assert identidade.carregar()["escala"] == 1.0, "nada mudou no disco"
+
+
+def test_arranjo_que_nao_existe_e_recusado_pela_rota(tmp_path: Path):
+    _jogo(tmp_path)
+
+    codigo, corpo = _pedir(
+        "POST /api/moldagem", {"arranjo": "palco-do-mickey"}, tmp_path
+    )
+
+    assert codigo == 400
+    assert "palco-alto" in corpo["erro"]
+
+
+def test_os_arrobas_gravam_na_hora(tmp_path: Path):
+    """Nada so na memoria da pagina aberta."""
+    _jogo(tmp_path)
+
+    codigo, corpo = _pedir(
+        "POST /api/identidade", {"redes": {"youtube": "@veiabanguela"}}, tmp_path
+    )
+
+    assert codigo == 200
+    assert corpo["identidade"]["redes"]["youtube"] == "@veiabanguela"
+    assert identidade.carregar()["redes"]["youtube"] == "@veiabanguela"
+
+
+def test_conferir_palco_sem_marca_nenhuma_diz_que_nao_ha_o_que_desenhar(tmp_path: Path):
+    _jogo(tmp_path)
+
+    codigo, corpo = _pedir("POST /api/palco", {}, tmp_path)
+
+    assert codigo == 200
+    assert corpo["arquivo"] == ""
+    assert "arte" in corpo["recado"].lower()
+
+
+def test_conferir_palco_devolve_o_png_para_a_tela(tmp_path: Path):
+    from PIL import Image
+
+    _jogo(tmp_path)
+    arte = tmp_path / "arte.png"
+    Image.new("RGB", (1920, 1080), (12, 90, 40)).save(arte)
+    _pedir("POST /api/identidade", {"arte_de_fundo": str(arte)}, tmp_path)
+
+    codigo, corpo = _pedir("POST /api/palco", {}, tmp_path)
+
+    assert codigo == 200
+    assert corpo["arquivo"].startswith("/midia/intermediarios/formas/palco-deitado-")
+    assert "?v=" in corpo["arquivo"], "sem contador o navegador mostra o palco velho"
+
+
+def test_a_tela_diz_o_que_o_palco_vai_desenhar(tmp_path: Path):
+    from PIL import Image
+
+    _jogo(tmp_path)
+    logo = tmp_path / "logo.png"
+    Image.new("RGBA", (400, 400), (255, 0, 0, 255)).save(logo)
+    _pedir("POST /api/moldagem", {"arranjo": "palco-alto"}, tmp_path)
+    _pedir("POST /api/identidade", {"logo": str(logo)}, tmp_path)
+
+    _, corpo = _pedir("GET /api/edicao", {}, tmp_path)
+
+    assert corpo["palco_desenha"] == ["logo"]
+
+
+def test_a_previa_da_tela_traz_as_caixas_do_arranjo_escolhido(tmp_path: Path):
+    """A previa usa `para_pagina`, que ja devolve as caixas em pixels."""
+    _jogo(tmp_path)
+    _pedir("POST /api/moldagem", {"arranjo": "palco-alto"}, tmp_path)
+
+    _, corpo = _pedir("GET /api/edicao", {}, tmp_path)
+
+    caixas = {c["nome"]: c for c in corpo["molde"]["camadas"]}
+    assert (caixas["quadro"]["largura"], caixas["quadro"]["altura"]) == (1280, 720)
+    assert "logo" in caixas and "barra" in caixas
+
+
+def test_abrir_a_pasta_chama_o_explorador_com_o_caminho_inteiro(tmp_path: Path):
+    """O nome do jogo tem espacos: o caminho vai como ARGUMENTO, nunca como
+    texto para o operador copiar."""
+    _jogo(tmp_path)
+    saida = tmp_path / "saida" / "compilacao-deitado.mp4"
+    saida.parent.mkdir(parents=True, exist_ok=True)
+    saida.write_bytes(b"video de mentira")
+    estudio.anotar(tmp_path, rodando=False, saida=str(saida))
+    abertos = []
+
+    codigo, _ = _pedir("POST /api/abrir-pasta", {}, tmp_path, abrir=abertos.append)
+
+    assert codigo == 200
+    assert abertos == [saida]
+
+
+def test_abrir_a_pasta_sem_video_pronto_diz_que_nao_tem(tmp_path: Path):
+    _jogo(tmp_path)
+    abertos = []
+
+    codigo, corpo = _pedir("POST /api/abrir-pasta", {}, tmp_path, abrir=abertos.append)
+
+    assert codigo == 404
+    assert abertos == []
+    assert "video" in corpo["erro"].lower()
+
+
+def test_receita_editada_na_mao_fora_da_trava_ainda_abre_a_tela(tmp_path: Path):
+    """Tela que nao abre e pior do que tela com recado."""
+    dados = _jogo(tmp_path)
+    edicao_ruim = receita.padrao(dados)
+    edicao_ruim["moldagem"] = {"escala": 1.9}
+    receita.salvar(tmp_path, edicao_ruim)
+
+    codigo, corpo = _pedir("GET /api/edicao", {}, tmp_path)
+
+    assert codigo == 200
+    assert corpo["moldagem"]["escala"] == 1.0, "caiu no padrao do canal"
+    assert "1280x720" in corpo["recado_da_moldagem"]
+
+
+def test_a_tela_tem_o_cartao_da_moldagem_antes_do_render():
+    """A seccao 8: o lugar que faltava e depois de escolher os clipes, antes de gerar."""
+    pagina = edicao.PAGINA.read_text(encoding="utf-8")
+
+    assert 'id="moldagem"' in pagina
+    assert 'id="botao-palco"' in pagina
+    assert 'id="abrir-pasta"' in pagina
+    assert pagina.index('id="moldagem"') < pagina.index('id="render"')

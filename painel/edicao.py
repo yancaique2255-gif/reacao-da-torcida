@@ -16,8 +16,8 @@ from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from nucleo import canais, capa, catalogo, cortador, estudio, melhor, molde
-from nucleo import perdedor, publicacao, receita, torcidas
+from nucleo import canais, capa, catalogo, cortador, estudio, identidade, melhor
+from nucleo import molde, perdedor, publicacao, receita, torcidas
 
 PAGINA = Path(__file__).resolve().parent / "edicao.html"
 RAIZ = Path(__file__).resolve().parent.parent
@@ -38,6 +38,19 @@ def lancar_render(pasta_jogo: Path) -> int:
         cwd=str(RAIZ),
     )
     return processo.pid
+
+
+def abrir_no_explorador(saida: Path) -> None:
+    """`explorer /select,<arquivo>`: a pasta abre com o video ja selecionado.
+
+    O caminho vai como ARGUMENTO, e nao como texto na tela para o operador
+    copiar: o nome do jogo tem espacos e, colado sem aspas, o Windows nao
+    encontra - foi o que travou o dono em 05/09, com o video pronto no disco.
+
+    `Popen` e nao `run`: o `explorer` sai com codigo 1 mesmo quando abre a
+    janela.
+    """
+    subprocess.Popen(["explorer", f"/select,{saida}"])
 
 
 def _clipes(dados: dict) -> dict:
@@ -61,6 +74,16 @@ def tela(pasta_jogo: Path, dados: dict, edicao: dict, cfg: dict) -> dict:
     instante.
     """
     formato = edicao.get("formato", receita.FORMATO_PADRAO)
+    ident = identidade.carregar()
+    try:
+        moldagem = identidade.moldagem(ident, edicao)
+        recado_da_moldagem = ""
+    except ValueError as erro:
+        # Receita editada na mao com numero fora da trava: a tela abre no padrao
+        # do canal e DIZ por que. Tela que nao abre e pior do que tela com
+        # recado - o operador fica sem lugar nenhum para consertar.
+        moldagem = identidade.moldagem(ident)
+        recado_da_moldagem = str(erro)
     clipes = _clipes(dados)
     alvo = perdedor.alvo(dados)
 
@@ -116,7 +139,13 @@ def tela(pasta_jogo: Path, dados: dict, edicao: dict, cfg: dict) -> dict:
         "duracao_por_clipe": (edicao.get("molde") or {}).get(
             "duracao_por_clipe", receita.DURACAO_POR_CLIPE
         ),
-        "molde": molde.para_pagina(molde.camadas(formato), formato),
+        "molde": molde.para_pagina(molde.camadas(formato, **moldagem), formato),
+        "arranjos": molde.arranjos(formato),
+        "moldagem": moldagem,
+        "identidade": {**ident, "redes": dict(ident.get("redes") or {})},
+        "fora_do_padrao": identidade.desviou(edicao),
+        "palco_desenha": estudio.camadas_do_palco(ident, formato, moldagem),
+        "recado_da_moldagem": recado_da_moldagem,
         "cor_fundo": estudio.cor_do_fundo(edicao),
         "gols": gols,
         "sem_torcida": perdedor.sem_torcida(dados),
@@ -137,6 +166,7 @@ def montar_resposta(
     cfg: dict,
     executar=None,
     lancar=None,
+    abrir=None,
 ) -> tuple[int, dict]:
     pasta_jogo = Path(pasta_jogo)
     dados = catalogo.carregar(pasta_jogo)
@@ -292,6 +322,95 @@ def montar_resposta(
             "texto": saida.read_text(encoding="utf-8"),
         }
 
+    if rota == "POST /api/moldagem":
+        edicao = receita.carregar(pasta_jogo, dados)
+        formato = edicao.get("formato", receita.FORMATO_PADRAO)
+        valores = {}
+        for campo in identidade.CAMPOS_DA_MOLDAGEM:
+            if campo not in corpo:
+                continue
+            if campo == "arranjo":
+                if corpo[campo] not in molde.arranjos(formato):
+                    return 400, {
+                        "erro": f"arranjo '{corpo[campo]}' nao existe no "
+                                f"{formato} - use "
+                                f"{' ou '.join(molde.arranjos(formato))}"
+                    }
+                valores[campo] = corpo[campo]
+                continue
+            try:
+                valores[campo] = float(corpo[campo])
+            except (TypeError, ValueError):
+                return 400, {"erro": f"{campo} precisa ser um numero"}
+        try:
+            if corpo.get("so_neste_jogo"):
+                # A trava vale nos dois caminhos: desvio de jogo tambem nao
+                # pode furar o teto de 1,00.
+                identidade.conferir({
+                    **identidade.moldagem(identidade.carregar(), edicao), **valores
+                })
+                edicao = receita.definir_moldagem(edicao, valores)
+            else:
+                identidade.salvar(identidade.mexer(identidade.carregar(), **valores))
+                # Mexer no padrao do canal apaga o desvio deste jogo: senao o
+                # operador mexe no numero e a tela nao muda, porque o desvio
+                # continua ganhando, calado.
+                edicao = receita.definir_moldagem(edicao, None)
+        except ValueError as erro:
+            return 400, {"erro": str(erro)}
+        receita.salvar(pasta_jogo, edicao)
+        return 200, tela(pasta_jogo, dados, edicao, cfg)
+
+    if rota == "POST /api/identidade":
+        campos = {
+            campo: corpo[campo]
+            for campo in ("arte_de_fundo", "logo", "chamada")
+            if campo in corpo
+        }
+        if "redes" in corpo:
+            campos["redes"] = {
+                rede: str(arroba).strip()
+                for rede, arroba in (corpo["redes"] or {}).items()
+                if rede in identidade.REDES
+            }
+        try:
+            identidade.salvar(identidade.mexer(identidade.carregar(), **campos))
+        except ValueError as erro:
+            return 400, {"erro": str(erro)}
+        return 200, tela(pasta_jogo, dados, receita.carregar(pasta_jogo, dados), cfg)
+
+    if rota == "POST /api/palco":
+        edicao = receita.carregar(pasta_jogo, dados)
+        formato = edicao.get("formato", receita.FORMATO_PADRAO)
+        ident = identidade.carregar()
+        try:
+            moldagem = identidade.moldagem(ident, edicao)
+        except ValueError as erro:
+            return 400, {"erro": str(erro)}
+        recados = []
+        cenario = estudio.palco(
+            pasta_jogo, formato, ident, moldagem, estudio.cor_do_fundo(edicao),
+            estudio.fonte_de(cfg), recados.append,
+        )
+        if cenario is None:
+            return 200, {
+                "arquivo": "",
+                "recado": "nada de marca para desenhar - preencha a arte de "
+                          "fundo, a logo ou um @ das redes",
+            }
+        relativo = cenario.relative_to(pasta_jogo).as_posix()
+        return 200, {
+            "arquivo": f"/midia/{relativo}?v={cenario.stat().st_mtime_ns}",
+            "recado": " ".join(recados),
+        }
+
+    if rota == "POST /api/abrir-pasta":
+        saida = estudio.estado(pasta_jogo).get("saida") or ""
+        if not saida or not Path(saida).exists():
+            return 404, {"erro": "ainda nao ha video pronto neste jogo"}
+        (abrir or abrir_no_explorador)(Path(saida))
+        return 200, {"abriu": saida}
+
     if rota == "POST /api/render":
         estado = estudio.estado(pasta_jogo)
         if estado.get("rodando"):
@@ -301,6 +420,12 @@ def montar_resposta(
             return 400, {
                 "erro": "nenhuma reacao marcada - marque as que entram antes de montar"
             }
+        try:
+            identidade.moldagem(identidade.carregar(), edicao)
+        except ValueError as erro:
+            # Melhor recusar aqui do que deixar o render morrer num processo
+            # separado, onde a mensagem nao chega a tela.
+            return 400, {"erro": str(erro)}
         receita.salvar(pasta_jogo, edicao)
         estudio.anotar(
             pasta_jogo, rodando=True, feito=0,

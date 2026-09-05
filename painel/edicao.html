@@ -119,6 +119,29 @@
                       color: var(--texto); border: 1px solid var(--fio-forte);
                       border-radius: 12px; padding: 10px; font: inherit;
                       font-size: 12px; display: none; margin-top: 8px; }
+    #moldagem .previa-palco { position: relative; width: 100%; background: var(--caixa-2);
+                              border: 1px solid var(--linha); border-radius: 8px;
+                              aspect-ratio: 16/9; margin-bottom: 12px; }
+    #moldagem .previa-palco > div { position: absolute; border: 1px solid var(--fio-forte);
+                                    border-radius: 8px; font-size: 11px; color: var(--fraco);
+                                    display: flex; align-items: center;
+                                    justify-content: center; overflow: hidden; }
+    #moldagem .previa-palco > div.quadro { border-color: var(--viva); color: var(--viva);
+                                           background: color-mix(in srgb, var(--viva) 12%, var(--caixa)); }
+    #moldagem .arranjos { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+    #moldagem .numeros { display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+                         margin-bottom: 8px; }
+    #moldagem .numeros label { color: var(--fraco); font-size: 12px; font-weight: 600;
+                               text-transform: uppercase; letter-spacing: .5px; }
+    #moldagem .so-neste-jogo { display: flex; align-items: center; gap: 8px;
+                               margin-bottom: 12px; color: var(--fraco); font-size: 12px;
+                               font-weight: 600; text-transform: uppercase;
+                               letter-spacing: .5px; }
+    input.numero { width: 100%; background: var(--caixa-2); color: var(--texto);
+                   border: 1px solid var(--fio-forte); border-radius: 999px;
+                   padding: 6px 12px; font: inherit; font-weight: 700;
+                   font-variant-numeric: tabular-nums; }
+    #palco { width: 100%; border-radius: 12px; display: none; margin-top: 8px; }
   </style>
 </head>
 <body>
@@ -166,10 +189,34 @@
       <p class="recado" id="recado-capa"></p>
     </div>
 
+    <div class="cartao" id="moldagem">
+      <div class="rotulo">moldagem <span class="aviso" id="desvio"></span></div>
+      <div class="previa-palco" id="previa-palco"></div>
+      <div class="arranjos" id="arranjos"></div>
+      <div class="numeros">
+        <label>escala
+          <input type="number" id="escala" class="numero" min="0.6" max="1" step="0.05">
+        </label>
+        <label>deslocamento
+          <input type="number" id="deslocamento" class="numero" min="-0.15" max="0.15" step="0.01">
+        </label>
+      </div>
+      <label class="so-neste-jogo">
+        <input type="checkbox" id="so-neste-jogo"> só neste jogo
+      </label>
+      <input type="text" id="youtube" placeholder="@ do YouTube">
+      <input type="text" id="instagram" placeholder="@ do Instagram">
+      <input type="text" id="tiktok" placeholder="@ do TikTok">
+      <button class="abrir" id="botao-palco">CONFERIR PALCO</button>
+      <img id="palco" alt="palco do canal">
+      <p class="recado" id="recado-moldagem"></p>
+    </div>
+
     <div class="cartao">
       <button class="render" id="render">RENDER FINAL</button>
       <div class="progresso" style="margin-top:12px"><div id="progresso-barra"></div></div>
       <p class="recado" id="recado-render">fila: nada rodando</p>
+      <button class="abrir" id="abrir-pasta" style="display:none">ABRIR A PASTA</button>
       <p class="recado"><span id="cache"></span>
         <button class="perigo" id="limpar">limpar</button></p>
     </div>
@@ -269,8 +316,60 @@ function desenhar(dados) {
   gols.innerHTML = "";
   for (const gol of dados.gols) gols.append(desenharGol(gol, dados));
 
+  desenharMoldagem(dados);
   mostrarRender(dados.render);
 }
+
+function desenharMoldagem(dados) {
+  const arranjos = $("arranjos");
+  arranjos.innerHTML = "";
+  for (const nome of dados.arranjos) {
+    const botao = document.createElement("button");
+    botao.textContent = nome.toUpperCase();
+    botao.classList.toggle("ativo", nome === dados.moldagem.arranjo);
+    botao.onclick = () => mandarMoldagem({ arranjo: nome });
+    arranjos.append(botao);
+  }
+  $("escala").value = dados.moldagem.escala;
+  $("deslocamento").value = dados.moldagem.deslocamento;
+  // Sair do padrão do canal é permitido, mas nunca por acidente: a tela marca.
+  $("desvio").textContent = dados.fora_do_padrao ? "fora do padrão do canal" : "";
+  $("so-neste-jogo").checked = dados.fora_do_padrao;
+  const redes = (dados.identidade || {}).redes || {};
+  for (const rede of ["youtube", "instagram", "tiktok"]) {
+    $(rede).value = redes[rede] || "";
+  }
+  if (dados.recado_da_moldagem) {
+    avisar("recado-moldagem", dados.recado_da_moldagem, "erro");
+  } else if (!dados.palco_desenha.length) {
+    avisar("recado-moldagem", "sem arte, logo ou @: o vídeo sai como hoje");
+  } else {
+    avisar("recado-moldagem", `o palco desenha: ${dados.palco_desenha.join(", ")}`);
+  }
+  desenharPreviaDoPalco(dados.molde);
+}
+
+function desenharPreviaDoPalco(molde) {
+  const tela = $("previa-palco");
+  tela.innerHTML = "";
+  tela.style.aspectRatio = `${molde.largura} / ${molde.altura}`;
+  for (const caixa of molde.camadas) {
+    if (caixa.nome === "fundo") continue;
+    const bloco = document.createElement("div");
+    bloco.className = caixa.nome;
+    bloco.style.left = `${(caixa.esquerda / molde.largura) * 100}%`;
+    bloco.style.top = `${(caixa.topo / molde.altura) * 100}%`;
+    bloco.style.width = `${(caixa.largura / molde.largura) * 100}%`;
+    bloco.style.height = `${(caixa.altura / molde.altura) * 100}%`;
+    bloco.textContent = caixa.nome === "quadro"
+      ? `${caixa.largura}×${caixa.altura}` : caixa.nome;
+    tela.append(bloco);
+  }
+}
+
+const mandarMoldagem = (campos) => mandar("/api/moldagem", {
+  ...campos, so_neste_jogo: $("so-neste-jogo").checked,
+}, "recado-moldagem");
 
 function desenharGol(gol, dados) {
   const caixa = document.createElement("section");
@@ -488,11 +587,15 @@ function mostrarRender(estado) {
   const parte = estado.total ? (estado.feito / estado.total) * 100 : 0;
   $("progresso-barra").style.width = `${parte}%`;
   $("render").disabled = !!estado.rodando;
+  $("abrir-pasta").style.display = estado.saida ? "block" : "none";
   if (estado.rodando) {
     avisar("recado-render", `rodando: ${estado.mensagem || "…"}`);
     vigiar();
   } else if (estado.saida) {
-    avisar("recado-render", `pronto: ${estado.saida}`, "ok");
+    // O caminho vai no título do botão, e não como texto para copiar: o nome do
+    // jogo tem espaços e, colado sem aspas, o Windows não encontra.
+    $("abrir-pasta").title = estado.saida;
+    avisar("recado-render", "pronto — abra a pasta para ver o vídeo", "ok");
   } else {
     avisar("recado-render", estado.mensagem || "fila: nada rodando");
   }
@@ -573,6 +676,47 @@ $("limpar").onclick = async () => {
   const resposta = await pedir("/api/limpar", {});
   avisar("recado-topo", `liberado ${resposta.liberado_mb} MB`, "ok");
   desenhar(await pedir("/api/edicao"));
+};
+
+$("escala").onchange = () => mandarMoldagem({ escala: Number($("escala").value) });
+$("deslocamento").onchange = () =>
+  mandarMoldagem({ deslocamento: Number($("deslocamento").value) });
+// Grava ao sair do campo, e não a cada tecla: uma escrita por @ escrito.
+const gravarRedes = () => mandar("/api/identidade", {
+  redes: {
+    youtube: $("youtube").value.trim(),
+    instagram: $("instagram").value.trim(),
+    tiktok: $("tiktok").value.trim(),
+  },
+}, "recado-moldagem");
+for (const rede of ["youtube", "instagram", "tiktok"]) $(rede).onchange = gravarRedes;
+
+$("botao-palco").onclick = async () => {
+  $("botao-palco").disabled = true;
+  avisar("recado-moldagem", "desenhando o palco…");
+  try {
+    const resposta = await pedir("/api/palco", {});
+    if (!resposta.arquivo) {
+      $("palco").style.display = "none";
+      avisar("recado-moldagem", resposta.recado);
+    } else {
+      $("palco").src = resposta.arquivo;
+      $("palco").style.display = "block";
+      avisar("recado-moldagem",
+             resposta.recado || "palco pronto — confira antes do render", "ok");
+    }
+  } catch (erro) {
+    avisar("recado-moldagem", erro.message, "erro");
+  }
+  $("botao-palco").disabled = false;
+};
+
+$("abrir-pasta").onclick = async () => {
+  try {
+    await pedir("/api/abrir-pasta", {});
+  } catch (erro) {
+    avisar("recado-render", erro.message, "erro");
+  }
 };
 
 pedir("/api/edicao").then(desenhar).catch((erro) => avisar("recado-topo", erro.message, "erro"));
