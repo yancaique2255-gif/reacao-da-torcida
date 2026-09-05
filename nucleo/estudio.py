@@ -28,7 +28,7 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from nucleo import cortador, molde, receita, times as mod_times
+from nucleo import cortador, identidade, molde, receita, times as mod_times
 
 PASTA_CACHE = "intermediarios"
 # As pecas prontas moram numa pasta propria, e chegar la e o batismo: um arquivo
@@ -114,12 +114,16 @@ def fazer_peca(
         return
 
 
-def identidade(origem: str, de: float, ate: float, filtro: str) -> str:
+def chave_da_peca(origem: str, de: float, ate: float, filtro: str) -> str:
     """Hash de tudo o que afeta a imagem daquela peca.
 
     O filtro ja carrega molde, formato, textos e cores: mudar qualquer um deles
     muda o nome do arquivo, e o cache percebe sozinho. Nao ha versao para
     lembrar de incrementar.
+
+    O nome era `identidade`, e virou `chave_da_peca` quando a identidade DO
+    CANAL passou a ser um modulo: duas coisas com o mesmo nome no mesmo arquivo
+    e defeito esperando hora.
     """
     crua = json.dumps(
         [origem, round(float(de), 3), round(float(ate), 3), filtro], ensure_ascii=False
@@ -148,7 +152,9 @@ def placar_do_gol(dados: dict, numero: int) -> str:
 
 # ------------------------------------------------------------------- as pecas
 
-def mascaras(pasta_jogo: Path, formato: str) -> tuple[Path, Path]:
+def mascaras(
+    pasta_jogo: Path, formato: str, moldagem: dict | None = None
+) -> tuple[Path, Path]:
     """Os dois PNGs do quadro: o recorte dos cantos e a borda clara.
 
     Cantos arredondados no ffmpeg puro dariam um `geq` caro e ilegivel; com o
@@ -157,7 +163,7 @@ def mascaras(pasta_jogo: Path, formato: str) -> tuple[Path, Path]:
     """
     from PIL import Image, ImageDraw
 
-    quadro = molde.caixa("quadro", formato)
+    quadro = molde.caixa("quadro", formato, **(moldagem or {}))
     largura, altura = quadro["largura"], quadro["altura"]
     canto, borda = quadro["cantos"], quadro["borda"]
     pasta = pasta_cache(pasta_jogo)
@@ -204,16 +210,23 @@ def cor_do_fundo(dados_receita: dict, cadastrados: dict | None = None) -> str:
     return ficha.get("cor") or molde.COR_FUNDO
 
 
-def filtro_do_item(dados_receita: dict, com_mascaras: bool = True) -> tuple[str, str]:
+def filtro_do_item(
+    dados_receita: dict, ident: dict | None = None, com_mascaras: bool = True
+) -> tuple[str, str]:
     """O filter_complex do item e o rotulo da saida dele.
 
     Nao depende do clipe nem do jogo porque nao ha nada de individual para
-    desenhar: o mesmo filtro serve a todos os itens daquela receita. O que
-    muda de um para o outro e o corte, que mora no comando.
+    desenhar: o mesmo filtro serve a todos os itens daquela receita. O que muda
+    de um para o outro e o corte, que mora no comando.
+
+    A moldagem vem RESOLVIDA - padrao do canal com o desvio do jogo por cima - e
+    e ela que decide o tamanho e a posicao da janela.
     """
+    ident = identidade.carregar() if ident is None else ident
     formato = dados_receita.get("formato", FORMATO_PADRAO)
+    moldagem = identidade.moldagem(ident, dados_receita)
     filtro = molde.para_ffmpeg(
-        molde.camadas(formato),
+        molde.camadas(formato, **moldagem),
         formato,
         cor_fundo=cor_do_fundo(dados_receita),
         mascara="1:v" if com_mascaras else None,
@@ -292,6 +305,7 @@ def planejar(
     dados: dict,
     dados_receita: dict,
     avisar: Callable[[str], None] | None = None,
+    ident: dict | None = None,
 ) -> list[dict]:
     """As pecas deste video, na ordem, cada uma com o nome que tem no cache.
 
@@ -299,10 +313,11 @@ def planejar(
     esta lista para saber o que fazer, e a recepcao usa a MESMA lista para
     saber se o mp4 que esta no disco ainda e o video que a edicao pede.
     """
+    ident = identidade.carregar() if ident is None else ident
     clipes = _clipes_por_chave(dados)
     # Um filtro so para todas as pecas: sem texto, o molde nao tem nada de
     # individual para desenhar. O que separa uma peca da outra e o corte.
-    filtro, rotulo = filtro_do_item(dados_receita)
+    filtro, rotulo = filtro_do_item(dados_receita, ident)
     plano = []
     for item in receita.itens_do_video(dados_receita):
         clipe = clipes.get((item["gol"], item["canal"]))
@@ -314,7 +329,7 @@ def planejar(
                 )
             continue
         plano.append({
-            "nome": identidade(clipe["arquivo"], item["de"], item["ate"], filtro),
+            "nome": chave_da_peca(clipe["arquivo"], item["de"], item["ate"], filtro),
             "qual": f"{item['canal']} no gol {item['gol']}",
             "clipe": clipe,
             "item": item,
@@ -324,7 +339,7 @@ def planejar(
     return plano
 
 
-def assinatura(dados: dict, dados_receita: dict) -> str:
+def assinatura(dados: dict, dados_receita: dict, ident: dict | None = None) -> str:
     """Impressao digital do video que esta edicao geraria.
 
     E a lista de pecas do plano, que ja carrega corte, molde, formato e cor - o
@@ -335,7 +350,7 @@ def assinatura(dados: dict, dados_receita: dict) -> str:
     O mtime do arquivo nao serve para isso: a tela de edicao regrava a receita
     cada vez que abre, e ai todo video parecia velho um minuto depois de sair.
     """
-    nomes = [peca["nome"] for peca in planejar(dados, dados_receita)]
+    nomes = [peca["nome"] for peca in planejar(dados, dados_receita, ident=ident)]
     return hashlib.sha1("|".join(nomes).encode("utf-8")).hexdigest()[:12]
 
 
@@ -347,6 +362,7 @@ def montar(
     executar: Callable[[list[str]], None] | None = None,
     avisar: Callable[[str], None] = print,
     tentativas: int = TENTATIVAS,
+    ident: dict | None = None,
 ) -> Path:
     """O video final. Roda peca por peca, reaproveitando o que nao mudou."""
     executar = executar or cortador.executar
@@ -357,12 +373,14 @@ def montar(
         )
 
     pasta_jogo = Path(pasta_jogo)
+    ident = identidade.carregar() if ident is None else ident
     formato = dados_receita.get("formato", FORMATO_PADRAO)
-    mascara, moldura = mascaras(pasta_jogo, formato)
+    moldagem = identidade.moldagem(ident, dados_receita)
+    mascara, moldura = mascaras(pasta_jogo, formato, moldagem)
     cache = pasta_das_pecas(pasta_jogo)
 
     tarefas = []
-    for peca in planejar(dados, dados_receita, avisar):
+    for peca in planejar(dados, dados_receita, avisar, ident):
         destino = cache / f"{peca['nome']}.mp4"
         comando_de = (
             lambda destino, p=peca: comando_item(
@@ -405,7 +423,7 @@ def montar(
 
     anotar(pasta_jogo, rodando=False, feito=total, total=total,
            saida=str(saida), mensagem="pronto",
-           assinatura=assinatura(dados, dados_receita))
+           assinatura=assinatura(dados, dados_receita, ident))
     return saida
 
 
@@ -417,15 +435,19 @@ def espiar(
     canal: str,
     cfg: dict,
     executar: Callable[[list[str]], None] | None = None,
+    ident: dict | None = None,
 ) -> Path:
     """Um quadro parado, ja no molde. E o mais barato dos dois."""
     executar = executar or cortador.executar
     pasta_jogo = Path(pasta_jogo)
     clipe = _clipe_de(dados, gol, canal)
     item = _item_de(dados_receita, gol, canal)
+    ident = identidade.carregar() if ident is None else ident
     formato = dados_receita.get("formato", FORMATO_PADRAO)
-    mascara, moldura = mascaras(pasta_jogo, formato)
-    filtro, rotulo = filtro_do_item(dados_receita)
+    mascara, moldura = mascaras(
+        pasta_jogo, formato, identidade.moldagem(ident, dados_receita)
+    )
+    filtro, rotulo = filtro_do_item(dados_receita, ident)
 
     destino = pasta_cache(pasta_jogo) / f"espiada-{gol}-{canal}.png"
     executar([
@@ -479,7 +501,7 @@ def previa(
 
     # A previa nao tem filtro para carregar o resto no hash, e nao precisa: sem
     # camadas, o que muda a imagem dela e so o clipe de origem e o trecho.
-    chave = identidade(clipe["arquivo"], item["de"], item["ate"], "crua")
+    chave = chave_da_peca(clipe["arquivo"], item["de"], item["ate"], "crua")
     destino = pasta_cache(pasta_jogo) / f"previa-{gol}-{canal}-{chave}.mp4"
     if destino.is_file():
         return destino

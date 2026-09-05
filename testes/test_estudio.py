@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from nucleo import catalogo, cortador, estudio, molde, receita
+from nucleo import catalogo, cortador, estudio, identidade, molde, receita
 
 CFG = {
     "caminho_ffmpeg": r"C:\yt-dlp\ffmpeg.exe",
@@ -481,7 +481,7 @@ def test_lixo_do_render_antigo_no_cache_nao_conta_como_peca(tmp_path: Path):
     for item in receita.itens_do_video(feita):
         clipe = estudio._clipe_de(dados, item["gol"], item["canal"])
         filtro, _ = estudio.filtro_do_item(feita)
-        nome = estudio.identidade(clipe["arquivo"], item["de"], item["ate"], filtro)
+        nome = estudio.chave_da_peca(clipe["arquivo"], item["de"], item["ate"], filtro)
         (cache / f"{nome}.mp4").write_bytes(b"\x00" * 48)  # so o ftyp
 
     executor = Executor()
@@ -636,3 +636,86 @@ def test_estado_de_render_vivo_nao_reescreve_o_disco(tmp_path: Path):
     estudio.estado(tmp_path, vivo=lambda p: True)
 
     assert (tmp_path / estudio.NOME_ESTADO).read_text(encoding="utf-8") == antes
+
+
+def test_com_identidade_vazia_o_filtro_e_o_de_hoje(tmp_path: Path):
+    """A nao-regressao vista do estudio: sem marca nenhuma, nada mudou."""
+    from testes.test_molde import FILTRO_DE_HOJE_DEITADO
+
+    dados = _jogo(tmp_path)
+
+    feita = receita.padrao(dados)
+    filtro, rotulo = estudio.filtro_do_item(feita, identidade.PADROES)
+
+    # A cor do fundo e a da torcida deste jogo; a geometria e que tem de ser
+    # caractere por caractere a de hoje.
+    esperado = FILTRO_DE_HOJE_DEITADO.replace(
+        molde.COR_FUNDO, estudio.cor_do_fundo(feita)
+    )
+    assert filtro == esperado
+    assert rotulo == "v"
+
+
+def test_o_arranjo_de_palco_encolhe_a_janela_no_render(tmp_path: Path):
+    """1280x720 cravado, na posicao do arranjo: e o 1:1 com a fonte."""
+    dados = _jogo(tmp_path)
+    ident = {**identidade.PADROES, "arranjo": "palco-alto"}
+
+    filtro, _ = estudio.filtro_do_item(receita.padrao(dados), ident)
+
+    assert "scale=1280:720:force_original_aspect_ratio=increase" in filtro
+    assert "overlay=320:280" in filtro
+
+
+def test_a_mascara_segue_a_janela_do_arranjo(tmp_path: Path):
+    """Mascara do tamanho errado arredondaria canto onde nao tem canto."""
+    from PIL import Image
+
+    mascara, moldura = estudio.mascaras(
+        tmp_path, "deitado",
+        {"arranjo": "palco-alto", "escala": 1.0, "deslocamento": 0.0},
+    )
+
+    assert Image.open(mascara).size == (1280, 720)
+    assert Image.open(moldura).size == (1280, 720)
+
+
+def test_trocar_o_arranjo_refaz_as_pecas(tmp_path: Path):
+    """Outra janela, outra imagem: o hash tem que perceber isso sozinho."""
+    dados = _jogo(tmp_path)
+    feita = receita.padrao(dados)
+    estudio.montar(tmp_path, dados, feita, CFG, executar=Executor(),
+                   ident=identidade.PADROES)
+
+    depois = Executor()
+    estudio.montar(
+        tmp_path, dados, feita, CFG, executar=depois,
+        ident={**identidade.PADROES, "arranjo": "palco-lateral"},
+    )
+
+    assert len(depois.comandos) == 3, "os dois clipes e a emenda"
+
+
+def test_o_desvio_do_jogo_muda_so_aquele_jogo(tmp_path: Path):
+    """O padrao do canal continua o padrao; este jogo sai dele, marcado."""
+    dados = _jogo(tmp_path)
+    com_desvio = receita.definir_moldagem(
+        receita.padrao(dados), {"arranjo": "palco-alto"}
+    )
+
+    filtro, _ = estudio.filtro_do_item(com_desvio, identidade.PADROES)
+
+    assert "overlay=320:280" in filtro
+
+
+def test_a_assinatura_do_video_muda_quando_a_moldagem_muda(tmp_path: Path):
+    """A recepcao compara assinaturas para saber se o mp4 do disco envelheceu."""
+    dados = _jogo(tmp_path)
+    feita = receita.padrao(dados)
+
+    antes = estudio.assinatura(dados, feita, identidade.PADROES)
+    depois = estudio.assinatura(
+        dados, feita, {**identidade.PADROES, "arranjo": "palco-alto"}
+    )
+
+    assert antes != depois
