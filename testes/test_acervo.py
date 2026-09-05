@@ -252,6 +252,22 @@ def test_render_antigo_sem_assinatura_nao_afirma_nada(tmp_path: Path):
     assert not any("renderize de novo" in p["texto"] for p in r["pendencias"])
 
 
+def test_video_no_disco_conta_mesmo_com_gol_sem_cortar(tmp_path: Path):
+    """"Com video" e fato do disco; "pronto" e etapa. Nao sao o mesmo numero.
+
+    O jogo de 03/09 tinha mp4 rendido e um gol sem clipe: o topo da recepcao
+    dizia "0 videos prontos" com o arquivo ali, do lado do botao que abre ele.
+    """
+    pasta = jogo(tmp_path, gols=3, clipes_do_gol=[1, 2])
+    _renderizar(pasta)
+
+    tudo = acervo.panorama(tmp_path, AGORA, CFG, vivo=lambda pid: False)
+
+    assert tudo["jogos"][0]["etapa"] == "cortar"
+    assert tudo["totais"]["prontos"] == 0
+    assert tudo["totais"]["com_video"] == 1
+
+
 def test_render_que_morreu_no_meio_aparece_como_parou(tmp_path: Path):
     pasta = jogo(tmp_path)
     estudio.anotar(pasta, rodando=False, feito=3, total=16,
@@ -292,6 +308,7 @@ def test_o_proximo_e_o_jogo_mais_novo_que_ainda_pede_trabalho(tmp_path: Path):
     assert tudo["proximo"] == velho.name
     assert tudo["totais"]["prontos"] == 1
     assert tudo["totais"]["pendentes"] == 1
+    assert tudo["totais"]["com_video"] == 1
 
 
 def test_jogo_gravando_nao_entra_no_por_onde_continuar(tmp_path: Path):

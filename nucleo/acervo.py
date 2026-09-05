@@ -291,6 +291,9 @@ def panorama(biblioteca: Path, agora: float, cfg: dict, vivo=None) -> dict:
             "lives": sum(j.get("lives", {}).get("total", 0) for j in jogos),
             "gols": sum(j.get("gols", 0) for j in jogos),
             "prontos": sum(1 for j in jogos if j["etapa"] == "pronto"),
+            # Fato do disco, e nao etapa: um jogo pode ter mp4 pronto e ainda
+            # ter um gol sem cortar. Dizer "0 videos" com o arquivo la e mentir.
+            "com_video": sum(1 for j in jogos if j.get("video")),
             "pendentes": len(pendentes),
         },
         # Por onde continuar: o jogo mais novo que ainda pede trabalho. É ele
