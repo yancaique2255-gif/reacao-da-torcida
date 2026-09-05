@@ -468,13 +468,16 @@ async function verQuadro(item, botao) {
 
 async function verPrevia(item, botao) {
   botao.disabled = true;
-  avisar("recado-espiar", "renderizando a prévia… leva alguns segundos.");
+  avisar("recado-espiar", "cortando o trecho…");
   try {
     const resposta = await pedir("/api/previa", { gol: item.gol, canal: item.canal });
     $("previa").src = resposta.arquivo;
     $("previa").style.display = "block";
     $("espiada").style.display = "none";
-    avisar("recado-espiar", `prévia de ${item.canal}`, "ok");
+    // Ja toca: o clique no PRÉVIA e o pedido para ver o corte, nao para abrir
+    // um tocador. Se o navegador recusar o som automatico, sobra o play.
+    $("previa").play().catch(() => {});
+    avisar("recado-espiar", `corte de ${item.canal} — sem as camadas`, "ok");
   } catch (erro) {
     avisar("recado-espiar", erro.message, "erro");
   }

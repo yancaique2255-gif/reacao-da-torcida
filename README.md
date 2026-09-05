@@ -27,7 +27,8 @@ Os atalhos numerados na raiz da pasta são a ordem de uso, e cada um chama o
    ordem da reação mais forte, com o corte proposto —, e tudo ali é ajustável:
    marcar e desmarcar, arrastar as alças do corte, trocar de que torcida se ri,
    virar o vídeo em pé. Cada clique grava em disco na hora. ESPIAR mostra um
-   quadro pronto na hora; PRÉVIA renderiza o trecho pequeno; RENDER FINAL vai
+   quadro pronto com todas as camadas; PRÉVIA mostra só o corte, cru e em
+   segundos; RENDER FINAL vai
    para a fila em outro processo, e você pode fechar a tela sem matar o render.
 
 7. **6 - ESTUDIO DE TODOS OS JOGOS** (porta 8773) — a recepção: a biblioteca

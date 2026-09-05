@@ -214,7 +214,15 @@ def test_espiar_sai_um_quadro_so(tmp_path: Path):
     assert len(executor.comandos) == 1
 
 
-def test_a_previa_e_pequena_e_so_do_trecho(tmp_path: Path):
+def test_a_previa_e_so_o_corte_cru_sem_as_camadas(tmp_path: Path):
+    """A previa responde UMA pergunta: o corte pegou o que tinha que pegar?
+
+    Compor fundo, quadro, etiqueta e placar em 1080p para so entao encolher
+    para 640 custava 25 s no trecho de 60 s do gol 1 (medido em 05/09, e 48 s
+    no laudo do jogo real). O mesmo trecho cortado cru sai em 2,2 s, e o que o
+    operador ve e exatamente o mesmo: onde comeca, onde termina, se o grito
+    caiu dentro. Quem confere as camadas e o ESPIAR, que ja e instantaneo.
+    """
     dados = _jogo(tmp_path)
     executor = Executor()
 
@@ -222,8 +230,71 @@ def test_a_previa_e_pequena_e_so_do_trecho(tmp_path: Path):
         tmp_path, dados, receita.padrao(dados), 1, "paulo-brito", CFG, executar=executor
     )
 
-    assert "scale=640:360" in executor.texto()
+    comando = executor.comandos[0]
+    texto = executor.texto()
     assert len(executor.comandos) == 1
+    assert "scale=640" in texto
+    assert "-filter_complex" not in comando, "compor camadas e o que custava caro"
+    assert "drawtext" not in texto
+    assert "loudnorm" not in texto, "nivelar volume e coisa do render, nao da previa"
+    # `-ss` ANTES do `-i`: assim o ffmpeg pula pelo indice em vez de decodificar
+    # o clipe inteiro ate o ponto do corte.
+    assert comando.index("-ss") < comando.index("-i")
+
+
+def test_previa_ja_feita_nao_chama_o_ffmpeg_de_novo(tmp_path: Path):
+    """Clicar PREVIA duas vezes no mesmo trecho tem que ser instantaneo."""
+    dados = _jogo(tmp_path)
+    feita = receita.padrao(dados)
+    primeira = estudio.previa(
+        tmp_path, dados, feita, 1, "paulo-brito", CFG, executar=Executor()
+    )
+
+    depois = Executor()
+    segunda = estudio.previa(
+        tmp_path, dados, feita, 1, "paulo-brito", CFG, executar=depois
+    )
+
+    assert segunda == primeira
+    assert depois.comandos == [], "o cache tinha que ter respondido sozinho"
+
+
+def test_mexer_no_trecho_refaz_a_previa(tmp_path: Path):
+    """Cache que nao percebe o corte novo vira previa que mente."""
+    dados = _jogo(tmp_path)
+    feita = receita.padrao(dados)
+    antes = estudio.previa(
+        tmp_path, dados, feita, 1, "paulo-brito", CFG, executar=Executor()
+    )
+
+    for item in feita["itens"]:
+        if item["canal"] == "paulo-brito" and item["gol"] == 1:
+            item["ate"] = float(item["ate"]) - 10
+    depois = Executor()
+    nova = estudio.previa(
+        tmp_path, dados, feita, 1, "paulo-brito", CFG, executar=depois
+    )
+
+    assert nova != antes
+    assert len(depois.comandos) == 1
+
+
+def test_previa_morta_no_meio_nao_fica_no_cache(tmp_path: Path):
+    """Foi o que aconteceu com as pecas em 03/09: 48 bytes viraram peca boa.
+
+    Com cache, o estrago dura para sempre - todo clique seguinte serve o
+    arquivo quebrado sem nunca mais chamar o ffmpeg.
+    """
+    dados = _jogo(tmp_path)
+    feita = receita.padrao(dados)
+
+    with pytest.raises(cortador.FALHAS):
+        estudio.previa(
+            tmp_path, dados, feita, 1, "paulo-brito", CFG,
+            executar=Morrendo(em=1),
+        )
+
+    assert list(estudio.pasta_cache(tmp_path).glob("previa-*.mp4")) == []
 
 
 def test_sem_nada_marcado_o_estudio_reclama_e_ensina_a_saida(tmp_path: Path):
@@ -337,48 +408,6 @@ def test_nome_de_canal_gigante_nao_estoura_a_etiqueta():
 
     assert curto == "BALDASSO TV"
     assert len(gigante) <= molde.MAXIMO_DO_CANAL
-
-
-def test_a_previa_nao_manda_preset_de_libx264_para_a_apu(tmp_path: Path):
-    """Medido: o h264_amf recusa `-preset veryfast` e `-crf`, e a previa morria.
-
-    "Unable to parse preset option value veryfast" - os presets dele sao outros.
-    Taxa de bits em vez de crf serve aos dois, e a previa nao precisa de mais.
-    """
-    dados = _jogo(tmp_path)
-    executor = Executor()
-
-    estudio.previa(
-        tmp_path, dados, receita.padrao(dados), 1, "paulo-brito",
-        {**CFG, "codec_previa": "h264_amf"}, executar=executor,
-    )
-
-    comando = executor.comandos[0]
-    assert "h264_amf" in comando
-    assert "veryfast" not in comando
-    assert "-crf" not in comando
-    assert "-b:v" in comando
-
-
-def test_previa_recusada_pela_apu_sai_pelo_libx264(tmp_path: Path):
-    """A APU pode estar ocupada. Ficar sem previa por isso seria bobagem."""
-    dados = _jogo(tmp_path)
-    tentativas = []
-
-    def apu_ocupada(comando):
-        tentativas.append(comando)
-        if "h264_amf" in comando:
-            raise subprocess.CalledProcessError(1, comando)
-        Path(comando[-1]).write_bytes(b"video de mentira")
-
-    saida = estudio.previa(
-        tmp_path, dados, receita.padrao(dados), 1, "paulo-brito",
-        {**CFG, "codec_previa": "h264_amf"}, executar=apu_ocupada,
-    )
-
-    assert len(tentativas) == 2
-    assert "libx264" in tentativas[1]
-    assert saida.is_file()
 
 
 def test_render_que_morreu_no_meio_nao_fica_rodando_para_sempre(tmp_path: Path):
@@ -540,31 +569,6 @@ def test_o_travamento_tambem_e_tentado_de_novo(tmp_path: Path):
     estudio.montar(tmp_path, dados, receita.padrao(dados), CFG, executar=tropeco)
 
     assert len(list(estudio.pasta_das_pecas(tmp_path).glob("*.mp4"))) == 3
-
-
-def test_previa_que_TRAVA_na_apu_tambem_cai_para_o_libx264(tmp_path: Path):
-    """Encoder de APU nao falha so com codigo de erro - ele tambem trava.
-
-    Ficar sem previa por isso seria bobagem: o libx264 sempre existe e em
-    640x360 da conta.
-    """
-    dados = _jogo(tmp_path)
-    tentados = []
-
-    def executar(comando):
-        tentados.append(comando)
-        if "h264_amf" in comando:
-            raise subprocess.TimeoutExpired(comando, 900)
-        Path(comando[-1]).parent.mkdir(parents=True, exist_ok=True)
-        Path(comando[-1]).write_bytes(b"previa")
-
-    estudio.previa(
-        tmp_path, dados, receita.padrao(dados), 1, "farid-germano-filho",
-        {**CFG, "codec_previa": "h264_amf"}, executar=executar,
-    )
-
-    assert len(tentados) == 2
-    assert "libx264" in tentados[-1]
 
 
 # --------------------------------------------- o PID que acabou de nascer

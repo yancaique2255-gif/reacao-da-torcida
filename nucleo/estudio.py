@@ -7,7 +7,7 @@ declaradas:
 
 - **espiar**: um quadro parado, com todas as camadas. Instantaneo. Serve para
   ver se a etiqueta cobriu o rosto.
-- **previa**: 640x360, so o trecho que ele esta olhando. Segundos.
+- **previa**: o trecho escolhido, cru e com 640 de largura. Segundos.
 - **final**: o video inteiro, `libx264`, em fila com progresso. Minutos.
 
 O que torna isso usavel e o **cache por item**: cada peca vira um arquivo com
@@ -47,7 +47,9 @@ TETO_CACHE_GB = 5
 # passa pelo mesmo alvo (a recomendacao de streaming, -16 LUFS).
 VOLUME_ALVO = "loudnorm=I=-16:TP=-1.5:LRA=11"
 DURACAO_DA_CARTELA = 2.0
-PREVIA = (640, 360)
+# So a largura: a altura sai da proporcao do clipe, para a previa nunca
+# entortar uma imagem que no render final seria recortada.
+LARGURA_DA_PREVIA = 640
 # O travamento do ffmpeg e intermitente: o mesmo item, dez vezes, travou em ~2
 # de cada 3. Tres tentativas e o que faz um travamento virar um recado em vez
 # de um render morto.
@@ -184,7 +186,7 @@ def mascaras(pasta_jogo: Path, formato: str) -> tuple[Path, Path]:
 
     Cantos arredondados no ffmpeg puro dariam um `geq` caro e ilegivel; com o
     Pillow sai uma imagem so, feita uma vez por formato e reaproveitada. A
-    geometria vem do molde - o mesmo numero que a previa usa em CSS.
+    geometria vem do molde - o mesmo numero que a tela usa em CSS.
     """
     from PIL import Image, ImageDraw
 
@@ -240,7 +242,6 @@ def filtro_do_item(
     dados_receita: dict,
     cfg: dict,
     com_mascaras: bool = True,
-    escala: tuple[int, int] | None = None,
 ) -> tuple[str, str]:
     """O filter_complex do item e o rotulo da saida dele."""
     formato = dados_receita.get("formato", FORMATO_PADRAO)
@@ -255,9 +256,6 @@ def filtro_do_item(
         mascara="1:v" if com_mascaras else None,
         moldura="2:v" if com_mascaras else None,
     )
-    if escala:
-        filtro += f";[v]scale={escala[0]}:{escala[1]}[menor]"
-        return filtro, "menor"
     return filtro, "v"
 
 
@@ -548,43 +546,74 @@ def previa(
     cfg: dict,
     executar: Callable[[list[str]], None] | None = None,
 ) -> Path:
-    """So o trecho que ele esta olhando, pequeno e rapido - para conferir som e movimento."""
+    """So o trecho escolhido, cru e pequeno - para conferir O CORTE.
+
+    A previa nao leva fundo, quadro, etiqueta nem placar de proposito. Ela
+    responde uma pergunta so: o corte pegou o que tinha que pegar? Quem confere
+    as camadas e o ESPIAR, que sai num quadro parado e e instantaneo.
+
+    Compor tudo em 1080p para so entao encolher para 640 era o preco que se
+    pagava por essa resposta: 25 s no trecho de 60 s do gol 1 (medido em
+    05/09), 48 s no laudo do jogo real. Cortando cru, 2,2 s - e o que aparece
+    na tela e o mesmo corte.
+    """
     executar = executar or cortador.executar
     pasta_jogo = Path(pasta_jogo)
     clipe = _clipe_de(dados, gol, canal)
     item = _item_de(dados_receita, gol, canal)
-    formato = dados_receita.get("formato", FORMATO_PADRAO)
-    mascara, moldura = mascaras(pasta_jogo, formato)
-    filtro, rotulo = filtro_do_item(clipe, dados, dados_receita, cfg, escala=PREVIA)
 
-    destino = pasta_cache(pasta_jogo) / f"previa-{gol}-{canal}.mp4"
-    codec = cfg.get("codec_previa", "libx264")
-    fazer = lambda qual: comando_item(  # noqa: E731
-        pasta_jogo / clipe["arquivo"], item, filtro, rotulo, mascara, moldura,
-        destino, cfg["caminho_ffmpeg"], video=_video_da_previa(qual),
-    )
+    # A previa nao tem filtro para carregar o resto no hash, e nao precisa: sem
+    # camadas, o que muda a imagem dela e so o clipe de origem e o trecho.
+    chave = identidade(clipe["arquivo"], item["de"], item["ate"], "crua")
+    destino = pasta_cache(pasta_jogo) / f"previa-{gol}-{canal}-{chave}.mp4"
+    if destino.is_file():
+        return destino
+
+    # Nome provisorio ate o ffmpeg sair com codigo zero. Com cache, um render
+    # morto no meio nao estraga uma previa - estraga TODAS as proximas, porque
+    # o arquivo quebrado passa a ser servido sem nunca mais chamar o ffmpeg.
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    meio = destino.with_name(f"parcial-{destino.name}")
     try:
-        executar(fazer(codec))
-    except cortador.FALHAS:
-        # A APU pode estar ocupada, o ffmpeg da maquina pode nem ter o encoder
-        # dela, e ela tambem TRAVA - nao falha so com codigo de erro. Ficar sem
-        # previa por isso seria bobagem: o libx264 sempre existe, e em 640x360
-        # ele da conta.
-        if codec == "libx264":
-            raise
-        executar(fazer("libx264"))
+        executar(comando_previa(
+            pasta_jogo / clipe["arquivo"], item, meio, cfg["caminho_ffmpeg"]
+        ))
+    except BaseException:
+        meio.unlink(missing_ok=True)
+        raise
+    os.replace(meio, destino)
     return destino
 
 
-def _video_da_previa(codec: str) -> list[str]:
-    """As opcoes de video da previa, que mudam com o codec.
+def comando_previa(origem: Path, item: dict, destino: Path, ffmpeg: str) -> list[str]:
+    """O corte cru, encolhido. Sem filter_complex, sem loudnorm, sem etiqueta.
 
-    Medido nesta maquina: o `h264_amf` recusa `-preset veryfast` ("Unable to
-    parse preset option value") e nao tem `-crf`. Taxa de bits fixa serve aos
-    dois, e a previa nao precisa de mais do que isso.
+    Tres coisas fazem a diferenca de tempo:
+
+    - **`-ss` antes do `-i`**: o ffmpeg pula pelo indice do arquivo em vez de
+      decodificar o clipe inteiro ate o ponto do corte.
+    - **encolher na entrada**: um `scale` sobre o clipe e barato; compor em
+      1080p e so entao encolher e que era caro.
+    - **`+faststart`**: o indice vai para o comeco do arquivo, e o navegador
+      comeca a tocar sem baixar o resto. Metade da espera na tela era isto.
     """
-    comum = ["-c:v", codec, "-b:v", "900k", "-pix_fmt", "yuv420p", "-r", str(molde.FPS)]
-    return comum + (["-preset", "veryfast"] if codec == "libx264" else ["-quality", "speed"])
+    duracao = round(float(item["ate"]) - float(item["de"]), 3)
+    return [
+        ffmpeg, "-y",
+        "-ss", str(item["de"]), "-t", str(duracao), "-i", str(origem),
+        "-map", "0:v:0",
+        # O `?` deixa passar clipe sem faixa de audio, do mesmo jeito que o
+        # render: acontece, e nao pode derrubar a previa por causa disso.
+        "-map", "0:a?",
+        "-vf", f"scale={LARGURA_DA_PREVIA}:-2",
+        # `ultrafast` porque aqui o que importa e o relogio, nao o arquivo: a
+        # previa e descartavel e mora no cache do jogo.
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "30",
+        "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-b:a", "96k", "-ar", "48000",
+        "-movflags", "+faststart",
+        str(destino),
+    ]
 
 
 # ------------------------------------------------------------ a fila e o disco
