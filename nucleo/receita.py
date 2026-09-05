@@ -31,6 +31,9 @@ TETO_DO_FORMATO = {"em-pe": TETO_DO_CURTO}
 MARGEM = 0.05
 CAMPOS_DO_OPERADOR = ("entra", "de", "ate", "ordem")
 TEXTOS_DO_OPERADOR = ("titulo", "gancho", "frase_da_capa")
+# O desvio pontual da moldagem: o estilo e do canal, e este campo e a excecao
+# marcada. Ausente e o normal.
+CAMPOS_DA_MOLDAGEM = ("arranjo", "escala", "deslocamento")
 
 
 def caminho(pasta_jogo: Path) -> Path:
@@ -97,6 +100,11 @@ def casar(velha: dict, dados: dict) -> dict:
     itens.sort(key=lambda i: (i["ordem"], i["gol"], i["canal"]))
     nova["itens"] = itens
     nova["textos"] = {**nova["textos"], **(velha.get("textos") or {})}
+    # A tela regrava a receita cada vez que abre. Sem trazer o desvio para a
+    # receita nova, "so neste jogo" duraria ate o proximo refresh e sumiria
+    # calado - e o desvio e justamente o que a tela promete marcar.
+    if velha.get("moldagem"):
+        nova["moldagem"] = dict(velha["moldagem"])
     return nova
 
 
@@ -209,6 +217,26 @@ def definir_textos(dados_receita: dict, **textos) -> dict:
             f"os que existem sao {', '.join(TEXTOS_DO_OPERADOR)}"
         )
     dados_receita["textos"] = {**(dados_receita.get("textos") or {}), **textos}
+    return dados_receita
+
+
+def definir_moldagem(dados_receita: dict, valores: dict | None) -> dict:
+    """O desvio de moldagem deste jogo, ou `None` para voltar ao padrao do canal.
+
+    A moldagem e do canal e vive no `identidade.json`. Isto aqui e o desvio
+    pontual: presente, sobrescreve campo a campo, e a tela marca como "fora do
+    padrao"; ausente, o jogo usa o padrao.
+    """
+    if not valores:
+        dados_receita.pop("moldagem", None)
+        return dados_receita
+    desconhecidos = sorted(set(valores) - set(CAMPOS_DA_MOLDAGEM))
+    if desconhecidos:
+        raise KeyError(
+            f"a moldagem nao tem os campos {', '.join(desconhecidos)} - "
+            f"os que existem sao {', '.join(CAMPOS_DA_MOLDAGEM)}"
+        )
+    dados_receita["moldagem"] = {**(dados_receita.get("moldagem") or {}), **valores}
     return dados_receita
 
 

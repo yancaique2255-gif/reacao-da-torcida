@@ -151,3 +151,30 @@ def test_o_clipe_entra_no_filtro_com_o_relogio_zerado(formato):
     assert filtro.index("setpts=PTS-STARTPTS") < filtro.index("overlay=")
 
 
+
+
+FILTRO_DE_HOJE_DEITADO = (
+    "color=c=#101418:s=1920x1080:r=30,vignette=PI/4[fundo];"
+    "[0:v]setpts=PTS-STARTPTS,scale=1728:972:force_original_aspect_ratio=increase,"
+    "crop=1728:972,setsar=1[recortado];"
+    "[1:v]scale=1728:972[cantos];"
+    "[recortado][cantos]alphamerge[quadro];"
+    "[fundo][quadro]overlay=96:54:shortest=1[com-quadro];"
+    "[com-quadro][2:v]overlay=96:54[com-moldura];"
+    "[com-moldura]setsar=1[v]"
+)
+
+
+def test_o_quadro_cheio_sai_caractere_por_caractere_igual_ao_de_hoje():
+    """A nao-regressao da seccao 7 da spec do palco.
+
+    O palco e a identidade do canal entram por cima de um sistema que ja monta
+    video de verdade. O teto do risco e este teste: identidade vazia com
+    `quadro-cheio` produz o MESMO filter_complex de antes, caractere por
+    caractere. Se ele reprovar, o video mudou sem ninguem ter pedido.
+    """
+    filtro = molde.para_ffmpeg(
+        molde.camadas("deitado"), "deitado", mascara="1:v", moldura="2:v"
+    )
+
+    assert filtro == FILTRO_DE_HOJE_DEITADO

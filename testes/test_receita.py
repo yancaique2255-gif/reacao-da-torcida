@@ -277,3 +277,38 @@ def test_esquecer_um_canal_nao_mexe_nos_outros(tmp_path: Path):
 
     guardado = _item(depois, 1, canais_[1])
     assert guardado["tocado"] is True and guardado["de"] == 5.0
+
+
+def test_o_desvio_do_jogo_atravessa_o_refresh_da_tela():
+    """A tela regrava a receita cada vez que abre; o desvio nao pode sumir ali.
+
+    `casar` re-deriva a receita do catalogo a cada abertura. Sem carregar o
+    desvio para a nova, escolher "so neste jogo" duraria ate o proximo refresh -
+    e sumiria calado, que e o pior jeito de perder trabalho.
+    """
+    dados = _jogo()
+    velha = receita.definir_moldagem(
+        receita.padrao(dados), {"arranjo": "palco-alto", "escala": 0.9}
+    )
+
+    nova = receita.casar(velha, dados)
+
+    assert nova["moldagem"] == {"arranjo": "palco-alto", "escala": 0.9}
+
+
+def test_voltar_ao_padrao_do_canal_apaga_o_desvio():
+    dados = _jogo()
+    com_desvio = receita.definir_moldagem(receita.padrao(dados), {"escala": 0.8})
+
+    sem_desvio = receita.definir_moldagem(com_desvio, None)
+
+    assert "moldagem" not in sem_desvio
+
+
+def test_moldagem_com_campo_que_nao_existe_reclama_e_ensina():
+    dados = _jogo()
+
+    with pytest.raises(KeyError) as erro:
+        receita.definir_moldagem(receita.padrao(dados), {"cor": "#fff"})
+
+    assert "arranjo" in erro.value.args[0]

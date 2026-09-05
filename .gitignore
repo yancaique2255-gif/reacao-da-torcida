@@ -3,6 +3,7 @@ __pycache__/
 .pytest_cache/
 dados/config.json
 dados/canais.json
+dados/identidade.json
 *.ts
 *.mp4
 *.wav
