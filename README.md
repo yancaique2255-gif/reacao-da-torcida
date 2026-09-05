@@ -119,6 +119,14 @@ o Google Drive e disputaria banda com a gravação.
 Copie dados/config.exemplo.json para dados/config.json e ajuste os caminhos se
 necessário. O arquivo pessoal não entra no Git.
 
+Copie `dados/identidade.exemplo.json` para `dados/identidade.json` para vestir os
+vídeos com a marca do canal: arte de fundo, logo, os @s das redes e o arranjo do
+palco. **Campo vazio é camada que não existe** — com o arquivo recém-criado o
+vídeo sai exatamente como antes, e cada campo preenchido acrescenta uma camada.
+Os ajustes ficam no cartão MOLDAGEM do estúdio, que também gera o PNG do palco
+para conferir antes de renderizar. O arquivo pessoal não entra no Git; os ícones
+das redes, em `dados/icones/`, entram.
+
 A biblioteca tem que ficar em **disco local** (`C:\REACAO DA TORCIDA`). O `G:` é o
 Google Drive: gravar lá dispara upload durante o jogo e o upload disputa a mesma
 banda que baixa as lives. Só a compilação pronta sobe para o Drive.

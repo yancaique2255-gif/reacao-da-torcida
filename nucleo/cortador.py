@@ -92,6 +92,11 @@ def comando_corte(
 ) -> list[str]:
     # Recodifica de proposito: com -c copy o corte pula para o keyframe anterior
     # e a reacao comeca fora de hora. Sao 20 segundos, custa quase nada.
+    #
+    # `crf 16` e nao 20: medido em 03/09, o clipe saia a 1,22 Mbps de uma fonte
+    # de 2,27 - 46% perdidos antes de a montagem comecar, e nao volta. O clipe e
+    # descartavel e mora no cache do jogo; o dobro de disco por algumas horas e
+    # mais barato do que perder metade da imagem para sempre.
     return [
         ffmpeg,
         "-y",
@@ -106,7 +111,7 @@ def comando_corte(
         "-preset",
         "veryfast",
         "-crf",
-        "20",
+        "16",
         "-c:a",
         "aac",
         "-b:a",

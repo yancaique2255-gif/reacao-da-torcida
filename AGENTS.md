@@ -8,6 +8,10 @@ Leia antes de escrever qualquer linha de código. Isto vale mais do que o hábit
    aquele diz como a interface se veste. Leia antes de mexer em qualquer `.html`.
 2. `docs/superpowers/specs/2026-09-01-reacao-da-torcida-design.md` — o desenho aprovado.
 3. `docs/superpowers/plans/2026-09-01-reacao-da-torcida-plan.md` — as tarefas, em ordem.
+4. `docs/superpowers/specs/2026-09-05-palco-e-identidade-do-canal-design.md` — o
+   palco: como o vídeo ganha a cara do canal.
+5. `docs/superpowers/plans/2026-09-05-palco-e-identidade-do-canal-plan.md` — as
+   tarefas do palco, em ordem.
 
 O plano é para ser seguido na ordem. Cada tarefa entrega algo que roda e é testado.
 
@@ -130,6 +134,11 @@ disco (`esteira.ancorar_t0`), não do `datetime.now()` do lançamento.
 - Cortar pelo auge do grito. O corte é pelo **começo da subida**; o susto é a graça.
 - Implementar fonte automática de placar, publicação, corte vertical ou gravação de dois
   jogos ao mesmo tempo. Está tudo fora do escopo, de propósito.
+- Voltar `drawtext` ao molde. O cenário pode ter letra — os @s das redes, na faixa
+  que sobra —, mas ela é desenhada com PIL num PNG, fora do ffmpeg. Sobre a cena
+  não vai letra nenhuma: nem placar, nem cartela, nem nome de canal.
+- Passar de `escala 1,00` nos arranjos de palco. A fonte é 720p e a janela já é
+  1280×720 cravada nessa escala; acima disso o ffmpeg volta a esticar.
 
 ## Como saber se funcionou
 

@@ -67,8 +67,12 @@ TENTATIVAS = 3
 # processo recem-criado.
 CARENCIA_DO_PID = 15.0
 
+# `slow`/`crf 18` e nao `veryfast`/`crf 20`: esta etapa roda UMA vez por jogo e
+# produz o arquivo que sobe para o YouTube, que recodifica de novo por cima.
+# Alguns minutos a mais de CPU aqui valem mais do que bitrate economizado no
+# unico lugar onde ele nao volta.
 _VIDEO_FINAL = [
-    "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+    "-c:v", "libx264", "-preset", "slow", "-crf", "18",
     "-pix_fmt", "yuv420p", "-r", str(molde.FPS),
 ]
 _AUDIO = ["-c:a", "aac", "-b:a", "128k", "-ar", "48000"]

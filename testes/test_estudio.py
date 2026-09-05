@@ -1058,3 +1058,26 @@ def test_trocar_o_arroba_gera_outro_palco(tmp_path: Path):
     )
 
     assert segundo != primeiro
+
+
+def test_o_video_final_nao_e_comprimido_a_toa():
+    """A compilacao sai UMA vez por jogo e vai para o YouTube, que recodifica.
+
+    `veryfast`/`crf 20` economizava minutos numa etapa que roda uma vez e gasta
+    banda para sempre.
+    """
+    argumentos = estudio._VIDEO_FINAL
+
+    assert argumentos[argumentos.index("-preset") + 1] == "slow"
+    assert argumentos[argumentos.index("-crf") + 1] == "18"
+
+
+def test_a_previa_continua_rapida_e_descartavel(tmp_path: Path):
+    """O ajuste de qualidade e do CORTE e do FINAL - a previa mede relogio."""
+    comando = estudio.comando_previa(
+        tmp_path / "clipe.mp4", {"de": 10.0, "ate": 70.0},
+        tmp_path / "previa.mp4", "ffmpeg.exe",
+    )
+
+    assert "ultrafast" in comando
+    assert comando[comando.index("-crf") + 1] == "30"

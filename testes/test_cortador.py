@@ -146,3 +146,18 @@ def test_as_falhas_do_ffmpeg_pegam_travamento_e_codigo_de_erro():
     """Quem chama precisa de um `except` so; travar e falhar doem igual."""
     assert subprocess.CalledProcessError in cortador.FALHAS
     assert subprocess.TimeoutExpired in cortador.FALHAS
+
+
+def test_o_clipe_intermediario_nao_e_espremido(tmp_path: Path):
+    """O corte sai a 1,22 Mbps de uma fonte de 2,27, e nao volta mais.
+
+    Medido no jogo de 03/09: 46% perdidos antes de a montagem comecar. O clipe e
+    descartavel - existe para revisao e para a montagem consumir - entao
+    comprimi-lo e a perda mais barata de evitar que existe. O preco e o dobro de
+    disco, temporario.
+    """
+    comando = cortador.comando_corte(
+        tmp_path / "bruto.ts", 10.0, 60.0, tmp_path / "clipe.mp4", "ffmpeg.exe"
+    )
+
+    assert comando[comando.index("-crf") + 1] == "16"
