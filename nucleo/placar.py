@@ -60,6 +60,16 @@ class Partida:
         )
 
 
+def _chave_da_liga(liga: str) -> str:
+    """Aceita a liga como o operador digitou: BRASILEIRAO, Copa do Brasil, ...
+
+    O painel e os .bat passam o nome em caixa alta e com espaco; sem normalizar,
+    `LIGAS.get` erra, o slug vira o proprio texto e a ESPN responde HTTP 400 -
+    que `buscar` engole calado, e o jogo inteiro corre sem detectar gol.
+    """
+    return (liga or "").strip().lower().replace(" ", "-").replace("_", "-")
+
+
 def _buscar_cru(url: str) -> str:
     pedido = urllib.request.Request(url, headers=CABECALHOS)
     with urllib.request.urlopen(pedido, timeout=TEMPO_LIMITE) as resposta:
@@ -134,7 +144,7 @@ def buscar(liga: str, buscar_cru: Callable[[str], str] = _buscar_cru) -> list[Pa
     Quem chama esta gravando um jogo: uma falha de rede aqui e um aviso, e nao
     pode subir e derrubar a gravacao.
     """
-    slug = LIGAS.get(liga, liga)
+    slug = LIGAS.get(_chave_da_liga(liga), liga)
     try:
         return interpretar(buscar_cru(ENDERECO.format(liga=slug)))
     except (urllib.error.URLError, urllib.error.HTTPError, OSError, TimeoutError):

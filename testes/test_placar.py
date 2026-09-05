@@ -76,6 +76,27 @@ def test_o_slug_da_copa_do_brasil_e_com_z():
     assert "bra.copa_do_brazil" in pedidos[0]
 
 
+def test_a_liga_em_caixa_alta_chega_no_slug_certo():
+    """O painel e os .bat passam BRASILEIRAO; sem normalizar deu HTTP 400.
+
+    Aconteceu de verdade em 05/09/2026, com o jogo no ar: a busca voltava
+    vazia calada e o vigia passou o primeiro tempo sem enxergar a partida.
+    """
+    pedidos = []
+
+    placar.buscar("BRASILEIRAO", buscar_cru=lambda u: pedidos.append(u) or "{}")
+
+    assert "bra.1" in pedidos[0]
+
+
+def test_a_liga_com_espaco_chega_no_slug_certo():
+    pedidos = []
+
+    placar.buscar("Copa do Brasil", buscar_cru=lambda u: pedidos.append(u) or "{}")
+
+    assert "bra.copa_do_brazil" in pedidos[0]
+
+
 def test_slug_desconhecido_passa_direto():
     """Liga que ainda nao esta no mapa deve poder ser usada pelo slug cru."""
     pedidos = []
