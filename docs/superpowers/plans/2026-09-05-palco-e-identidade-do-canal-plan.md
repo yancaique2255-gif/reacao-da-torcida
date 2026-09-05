@@ -75,7 +75,7 @@ Passo 1 da seção 10 da spec. Nada muda no vídeo. O teste de não-regressão p
   - `identidade.desviou(dados_receita: dict | None) -> bool`
   - `receita.definir_moldagem(dados_receita: dict, valores: dict | None) -> dict`
 
-- [ ] **Step 1: Escrever o teste de não-regressão do filtro**
+- [x] **Step 1: Escrever o teste de não-regressão do filtro**
 
 Acrescente ao fim de `testes/test_molde.py`. O literal é a saída de hoje, capturada da própria função em 05/09 — **não** reescreva com f-string: uma f-string monta o esperado com as mesmas contas do código testado, e aí o teste concorda com qualquer erro.
 
@@ -107,12 +107,12 @@ def test_o_quadro_cheio_sai_caractere_por_caractere_igual_ao_de_hoje():
     assert filtro == FILTRO_DE_HOJE_DEITADO
 ```
 
-- [ ] **Step 2: Rodar e ver PASSAR (é armadilha, não teste vermelho)**
+- [x] **Step 2: Rodar e ver PASSAR (é armadilha, não teste vermelho)**
 
 Run: `python -m pytest testes/test_molde.py -k caractere -v`
 Expected: PASS. Aqui a ordem se inverte de propósito: o teste descreve o comportamento **que já existe** e precisa continuar existindo. Verde agora é a prova de que o literal está certo; se reprovar, o literal foi copiado errado — conserte o literal, não o código.
 
-- [ ] **Step 3: Escrever os testes da identidade**
+- [x] **Step 3: Escrever os testes da identidade**
 
 Crie `testes/test_identidade.py`:
 
@@ -232,12 +232,12 @@ def test_desvio_com_numero_fora_da_trava_reclama_ao_resolver(tmp_path: Path):
         identidade.moldagem(do_canal, {"moldagem": {"escala": 1.4}})
 ```
 
-- [ ] **Step 4: Rodar e ver falhar**
+- [x] **Step 4: Rodar e ver falhar**
 
 Run: `python -m pytest testes/test_identidade.py -v`
 Expected: FAIL com `ModuleNotFoundError: No module named 'nucleo.identidade'`
 
-- [ ] **Step 5: Escrever o `nucleo/identidade.py`**
+- [x] **Step 5: Escrever o `nucleo/identidade.py`**
 
 ```python
 """A identidade do canal: o que veste TODO video, e nao um jogo.
@@ -375,12 +375,12 @@ def desviou(dados_receita: dict | None) -> bool:
     return bool((dados_receita or {}).get("moldagem"))
 ```
 
-- [ ] **Step 6: Rodar e ver passar**
+- [x] **Step 6: Rodar e ver passar**
 
 Run: `python -m pytest testes/test_identidade.py -v`
 Expected: 11 PASSED
 
-- [ ] **Step 7: Escrever o teste do desvio que atravessa o refresh da tela**
+- [x] **Step 7: Escrever o teste do desvio que atravessa o refresh da tela**
 
 Acrescente ao fim de `testes/test_receita.py`. O helper `_jogo(placar=(3, 1), gols=(1,))` já existe nesse arquivo (linha 29) e roda sem argumento nenhum; `pytest` já está importado lá.
 
@@ -420,12 +420,12 @@ def test_moldagem_com_campo_que_nao_existe_reclama_e_ensina():
     assert "arranjo" in erro.value.args[0]
 ```
 
-- [ ] **Step 8: Rodar e ver falhar**
+- [x] **Step 8: Rodar e ver falhar**
 
 Run: `python -m pytest testes/test_receita.py -k moldagem -v`
 Expected: FAIL com `AttributeError: module 'nucleo.receita' has no attribute 'definir_moldagem'`
 
-- [ ] **Step 9: Escrever o campo `moldagem` na receita**
+- [x] **Step 9: Escrever o campo `moldagem` na receita**
 
 Em `nucleo/receita.py`, depois de `TEXTOS_DO_OPERADOR`:
 
@@ -468,12 +468,12 @@ E em `casar`, logo depois da linha `nova["textos"] = {...}`:
         nova["moldagem"] = dict(velha["moldagem"])
 ```
 
-- [ ] **Step 10: Rodar e ver passar**
+- [x] **Step 10: Rodar e ver passar**
 
 Run: `python -m pytest testes/test_receita.py -v`
 Expected: todos PASSED
 
-- [ ] **Step 11: Criar o exemplo e ignorar o arquivo pessoal**
+- [x] **Step 11: Criar o exemplo e ignorar o arquivo pessoal**
 
 `dados/identidade.exemplo.json`:
 
@@ -499,12 +499,12 @@ Em `.gitignore`, depois da linha `dados/canais.json`:
 dados/identidade.json
 ```
 
-- [ ] **Step 12: Rodar a bateria inteira**
+- [x] **Step 12: Rodar a bateria inteira**
 
 Run: `python -m pytest`
 Expected: 612 + 14 novos PASSED, nenhum falho.
 
-- [ ] **Step 13: Commit**
+- [x] **Step 13: Commit**
 
 ```bash
 git add nucleo/identidade.py nucleo/receita.py dados/identidade.exemplo.json .gitignore testes/test_identidade.py testes/test_molde.py testes/test_receita.py
@@ -531,7 +531,7 @@ Passo 2 da seção 10. Nada muda no vídeo: `quadro-cheio` continua o padrão e 
   - `molde.em_pixels(camada: Camada, formato: str) -> dict`
   - `molde.para_pagina(camadas_: list[Camada], formato: str) -> dict` (agora sai das camadas RECEBIDAS)
 
-- [ ] **Step 1: Escrever os testes dos arranjos**
+- [x] **Step 1: Escrever os testes dos arranjos**
 
 Acrescente a `testes/test_molde.py`:
 
@@ -674,12 +674,12 @@ def test_ffmpeg_e_pagina_concordam_camada_por_camada(formato, arranjo):
             assert da_pagina[nome][campo] == valor, f"{formato}/{arranjo}/{nome}/{campo}"
 ```
 
-- [ ] **Step 2: Rodar e ver falhar**
+- [x] **Step 2: Rodar e ver falhar**
 
 Run: `python -m pytest testes/test_molde.py -v`
 Expected: FAIL com `AttributeError: module 'nucleo.molde' has no attribute 'arranjos'`
 
-- [ ] **Step 3: Escrever a tabela de arranjos**
+- [x] **Step 3: Escrever a tabela de arranjos**
 
 Em `nucleo/molde.py`, troque a linha do import por:
 
@@ -744,7 +744,7 @@ _ARRANJOS = {
 }
 ```
 
-- [ ] **Step 4: Escrever o ajuste fino e os dois renderizadores**
+- [x] **Step 4: Escrever o ajuste fino e os dois renderizadores**
 
 Troque as funções `camadas`, `caixa` e `para_pagina` por:
 
@@ -857,7 +857,7 @@ E dentro de `para_ffmpeg`, troque a linha que monta as caixas:
     caixas = {c.nome: em_pixels(c, formato) for c in camadas_}
 ```
 
-- [ ] **Step 5: Atualizar o cabeçalho do módulo**
+- [x] **Step 5: Atualizar o cabeçalho do módulo**
 
 No docstring de `nucleo/molde.py`, troque o parágrafo que começa em **"O vídeo não leva letra nenhuma"** por:
 
@@ -877,17 +877,17 @@ seus. `quadro-cheio` e o de hoje e o padrao; os `palco-*` deixam sobra para a
 marca do canal e poem a janela em 1280x720 cravado, que e o tamanho da fonte.
 ```
 
-- [ ] **Step 6: Rodar e ver passar, inclusive a não-regressão**
+- [x] **Step 6: Rodar e ver passar, inclusive a não-regressão**
 
 Run: `python -m pytest testes/test_molde.py -v`
 Expected: todos PASSED, `test_o_quadro_cheio_sai_caractere_por_caractere_igual_ao_de_hoje` incluído.
 
-- [ ] **Step 7: Rodar a bateria inteira**
+- [x] **Step 7: Rodar a bateria inteira**
 
 Run: `python -m pytest`
 Expected: nenhum falho. Se `test_estudio.py` ou `test_painel_edicao.py` reprovarem, é porque alguma chamada a `molde.caixa`/`para_pagina` mudou de comportamento — conserte antes de commitar.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add nucleo/molde.py testes/test_molde.py
@@ -915,7 +915,7 @@ O elo que faltava entre a Task 1 e a Task 2: com identidade vazia nada muda; esc
   - `estudio.montar(..., tentativas=TENTATIVAS, ident: dict | None = None) -> Path`
   - `estudio.espiar(..., executar=None, ident: dict | None = None) -> Path`
 
-- [ ] **Step 1: Escrever os testes**
+- [x] **Step 1: Escrever os testes**
 
 No topo de `testes/test_estudio.py`, acrescente `identidade` ao import do núcleo:
 
@@ -1005,12 +1005,12 @@ def test_a_assinatura_do_video_muda_quando_a_moldagem_muda(tmp_path: Path):
 
 E no teste que já existe por volta da linha 484, troque `estudio.identidade(` por `estudio.chave_da_peca(`.
 
-- [ ] **Step 2: Rodar e ver falhar**
+- [x] **Step 2: Rodar e ver falhar**
 
 Run: `python -m pytest testes/test_estudio.py -k "identidade_vazia or arranjo or mascara_segue or desvio or assinatura_do_video" -v`
 Expected: FAIL com `TypeError: filtro_do_item() takes from 1 to 2 positional arguments but 3 were given`
 
-- [ ] **Step 3: Renomear a chave da peça e importar a identidade**
+- [x] **Step 3: Renomear a chave da peça e importar a identidade**
 
 Em `nucleo/estudio.py`, na linha do import:
 
@@ -1028,7 +1028,7 @@ Renomeie `def identidade(origem, de, ate, filtro)` para `def chave_da_peca(orige
 
 Troque as duas chamadas internas (em `planejar` e em `previa`) para `chave_da_peca(...)`.
 
-- [ ] **Step 4: A moldagem chega às máscaras e ao filtro**
+- [x] **Step 4: A moldagem chega às máscaras e ao filtro**
 
 Troque a assinatura de `mascaras` e a primeira linha do corpo:
 
@@ -1071,7 +1071,7 @@ def filtro_do_item(
     return filtro, "v"
 ```
 
-- [ ] **Step 5: A identidade atravessa `planejar`, `assinatura`, `montar` e `espiar`**
+- [x] **Step 5: A identidade atravessa `planejar`, `assinatura`, `montar` e `espiar`**
 
 `planejar` — acrescente o parâmetro e troque a linha do filtro:
 
@@ -1124,17 +1124,17 @@ def assinatura(dados: dict, dados_receita: dict, ident: dict | None = None) -> s
     filtro, rotulo = filtro_do_item(dados_receita, ident)
 ```
 
-- [ ] **Step 6: Rodar e ver passar**
+- [x] **Step 6: Rodar e ver passar**
 
 Run: `python -m pytest testes/test_estudio.py -v`
 Expected: todos PASSED
 
-- [ ] **Step 7: Rodar a bateria inteira**
+- [x] **Step 7: Rodar a bateria inteira**
 
 Run: `python -m pytest`
 Expected: nenhum falho (`test_acervo.py` chama `estudio.assinatura(dados, edicao)` — o parâmetro novo é opcional, e com identidade vazia o comportamento é o de antes).
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add nucleo/estudio.py testes/test_estudio.py
@@ -1164,7 +1164,7 @@ Passo 3 da seção 10: `estudio.palco()` desenhando só a arte de fundo, e a tro
   - `estudio.chave_da_peca(origem, de, ate, filtro, palco: str = "") -> str`
   - `estudio.comando_item(..., video=None, palco: Path | None = None) -> list[str]`
 
-- [ ] **Step 1: Escrever o teste do filtro com palco**
+- [x] **Step 1: Escrever o teste do filtro com palco**
 
 Acrescente a `testes/test_molde.py`:
 
@@ -1199,12 +1199,12 @@ def test_o_palco_entra_com_a_taxa_de_quadros_declarada():
     assert f"fps={molde.FPS}[fundo]" in filtro
 ```
 
-- [ ] **Step 2: Rodar e ver falhar**
+- [x] **Step 2: Rodar e ver falhar**
 
 Run: `python -m pytest testes/test_molde.py -k palco -v`
 Expected: FAIL com `TypeError: para_ffmpeg() got an unexpected keyword argument 'palco'`
 
-- [ ] **Step 3: O palco como entrada do `para_ffmpeg`**
+- [x] **Step 3: O palco como entrada do `para_ffmpeg`**
 
 Em `nucleo/molde.py`, acrescente o parâmetro ao fim da assinatura de `para_ffmpeg`:
 
@@ -1244,12 +1244,12 @@ E troque a linha que monta `partes` por:
         ]
 ```
 
-- [ ] **Step 4: Rodar e ver passar**
+- [x] **Step 4: Rodar e ver passar**
 
 Run: `python -m pytest testes/test_molde.py -v`
 Expected: todos PASSED, a não-regressão inclusive.
 
-- [ ] **Step 5: Escrever os testes do palco**
+- [x] **Step 5: Escrever os testes do palco**
 
 Acrescente a `testes/test_estudio.py`:
 
@@ -1424,12 +1424,12 @@ def test_a_previa_continua_com_a_mesma_chave_de_cache():
     assert estudio.chave_da_peca("clipes/x.mp4", 10.0, 70.0, "crua", "abc") != antes
 ```
 
-- [ ] **Step 6: Rodar e ver falhar**
+- [x] **Step 6: Rodar e ver falhar**
 
 Run: `python -m pytest testes/test_estudio.py -k palco -v`
 Expected: FAIL com `AttributeError: module 'nucleo.estudio' has no attribute 'camadas_do_palco'`
 
-- [ ] **Step 7: Escrever o palco no estúdio**
+- [x] **Step 7: Escrever o palco no estúdio**
 
 Em `nucleo/estudio.py`, acrescente ao lado de `PASTA_PECAS`:
 
@@ -1610,7 +1610,7 @@ def _rgb_do_palco(cor: str) -> tuple[int, int, int]:
     return tuple(int(cor[i:i + 2], 16) for i in (0, 2, 4))
 ```
 
-- [ ] **Step 8: Ligar o palco ao plano, ao comando e ao espiar**
+- [x] **Step 8: Ligar o palco ao plano, ao comando e ao espiar**
 
 Em `planejar`, troque o bloco do filtro por:
 
@@ -1694,17 +1694,17 @@ e no comando, depois da moldura:
         *(["-loop", "1", "-i", str(cenario)] if cenario else []),
 ```
 
-- [ ] **Step 9: Rodar e ver passar**
+- [x] **Step 9: Rodar e ver passar**
 
 Run: `python -m pytest testes/test_estudio.py -v`
 Expected: todos PASSED
 
-- [ ] **Step 10: Rodar a bateria inteira**
+- [x] **Step 10: Rodar a bateria inteira**
 
 Run: `python -m pytest`
 Expected: nenhum falho.
 
-- [ ] **Step 11: Commit**
+- [x] **Step 11: Commit**
 
 ```bash
 git add nucleo/molde.py nucleo/estudio.py testes/test_molde.py testes/test_estudio.py
@@ -1733,7 +1733,7 @@ Passo 4 da seção 10. É aqui que o cenário passa a identificar o canal.
   - `estudio.planejar(dados, dados_receita, avisar=None, ident=None, fonte: Path | None = None) -> list[dict]`
   - `estudio.assinatura(dados, dados_receita, ident=None, fonte: Path | None = None) -> str`
 
-- [ ] **Step 1: Escrever os testes**
+- [x] **Step 1: Escrever os testes**
 
 Acrescente a `testes/test_estudio.py`:
 
@@ -1905,12 +1905,12 @@ def test_trocar_o_arroba_gera_outro_palco(tmp_path: Path):
     assert segundo != primeiro
 ```
 
-- [ ] **Step 2: Rodar e ver falhar**
+- [x] **Step 2: Rodar e ver falhar**
 
 Run: `python -m pytest testes/test_estudio.py -k "logo or barra or arroba or icone" -v`
 Expected: FAIL com `AttributeError: module 'nucleo.estudio' has no attribute 'arrobas'`
 
-- [ ] **Step 3: Escrever a logo, a barra e os ícones**
+- [x] **Step 3: Escrever a logo, a barra e os ícones**
 
 Em `nucleo/estudio.py`, ao lado de `PASTA_FORMAS`:
 
@@ -2062,7 +2062,7 @@ def _texto_do_palco(desenho, texto: str, posicao, letra, ancora: str) -> None:
     desenho.text((x, y), texto, font=letra, fill=(255, 255, 255), anchor=ancora)
 ```
 
-- [ ] **Step 4: A fonte entra na assinatura e nos chamadores**
+- [x] **Step 4: A fonte entra na assinatura e nos chamadores**
 
 A fonte muda o desenho da barra, então ela é parte da imagem — tem que entrar na assinatura do palco e, por ela, na chave da peça.
 
@@ -2154,7 +2154,7 @@ def assinatura(
     )
 ```
 
-- [ ] **Step 5: O contrato dos ícones**
+- [x] **Step 5: O contrato dos ícones**
 
 Crie `dados/icones/LEIA-ME.md`:
 
@@ -2179,17 +2179,17 @@ Estes arquivos vão para o Git — são identidade do canal, não configuração
 máquina.
 ~~~
 
-- [ ] **Step 6: Rodar e ver passar**
+- [x] **Step 6: Rodar e ver passar**
 
 Run: `python -m pytest testes/test_estudio.py -v`
 Expected: todos PASSED
 
-- [ ] **Step 7: Rodar a bateria inteira**
+- [x] **Step 7: Rodar a bateria inteira**
 
 Run: `python -m pytest`
 Expected: nenhum falho.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add nucleo/estudio.py dados/icones/LEIA-ME.md testes/test_estudio.py
@@ -2215,7 +2215,7 @@ Passo 5 da seção 10, e o conserto do caminho que o dono não conseguiu abrir.
   - `edicao.abrir_no_explorador(saida: Path) -> None`
   - Campos novos em `tela()`: `arranjos`, `moldagem`, `identidade`, `fora_do_padrao`, `palco_desenha`, `recado_da_moldagem`
 
-- [ ] **Step 1: Escrever os testes**
+- [x] **Step 1: Escrever os testes**
 
 No topo de `testes/test_painel_edicao.py`, acrescente `pytest` e `identidade`:
 
@@ -2427,12 +2427,12 @@ def test_a_tela_tem_o_cartao_da_moldagem_antes_do_render():
     assert pagina.index('id="moldagem"') < pagina.index('id="render"')
 ```
 
-- [ ] **Step 2: Rodar e ver falhar**
+- [x] **Step 2: Rodar e ver falhar**
 
 Run: `python -m pytest testes/test_painel_edicao.py -v`
 Expected: FAIL com `KeyError: 'moldagem'` no primeiro teste novo.
 
-- [ ] **Step 3: A identidade chega à `tela()`**
+- [x] **Step 3: A identidade chega à `tela()`**
 
 Em `painel/edicao.py`, na linha do import:
 
@@ -2469,7 +2469,7 @@ No dicionário devolvido, troque a linha do molde e acrescente os campos:
         "recado_da_moldagem": recado_da_moldagem,
 ```
 
-- [ ] **Step 4: O explorador e as rotas novas**
+- [x] **Step 4: O explorador e as rotas novas**
 
 Ao lado de `lancar_render`, acrescente:
 
@@ -2605,12 +2605,12 @@ E no `POST /api/render`, logo depois da conferência de itens marcados:
             return 400, {"erro": str(erro)}
 ```
 
-- [ ] **Step 5: Rodar e ver os testes de rota passarem**
+- [x] **Step 5: Rodar e ver os testes de rota passarem**
 
 Run: `python -m pytest testes/test_painel_edicao.py -v`
 Expected: só `test_a_tela_tem_o_cartao_da_moldagem_antes_do_render` ainda FAIL — a página é o passo seguinte.
 
-- [ ] **Step 6: O cartão MOLDAGEM na página**
+- [x] **Step 6: O cartão MOLDAGEM na página**
 
 Em `painel/edicao.html`, no `<style>`, depois do bloco do `#publicar-texto`:
 
@@ -2673,7 +2673,7 @@ No cartão do RENDER FINAL, depois do `<p class="recado" id="recado-render">`:
       <button class="abrir" id="abrir-pasta" style="display:none">ABRIR A PASTA</button>
 ```
 
-- [ ] **Step 7: O JS do cartão**
+- [x] **Step 7: O JS do cartão**
 
 No `<script>`, depois de `desenharGol`:
 
@@ -2798,12 +2798,12 @@ $("abrir-pasta").onclick = async () => {
 };
 ```
 
-- [ ] **Step 8: Rodar os testes da página e do design**
+- [x] **Step 8: Rodar os testes da página e do design**
 
 Run: `python -m pytest testes/test_painel_edicao.py testes/test_design.py -v`
 Expected: todos PASSED. Se `test_design.py` reprovar, o conserto é na CSS que você acabou de escrever: raio fora da escala 8/12/999, cor crua fora do `:root`, sombra, gradiente, ou um `input` que não ficou pílula.
 
-- [ ] **Step 9: Um parágrafo no DESIGN.md**
+- [x] **Step 9: Um parágrafo no DESIGN.md**
 
 Acrescente ao `DESIGN.md`:
 
@@ -2824,12 +2824,12 @@ continua sendo uma só, o RENDER FINAL. `input.numero` é a pílula dos dois
 ajustes, com `tabular-nums` porque são números que se comparam.
 ```
 
-- [ ] **Step 10: Rodar a bateria inteira**
+- [x] **Step 10: Rodar a bateria inteira**
 
 Run: `python -m pytest`
 Expected: nenhum falho.
 
-- [ ] **Step 11: Commit**
+- [x] **Step 11: Commit**
 
 ```bash
 git add painel/edicao.py painel/edicao.html DESIGN.md testes/test_painel_edicao.py
@@ -2852,7 +2852,7 @@ Passo 6 da seção 10. Dois números, medidos no jogo de 03/09, e a documentaç�
 - Consumes: nada das tarefas anteriores — é independente e pode ser revisada sozinha.
 - Produces: nenhuma função nova.
 
-- [ ] **Step 1: Escrever os testes**
+- [x] **Step 1: Escrever os testes**
 
 Acrescente a `testes/test_cortador.py`. A ordem dos argumentos é a que os testes vizinhos já usam — `comando_corte(fonte, inicio, duracao, saida, ffmpeg)`:
 
@@ -2898,12 +2898,12 @@ def test_a_previa_continua_rapida_e_descartavel(tmp_path: Path):
     assert comando[comando.index("-crf") + 1] == "30"
 ```
 
-- [ ] **Step 2: Rodar e ver falhar**
+- [x] **Step 2: Rodar e ver falhar**
 
 Run: `python -m pytest testes/test_cortador.py -k espremido testes/test_estudio.py -k comprimido -v`
 Expected: FAIL com `AssertionError: assert '20' == '16'`
 
-- [ ] **Step 3: Trocar os dois números**
+- [x] **Step 3: Trocar os dois números**
 
 Em `nucleo/cortador.py`, dentro de `comando_corte`, acrescente ao comentário que já existe e troque o valor:
 
@@ -2934,12 +2934,12 @@ _VIDEO_FINAL = [
 ]
 ```
 
-- [ ] **Step 4: Rodar e ver passar**
+- [x] **Step 4: Rodar e ver passar**
 
 Run: `python -m pytest testes/test_cortador.py testes/test_estudio.py -v`
 Expected: todos PASSED
 
-- [ ] **Step 5: Documentar o que passou a existir**
+- [x] **Step 5: Documentar o que passou a existir**
 
 Em `AGENTS.md`, na seção **"Onde começar"**, depois do item 3:
 
@@ -2972,12 +2972,12 @@ para conferir antes de renderizar. O arquivo pessoal não entra no Git; os ícon
 das redes, em `dados/icones/`, entram.
 ```
 
-- [ ] **Step 6: Rodar a bateria inteira**
+- [x] **Step 6: Rodar a bateria inteira**
 
 Run: `python -m pytest`
 Expected: nenhum falho.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add nucleo/cortador.py nucleo/estudio.py AGENTS.md README.md testes/test_cortador.py testes/test_estudio.py
