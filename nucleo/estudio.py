@@ -510,7 +510,7 @@ def filtro_do_item(
     """
     ident = identidade.carregar() if ident is None else ident
     formato = dados_receita.get("formato", FORMATO_PADRAO)
-    moldagem = identidade.moldagem(ident, dados_receita)
+    moldagem = identidade.moldagem(ident, dados_receita, formato)
     filtro = molde.para_ffmpeg(
         molde.camadas(formato, **moldagem),
         formato,
@@ -610,7 +610,7 @@ def planejar(
     ident = identidade.carregar() if ident is None else ident
     clipes = _clipes_por_chave(dados)
     formato = dados_receita.get("formato", FORMATO_PADRAO)
-    moldagem = identidade.moldagem(ident, dados_receita)
+    moldagem = identidade.moldagem(ident, dados_receita, formato)
     # A assinatura do palco entra na chave das pecas: o filtro nomeia a entrada
     # ([3:v]) mas nao diz qual PNG e. Sem isto, trocar a arte deixaria o cache
     # servindo pecas com o cenario velho.
@@ -688,7 +688,7 @@ def montar(
     pasta_jogo = Path(pasta_jogo)
     ident = identidade.carregar() if ident is None else ident
     formato = dados_receita.get("formato", FORMATO_PADRAO)
-    moldagem = identidade.moldagem(ident, dados_receita)
+    moldagem = identidade.moldagem(ident, dados_receita, formato)
     mascara, moldura = mascaras(pasta_jogo, formato, moldagem)
     fonte = fonte_de(cfg)
     cenario = palco(
@@ -764,10 +764,10 @@ def espiar(
     ident = identidade.carregar() if ident is None else ident
     formato = dados_receita.get("formato", FORMATO_PADRAO)
     mascara, moldura = mascaras(
-        pasta_jogo, formato, identidade.moldagem(ident, dados_receita)
+        pasta_jogo, formato, identidade.moldagem(ident, dados_receita, formato)
     )
     cenario = palco(
-        pasta_jogo, formato, ident, identidade.moldagem(ident, dados_receita),
+        pasta_jogo, formato, ident, identidade.moldagem(ident, dados_receita, formato),
         cor_do_fundo(dados_receita), fonte_de(cfg),
     )
     filtro, rotulo = filtro_do_item(dados_receita, ident)

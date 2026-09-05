@@ -76,7 +76,7 @@ def tela(pasta_jogo: Path, dados: dict, edicao: dict, cfg: dict) -> dict:
     formato = edicao.get("formato", receita.FORMATO_PADRAO)
     ident = identidade.carregar()
     try:
-        moldagem = identidade.moldagem(ident, edicao)
+        moldagem = identidade.moldagem(ident, edicao, formato)
         recado_da_moldagem = ""
     except ValueError as erro:
         # Receita editada na mao com numero fora da trava: a tela abre no padrao
@@ -347,7 +347,8 @@ def montar_resposta(
                 # A trava vale nos dois caminhos: desvio de jogo tambem nao
                 # pode furar o teto de 1,00.
                 identidade.conferir({
-                    **identidade.moldagem(identidade.carregar(), edicao), **valores
+                    **identidade.moldagem(identidade.carregar(), edicao, formato),
+                    **valores,
                 })
                 edicao = receita.definir_moldagem(edicao, valores)
             else:
@@ -384,7 +385,7 @@ def montar_resposta(
         formato = edicao.get("formato", receita.FORMATO_PADRAO)
         ident = identidade.carregar()
         try:
-            moldagem = identidade.moldagem(ident, edicao)
+            moldagem = identidade.moldagem(ident, edicao, formato)
         except ValueError as erro:
             return 400, {"erro": str(erro)}
         recados = []
@@ -421,7 +422,10 @@ def montar_resposta(
                 "erro": "nenhuma reacao marcada - marque as que entram antes de montar"
             }
         try:
-            identidade.moldagem(identidade.carregar(), edicao)
+            identidade.moldagem(
+                identidade.carregar(), edicao,
+                edicao.get("formato", receita.FORMATO_PADRAO),
+            )
         except ValueError as erro:
             # Melhor recusar aqui do que deixar o render morrer num processo
             # separado, onde a mensagem nao chega a tela.

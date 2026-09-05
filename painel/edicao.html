@@ -207,6 +207,7 @@
       <input type="text" id="youtube" placeholder="@ do YouTube">
       <input type="text" id="instagram" placeholder="@ do Instagram">
       <input type="text" id="tiktok" placeholder="@ do TikTok">
+      <input type="text" id="facebook" placeholder="@ do Facebook">
       <button class="abrir" id="botao-palco">CONFERIR PALCO</button>
       <img id="palco" alt="palco do canal">
       <p class="recado" id="recado-moldagem"></p>
@@ -320,6 +321,9 @@ function desenhar(dados) {
   mostrarRender(dados.render);
 }
 
+// A mesma ordem do `identidade.REDES`: um lugar so na pagina, como no nucleo.
+const REDES = ["youtube", "instagram", "tiktok", "facebook"];
+
 function desenharMoldagem(dados) {
   const arranjos = $("arranjos");
   arranjos.innerHTML = "";
@@ -336,7 +340,7 @@ function desenharMoldagem(dados) {
   $("desvio").textContent = dados.fora_do_padrao ? "fora do padrão do canal" : "";
   $("so-neste-jogo").checked = dados.fora_do_padrao;
   const redes = (dados.identidade || {}).redes || {};
-  for (const rede of ["youtube", "instagram", "tiktok"]) {
+  for (const rede of REDES) {
     $(rede).value = redes[rede] || "";
   }
   if (dados.recado_da_moldagem) {
@@ -684,12 +688,10 @@ $("deslocamento").onchange = () =>
 // Grava ao sair do campo, e não a cada tecla: uma escrita por @ escrito.
 const gravarRedes = () => mandar("/api/identidade", {
   redes: {
-    youtube: $("youtube").value.trim(),
-    instagram: $("instagram").value.trim(),
-    tiktok: $("tiktok").value.trim(),
+    ...Object.fromEntries(REDES.map((r) => [r, $(r).value.trim()])),
   },
 }, "recado-moldagem");
-for (const rede of ["youtube", "instagram", "tiktok"]) $(rede).onchange = gravarRedes;
+for (const rede of REDES) $(rede).onchange = gravarRedes;
 
 $("botao-palco").onclick = async () => {
   $("botao-palco").disabled = true;

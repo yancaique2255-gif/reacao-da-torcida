@@ -18,7 +18,8 @@ from pathlib import Path
 
 ARQUIVO = Path(__file__).resolve().parent.parent / "dados" / "identidade.json"
 
-REDES = ("youtube", "instagram", "tiktok")
+# A ordem daqui e a ordem em que os @s aparecem na barra do palco.
+REDES = ("youtube", "instagram", "tiktok", "facebook")
 CAMPOS_DA_MOLDAGEM = ("arranjo", "escala", "deslocamento")
 
 # Acima de 1,00 a janela fica maior que os 1280x720 da fonte e o ffmpeg volta a
@@ -107,13 +108,21 @@ def conferir(valores: dict) -> None:
         )
 
 
-def moldagem(valores: dict, dados_receita: dict | None = None) -> dict:
+def moldagem(
+    valores: dict, dados_receita: dict | None = None, formato: str | None = None
+) -> dict:
     """Arranjo, escala e deslocamento JA RESOLVIDOS para aquele jogo.
 
     O desvio da receita sobrepoe campo a campo; ausente - que e o normal - vale
     o padrao do canal. Quem chama isto nao precisa saber de onde veio cada
     numero, e e por isso que a assinatura do palco pode levar o resultado.
+
+    Com o `formato` na mao, arranjo que nao existe naquele formato cai no padrao
+    dele: o canal escolhe `palco-lateral` para o deitado e manda montar um 9:16,
+    e o em-pe so tem `quadro-cheio`. Sem esta queda o render morre no meio do
+    jogo, e a escolha nem era do operador - e o formato que nao tem o arranjo.
     """
+    from nucleo import molde
     resolvida = {
         campo: valores.get(campo, PADROES[campo]) for campo in CAMPOS_DA_MOLDAGEM
     }
@@ -122,6 +131,8 @@ def moldagem(valores: dict, dados_receita: dict | None = None) -> dict:
         for campo, valor in ((dados_receita or {}).get("moldagem") or {}).items()
         if campo in CAMPOS_DA_MOLDAGEM
     })
+    if formato and resolvida["arranjo"] not in molde.arranjos(formato):
+        resolvida["arranjo"] = molde.ARRANJO_PADRAO
     resolvida["escala"] = float(resolvida["escala"])
     resolvida["deslocamento"] = float(resolvida["deslocamento"])
     conferir(resolvida)

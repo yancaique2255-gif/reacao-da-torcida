@@ -111,3 +111,30 @@ def test_desvio_com_numero_fora_da_trava_reclama_ao_resolver(tmp_path: Path):
 
     with pytest.raises(ValueError):
         identidade.moldagem(do_canal, {"moldagem": {"escala": 1.4}})
+
+
+def test_arranjo_de_palco_num_video_em_pe_cai_no_quadro_cheio():
+    """O em-pe so tem `quadro-cheio` nesta rodada.
+
+    O canal escolhe `palco-lateral` no deitado e manda montar um 9:16: sem esta
+    queda o render morre com ValueError no meio do jogo. Nao e escolha do
+    operador - e o formato que nao tem aquele arranjo.
+    """
+    ident = {**identidade.PADROES, "arranjo": "palco-lateral"}
+
+    resolvida = identidade.moldagem(ident, formato="em-pe")
+
+    assert resolvida["arranjo"] == "quadro-cheio"
+
+
+def test_no_deitado_o_arranjo_escolhido_e_respeitado():
+    ident = {**identidade.PADROES, "arranjo": "palco-lateral"}
+
+    assert identidade.moldagem(ident, formato="deitado")["arranjo"] == "palco-lateral"
+
+
+def test_sem_formato_a_moldagem_nao_mexe_no_arranjo():
+    """Quem nao diz o formato recebe o que o canal escolheu, como antes."""
+    ident = {**identidade.PADROES, "arranjo": "palco-alto"}
+
+    assert identidade.moldagem(ident)["arranjo"] == "palco-alto"

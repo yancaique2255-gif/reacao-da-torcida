@@ -16,3 +16,13 @@ reação no arranjo `palco-lateral`.
 Trocar a arte é trocar o caminho em `arte_de_fundo`, no `dados/identidade.json`
 (esse arquivo é pessoal e não entra no Git). O estúdio percebe a troca sozinho:
 o relógio e o tamanho do arquivo entram na assinatura do palco.
+
+## A logo
+
+`logo-reacao-da-torcida.png` — 1222×1171, PNG com transparência. É o medalhão
+recortado da arte do canal (os dois torcedores no círculo laranja): o papel de
+fundo saiu por preenchimento a partir das bordas, e as sombras de bolinha que
+sobraram foram apagadas mantendo só a ilha do meio.
+
+O estúdio encaixa a logo INTEIRA na caixa do arranjo, sem deformar e sem cortar
+— então a moldura circular pode passar perto da borda sem risco.
