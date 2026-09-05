@@ -193,7 +193,7 @@ def _renderizar(pasta: Path, com_assinatura: bool = True) -> None:
     estudio.anotar(
         pasta, rodando=False, feito=4, total=4, mensagem="pronto",
         saida=str(saida / "compilacao-deitado.mp4"),
-        assinatura=estudio.assinatura(dados, edicao, CFG) if com_assinatura else "",
+        assinatura=estudio.assinatura(dados, edicao) if com_assinatura else "",
     )
 
 

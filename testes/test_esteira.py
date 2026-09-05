@@ -792,7 +792,7 @@ def test_etapa_render_monta_o_video_do_jogo(tmp_path: Path, monkeypatch):
     assert (pasta / "receita.json").is_file(), "a receita nasce na primeira montagem"
     assert estudio.estado(pasta)["rodando"] is False
     da_montagem = [c for c in comandos if "-filter_complex" in c or "concat" in c]
-    assert len(da_montagem) == 4, "cartela, dois clipes e a emenda"
+    assert len(da_montagem) == 3, "os dois clipes e a emenda"
 
 
 def test_etapa_limpar_apaga_os_intermediarios(tmp_path: Path, monkeypatch, capsys):

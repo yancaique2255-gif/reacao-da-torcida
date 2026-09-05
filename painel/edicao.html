@@ -279,11 +279,11 @@ function desenharGol(gol, dados) {
   topo.className = "gol-topo";
   topo.innerHTML = `<h2>GOL ${gol.numero}</h2>
     <span class="placar-do-gol">${gol.placar || "placar não anotado"}</span>`;
-  // O placar DAQUELE gol é o que a cartela anuncia. Sem ele a cartela sai
-  // escrita só "GOL 3", que foi como o vídeo de 03/09 saiu.
+  // O placar DAQUELE gol não entra mais no vídeo — o vídeo é limpo. Fica como
+  // anotação do jogo: é o que a capa e a legenda do post usam.
   const numeros = document.createElement("div");
   numeros.className = "gols-do-gol";
-  numeros.innerHTML = '<span class="rotulo">cartela</span>';
+  numeros.innerHTML = '<span class="rotulo">placar</span>';
   const campos = [0, 1].map((lado) => {
     const campo = document.createElement("input");
     campo.type = "number";

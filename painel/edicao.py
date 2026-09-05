@@ -98,12 +98,11 @@ def tela(pasta_jogo: Path, dados: dict, edicao: dict, cfg: dict) -> dict:
         })
 
     entram = receita.itens_do_video(edicao)
-    quantos_gols = len({i["gol"] for i in entram})
     segundos = sum(i["ate"] - i["de"] for i in entram)
-    segundos += quantos_gols * estudio.DURACAO_DA_CARTELA
-    # As cartelas contam: o painel escrevia 12 e o render trocava para 16, e a
-    # barra de progresso andava para tras na cara do operador.
-    pecas = len(entram) + quantos_gols
+    # Uma peca por trecho marcado, e nada mais: o video nao tem abertura nem
+    # cartela. O numero que o painel escreve tem que ser o mesmo que o render
+    # vai contar, senao a barra de progresso anda para tras na cara do operador.
+    pecas = len(entram)
 
     return {
         "jogo": Path(pasta_jogo).name,

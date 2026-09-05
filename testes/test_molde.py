@@ -1,13 +1,16 @@
 """O molde e declarado uma vez e sai nos dois renderizadores.
 
-A previa mora no navegador (HTML/CSS) e o video final sai do ffmpeg. Se cada um
+O desenho mora no navegador (HTML/CSS) e o video final sai do ffmpeg. Se cada um
 tiver sua propria copia da geometria, eles divergem - e divergem justamente
 quando ninguem esta olhando, depois de alguem mexer num numero de um lado so.
-Uma previa que mente e pior do que nao ter previa.
 
 Por isso o teste que importa aqui e o `test_ffmpeg_e_pagina_concordam`: ele le a
 geometria de volta do filter_complex, como o ffmpeg leria, e compara com o que a
 pagina recebe para posicionar em CSS.
+
+E o outro que importa e o `test_o_video_nao_leva_letra_nenhuma`: o dono pediu o
+video limpo, e essa e a promessa mais facil de quebrar sem querer - basta
+alguem devolver um `drawtext` ao molde para todo render passar a escrever.
 """
 import re
 
@@ -20,28 +23,19 @@ def _geometria_do_filtro(filtro: str) -> dict:
     """Le de volta o que o ffmpeg vai obedecer, e nao o que quisemos dizer."""
     escala = re.search(r"scale=(\d+):(\d+):force_original_aspect_ratio", filtro)
     posicao = re.search(r"\]overlay=(\d+):(\d+)", filtro)
-    caixas = re.findall(r"drawbox=x=(\d+):y=(\d+):w=(\d+):h=(\d+)", filtro)
-    lido = {
+    return {
         "quadro": {
             "esquerda": int(posicao.group(1)), "topo": int(posicao.group(2)),
             "largura": int(escala.group(1)), "altura": int(escala.group(2)),
         }
     }
-    # Na ordem em que as camadas sao desenhadas: etiqueta e depois placar.
-    for nome, (x, y, w, h) in zip(("etiqueta", "placar"), caixas):
-        lido[nome] = {
-            "esquerda": int(x), "topo": int(y), "largura": int(w), "altura": int(h)
-        }
-    return lido
 
 
 @pytest.mark.parametrize("formato", ["deitado", "em-pe"])
 def test_ffmpeg_e_pagina_concordam_camada_por_camada(formato):
     camadas = molde.camadas(formato)
 
-    filtro = molde.para_ffmpeg(
-        camadas, formato, canal="BALDASSO TV", torcida="inter", placar="GREMIO 1 x 0 INTER"
-    )
+    filtro = molde.para_ffmpeg(camadas, formato)
     pagina = molde.para_pagina(camadas, formato)
 
     do_ffmpeg = _geometria_do_filtro(filtro)
@@ -68,20 +62,18 @@ def test_o_quadro_em_pe_e_o_que_o_desenho_diz():
 
 
 def test_as_camadas_saem_de_baixo_para_cima():
-    """A ordem e a pilha: o fundo primeiro, a cartela por cima de tudo."""
+    """A ordem e a pilha: o fundo primeiro, o quadro por cima dele. Fim."""
     nomes = [c.nome for c in molde.camadas("deitado")]
 
-    assert nomes == ["fundo", "quadro", "etiqueta", "placar", "cartela"]
+    assert nomes == ["fundo", "quadro"]
 
 
 @pytest.mark.parametrize("formato", ["deitado", "em-pe"])
-def test_o_fundo_e_a_cartela_cobrem_a_tela_inteira(formato):
-    tamanho = molde.tamanho(formato)
+def test_o_fundo_cobre_a_tela_inteira(formato):
+    caixa = molde.caixa("fundo", formato)
 
-    for nome in ("fundo", "cartela"):
-        caixa = molde.caixa(nome, formato)
-        assert (caixa["esquerda"], caixa["topo"]) == (0, 0), nome
-        assert (caixa["largura"], caixa["altura"]) == tamanho, nome
+    assert (caixa["esquerda"], caixa["topo"]) == (0, 0)
+    assert (caixa["largura"], caixa["altura"]) == molde.tamanho(formato)
 
 
 def test_o_quadro_nunca_encosta_na_borda_da_tela():
@@ -110,13 +102,19 @@ def test_formato_desconhecido_reclama_e_ensina_a_saida():
     assert "deitado" in str(erro.value) and "em-pe" in str(erro.value)
 
 
-def test_texto_do_canal_vai_escapado_para_o_ffmpeg():
-    """Nome de canal com dois-pontos ou apostrofo quebraria o filter_complex."""
-    filtro = molde.para_ffmpeg(
-        molde.camadas("deitado"), "deitado", canal="O'Bar: 100% Gol", torcida="inter"
-    )
+@pytest.mark.parametrize("formato", ["deitado", "em-pe"])
+def test_o_video_nao_leva_letra_nenhuma(formato):
+    """O dono pediu o video limpo em 05/09: nem canal, nem placar, nem cartela.
 
-    assert r"O\'Bar\: 100\%" in filtro
+    Quem identifica o video e a capa e a legenda do post, fora do mp4. Este
+    teste e o portao: qualquer `drawtext` que volte ao molde reprova aqui antes
+    de virar render, que e onde custa 20 minutos para descobrir.
+    """
+    filtro = molde.para_ffmpeg(molde.camadas(formato), formato)
+
+    assert "drawtext" not in filtro
+    assert "drawbox" not in filtro
+    assert not hasattr(molde, "filtro_cartela"), "a cartela saiu junto"
 
 
 def test_sem_mascara_o_filtro_nao_inventa_uma_entrada():
@@ -136,13 +134,6 @@ def test_com_mascara_os_cantos_do_quadro_sao_recortados():
     assert filtro.count("overlay=96:54") == 2  # o quadro e a moldura dele
 
 
-def test_a_cartela_anuncia_o_gol_na_tela_inteira():
-    filtro = molde.filtro_cartela("deitado", "GOL 1 - GREMIO 1 x 0 INTER")
-
-    assert "1920x1080" in filtro
-    assert "GOL 1 - GREMIO 1 x 0 INTER" in filtro
-
-
 @pytest.mark.parametrize("formato", ["deitado", "em-pe"])
 def test_o_clipe_entra_no_filtro_com_o_relogio_zerado(formato):
     """Sem zerar o relogio do clipe, o overlay nao acha o primeiro quadro dele.
@@ -154,25 +145,9 @@ def test_o_clipe_entra_no_filtro_com_o_relogio_zerado(formato):
     de cor no comeco de cada clipe. Antes do conserto do `instante` isto nao
     aparecia porque o ESPIAR sempre pedia o segundo zero.
     """
-    filtro = molde.para_ffmpeg(molde.camadas(formato), formato, canal="X")
+    filtro = molde.para_ffmpeg(molde.camadas(formato), formato)
 
     assert "setpts=PTS-STARTPTS" in filtro
     assert filtro.index("setpts=PTS-STARTPTS") < filtro.index("overlay=")
 
 
-@pytest.mark.parametrize("formato", ["deitado", "em-pe"])
-def test_o_nome_mais_longo_de_canal_cabe_na_etiqueta(formato):
-    """Texto que estoura a caixa vaza por cima do video, e ficou feio no render.
-
-    Medido no primeiro render de verdade: "FARID GERMANO FILHO" passou da borda
-    direita da tarja. O molde e quem tem que garantir que cabe - a fonte e a
-    largura da tarja saem daqui, e o operador nao tem como consertar isso.
-    """
-    etiqueta = molde.caixa("etiqueta", formato)
-
-    assert molde.cabe("X" * molde.MAXIMO_DO_CANAL, etiqueta), formato
-
-
-@pytest.mark.parametrize("formato", ["deitado", "em-pe"])
-def test_o_placar_cabe_na_caixa_dele(formato):
-    assert molde.cabe("10 x 10", molde.caixa("placar", formato)), formato

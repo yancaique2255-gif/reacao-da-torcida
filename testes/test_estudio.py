@@ -6,8 +6,8 @@ operador. Por isso sao tres velocidades declaradas e um cache por item: mexer no
 item 5 nao pode refazer os itens 1 a 4.
 
 O que estes testes travam e exatamente isso, mais o que a emenda promete: todo
-clipe no mesmo volume, cartela abrindo cada gol, e o progresso em disco para o
-painel poder ser fechado e reaberto sem matar o render.
+clipe no mesmo volume, nenhuma letra dentro do video, e o progresso em disco
+para o painel poder ser fechado e reaberto sem matar o render.
 """
 import json
 import subprocess
@@ -108,7 +108,7 @@ def test_cada_item_vira_um_arquivo_proprio_no_cache(tmp_path: Path):
     estudio.montar(tmp_path, dados, receita.padrao(dados), CFG, executar=executor)
 
     pedacos = sorted(estudio.pasta_das_pecas(tmp_path).glob("*.mp4"))
-    assert len(pedacos) == 3, "uma cartela e dois clipes"
+    assert len(pedacos) == 2, "um pedaco por trecho marcado, e nada mais"
 
 
 def test_mexer_num_item_so_refaz_aquele_item(tmp_path: Path):
@@ -148,7 +148,7 @@ def test_trocar_o_formato_refaz_tudo(tmp_path: Path):
         CFG, executar=depois,
     )
 
-    assert len(depois.comandos) == 4, "cartela, dois clipes e a emenda"
+    assert len(depois.comandos) == 3, "os dois clipes e a emenda"
 
 
 def test_a_emenda_e_copia_de_fluxo(tmp_path: Path):
@@ -172,14 +172,21 @@ def test_todo_clipe_passa_pelo_mesmo_alvo_de_volume(tmp_path: Path):
     assert executor.texto().count("loudnorm=I=-16") == 2
 
 
-def test_a_cartela_abre_cada_gol(tmp_path: Path):
+def test_o_video_montado_nao_escreve_nada_na_tela(tmp_path: Path):
+    """O dono pediu o video limpo em 05/09. O molde ja garante isso camada por
+    camada; aqui o que se cobra e a montagem inteira, que e onde a cartela
+    entrava por fora do molde - um pedaco a mais na frente de cada gol.
+    """
     dados = _jogo(tmp_path, gols=(1, 2))
     executor = Executor()
 
     estudio.montar(tmp_path, dados, receita.padrao(dados), CFG, executar=executor)
 
-    assert executor.texto().count("GOL 1") == 1
-    assert executor.texto().count("GOL 2") == 1
+    texto = executor.texto()
+    assert "drawtext" not in texto
+    assert "GOL 1" not in texto and "GOL 2" not in texto
+    assert "Grêmio" not in texto and "Internacional" not in texto
+    assert "PAULO BRITO" not in texto.upper()
 
 
 def test_o_placar_do_quadro_e_o_do_gol_que_esta_passando(tmp_path: Path):
@@ -197,11 +204,10 @@ def test_gol_sem_placar_anotado_nao_inventa_um(tmp_path: Path):
         gol.pop("placar")
 
     assert estudio.placar_do_gol(dados, 1) == ""
-    assert estudio.texto_da_cartela(dados, 1) == "GOL 1"
 
 
 def test_espiar_sai_um_quadro_so(tmp_path: Path):
-    """Instantaneo, para ver se a etiqueta cobriu o rosto."""
+    """Instantaneo, para ver como a cena fica dentro do molde."""
     dados = _jogo(tmp_path)
     executor = Executor()
 
@@ -317,7 +323,7 @@ def test_o_progresso_fica_no_disco(tmp_path: Path):
 
     estado = estudio.estado(tmp_path)
     assert estado["rodando"] is False
-    assert estado["feito"] == estado["total"] == 3
+    assert estado["feito"] == estado["total"] == 2
     assert estado["saida"] == str(saida)
 
 
@@ -379,37 +385,6 @@ def test_o_arquivo_de_estado_e_json_de_verdade(tmp_path: Path):
     assert lido["mensagem"]
 
 
-def test_o_quadro_mostra_so_os_numeros_do_placar(tmp_path: Path):
-    """Nome de time por extenso nao cabe na caixa: transborda e sai da tela.
-
-    Medido no primeiro render de verdade - "Grêmio 1 x 0 Internacional" saiu
-    cortado pela borda direita. Quem identifica os times e o escudo, e a cartela
-    de tela cheia, onde ha espaco. No quadro ficam os numeros.
-    """
-    dados = _jogo(tmp_path)
-    executor = Executor()
-
-    estudio.montar(tmp_path, dados, receita.padrao(dados), CFG, executar=executor)
-
-    dos_quadros = " ".join(
-        " ".join(c) for c in executor.comandos if "alphamerge" in " ".join(c)
-    )
-    assert estudio.numeros_do_gol(dados, 1) == "1 x 0"
-    assert "Internacional" not in dos_quadros
-    assert dos_quadros.count("1 x 0") == 2, "um em cada quadro"
-    # Na cartela, que e tela cheia, o nome por extenso cabe e fica.
-    assert "Internacional" in executor.texto()
-
-
-def test_nome_de_canal_gigante_nao_estoura_a_etiqueta():
-    """Cortar o nome e feio; deixar vazar por cima do video e pior."""
-    curto = estudio.titulo_do_canal("baldasso-tv")
-    gigante = estudio.titulo_do_canal("canal-do-torcedor-que-nunca-cala-a-boca")
-
-    assert curto == "BALDASSO TV"
-    assert len(gigante) <= molde.MAXIMO_DO_CANAL
-
-
 def test_render_que_morreu_no_meio_nao_fica_rodando_para_sempre(tmp_path: Path):
     """Estado travado que nunca resolve e pior que erro: o operador espera um
     arquivo que nunca vem. Se o processo do render sumiu, a tela tem que dizer."""
@@ -466,7 +441,7 @@ def test_peca_que_ficou_pela_metade_nao_e_reaproveitada(tmp_path: Path):
     depois = Executor()
     estudio.montar(tmp_path, dados, feita, CFG, executar=depois)
 
-    assert len(depois.comandos) == 3, (
+    assert len(depois.comandos) == 2, (
         "a peca que morreu tem de ser refeita, mais a emenda; "
         f"rodou {len(depois.comandos)}"
     )
@@ -489,7 +464,7 @@ def test_a_peca_boa_fica_com_o_nome_final_e_e_reaproveitada(tmp_path: Path):
     estudio.montar(tmp_path, dados, feita, CFG, executar=Executor())
 
     prontas = sorted(estudio.pasta_das_pecas(tmp_path).glob("*.mp4"))
-    assert len(prontas) == 3, "uma cartela e dois clipes, todos batizados"
+    assert len(prontas) == 2, "os dois clipes, ambos batizados"
     assert not list(estudio.pasta_cache(tmp_path).glob("parcial-*"))
 
 
@@ -505,14 +480,14 @@ def test_lixo_do_render_antigo_no_cache_nao_conta_como_peca(tmp_path: Path):
     cache.mkdir(parents=True, exist_ok=True)
     for item in receita.itens_do_video(feita):
         clipe = estudio._clipe_de(dados, item["gol"], item["canal"])
-        filtro, _ = estudio.filtro_do_item(clipe, dados, feita, CFG)
+        filtro, _ = estudio.filtro_do_item(feita)
         nome = estudio.identidade(clipe["arquivo"], item["de"], item["ate"], filtro)
         (cache / f"{nome}.mp4").write_bytes(b"\x00" * 48)  # so o ftyp
 
     executor = Executor()
     estudio.montar(tmp_path, dados, feita, CFG, executar=executor)
 
-    assert len(executor.comandos) == 4, "cartela, dois clipes e a emenda"
+    assert len(executor.comandos) == 3, "os dois clipes e a emenda"
 
 
 # ------------------------------------------------- o item que falha e refeito
@@ -528,8 +503,8 @@ def test_o_item_que_falha_e_tentado_de_novo(tmp_path: Path):
 
     estudio.montar(tmp_path, dados, receita.padrao(dados), CFG, executar=tropeco)
 
-    assert len(tropeco.comandos) == 5, "cartela, clipe que tropecou, ele de novo, clipe 2, emenda"
-    assert len(list(estudio.pasta_das_pecas(tmp_path).glob("*.mp4"))) == 3
+    assert len(tropeco.comandos) == 4, "clipe que tropecou, ele de novo, clipe 2, emenda"
+    assert len(list(estudio.pasta_das_pecas(tmp_path).glob("*.mp4"))) == 2
 
 
 def test_o_item_que_nao_volta_derruba_o_render_dizendo_por_que(tmp_path: Path):
@@ -568,7 +543,7 @@ def test_o_travamento_tambem_e_tentado_de_novo(tmp_path: Path):
 
     estudio.montar(tmp_path, dados, receita.padrao(dados), CFG, executar=tropeco)
 
-    assert len(list(estudio.pasta_das_pecas(tmp_path).glob("*.mp4"))) == 3
+    assert len(list(estudio.pasta_das_pecas(tmp_path).glob("*.mp4"))) == 2
 
 
 # --------------------------------------------- o PID que acabou de nascer

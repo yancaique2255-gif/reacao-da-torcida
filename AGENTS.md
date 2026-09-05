@@ -47,7 +47,7 @@ Conferido nesta máquina em 02/09/2026:
 - `ffprobe.exe` em **`C:\ffmpeg\bin`** — repare que **não** fica junto do ffmpeg do
   `C:\yt-dlp`. Está no PATH.
 - `numpy` 2.5.2 já instalado
-- Fonte da cartela: `C:\Windows\Fonts\arialbd.ttf` (o `drawtext` do ffmpeg no Windows
+- Fonte da capa: `C:\Windows\Fonts\arialbd.ttf` (o `drawtext` do ffmpeg no Windows
   exige `fontfile=` explícito, senão falha com "Cannot find a valid font")
 - Python com faster-whisper e Ollama (do projeto LEGENDAR VIDEO) — **não são necessários
   aqui**, e usá-los seria contrariar o desenho.

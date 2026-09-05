@@ -306,7 +306,7 @@ def resumo(
         "teto_cache_gb": cfg.get("teto_cache_gb", 5),
         "video": video(
             pasta_jogo,
-            estudio.assinatura(dados, edicao, cfg),
+            estudio.assinatura(dados, edicao),
             render.get("assinatura", ""),
         ),
         "render": render,

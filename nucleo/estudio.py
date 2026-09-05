@@ -5,8 +5,8 @@ Um video de 20 minutos em 1080p com sobreposicoes leva MINUTOS de CPU. Fingir
 que e instantaneo seria mentir para o operador, entao sao tres velocidades
 declaradas:
 
-- **espiar**: um quadro parado, com todas as camadas. Instantaneo. Serve para
-  ver se a etiqueta cobriu o rosto.
+- **espiar**: um quadro parado, ja com fundo e quadro. Instantaneo. Serve para
+  ver como a cena fica dentro do molde.
 - **previa**: o trecho escolhido, cru e com 640 de largura. Segundos.
 - **final**: o video inteiro, `libx264`, em fila com progresso. Minutos.
 
@@ -46,7 +46,6 @@ TETO_CACHE_GB = 5
 # compilacao que corta de um para o outro isso e insuportavel, entao todo clipe
 # passa pelo mesmo alvo (a recomendacao de streaming, -16 LUFS).
 VOLUME_ALVO = "loudnorm=I=-16:TP=-1.5:LRA=11"
-DURACAO_DA_CARTELA = 2.0
 # So a largura: a altura sai da proporcao do clipe, para a previa nunca
 # entortar uma imagem que no render final seria recortada.
 LARGURA_DA_PREVIA = 640
@@ -130,18 +129,6 @@ def identidade(origem: str, de: float, ate: float, filtro: str) -> str:
 
 # ------------------------------------------------------------------ os textos
 
-def titulo_do_canal(canal: str) -> str:
-    """"baldasso-tv" -> "BALDASSO TV", cortado no que cabe na tarja.
-
-    Cortar o nome e feio; deixar vazar por cima do video e pior, e foi o que
-    aconteceu no primeiro render com "FARID GERMANO FILHO".
-    """
-    nome = canal.replace("-", " ").upper()
-    if len(nome) <= molde.MAXIMO_DO_CANAL:
-        return nome
-    return nome[: molde.MAXIMO_DO_CANAL - 1].rstrip() + "."
-
-
 def placar_do_gol(dados: dict, numero: int) -> str:
     """"Grêmio 1 x 0 Internacional" - o placar DAQUELE gol, nao o final.
 
@@ -157,26 +144,6 @@ def placar_do_gol(dados: dict, numero: int) -> str:
                 f"{fora} {partida.get('visitante', '')}"
             ).strip()
     return ""
-
-
-def numeros_do_gol(dados: dict, numero: int) -> str:
-    """"1 x 0" - so os numeros, que e o que cabe na caixa do quadro.
-
-    Nome de time por extenso transborda: medido no primeiro render de verdade,
-    "Grêmio 1 x 0 Internacional" saiu cortado pela borda direita da tela. Quem
-    identifica os times ali e o escudo; por extenso, so na cartela, que e tela
-    cheia e tem espaco.
-    """
-    for gol in dados.get("gols", []):
-        if gol["numero"] == numero and gol.get("placar"):
-            casa, fora = gol["placar"]
-            return f"{casa} x {fora}"
-    return ""
-
-
-def texto_da_cartela(dados: dict, numero: int) -> str:
-    placar = placar_do_gol(dados, numero)
-    return f"GOL {numero} - {placar}" if placar else f"GOL {numero}"
 
 
 # ------------------------------------------------------------------- as pecas
@@ -218,6 +185,7 @@ def mascaras(pasta_jogo: Path, formato: str) -> tuple[Path, Path]:
 
 
 def fonte_de(cfg: dict) -> Path | None:
+    """A fonte pesada da CAPA. O video em si nao escreve nada."""
     caminho = cfg.get("fonte_cartela") or ""
     return Path(caminho) if caminho else None
 
@@ -236,23 +204,18 @@ def cor_do_fundo(dados_receita: dict, cadastrados: dict | None = None) -> str:
     return ficha.get("cor") or molde.COR_FUNDO
 
 
-def filtro_do_item(
-    clipe: dict,
-    dados: dict,
-    dados_receita: dict,
-    cfg: dict,
-    com_mascaras: bool = True,
-) -> tuple[str, str]:
-    """O filter_complex do item e o rotulo da saida dele."""
+def filtro_do_item(dados_receita: dict, com_mascaras: bool = True) -> tuple[str, str]:
+    """O filter_complex do item e o rotulo da saida dele.
+
+    Nao depende do clipe nem do jogo porque nao ha nada de individual para
+    desenhar: o mesmo filtro serve a todos os itens daquela receita. O que
+    muda de um para o outro e o corte, que mora no comando.
+    """
     formato = dados_receita.get("formato", FORMATO_PADRAO)
     filtro = molde.para_ffmpeg(
         molde.camadas(formato),
         formato,
         cor_fundo=cor_do_fundo(dados_receita),
-        canal=titulo_do_canal(clipe["canal"]),
-        torcida=clipe.get("torcida", ""),
-        placar=numeros_do_gol(dados, clipe["gol"]),
-        fonte=fonte_de(cfg),
         mascara="1:v" if com_mascaras else None,
         moldura="2:v" if com_mascaras else None,
     )
@@ -286,29 +249,6 @@ def comando_item(
         "-map", "0:a?",
         "-af", VOLUME_ALVO,
         *(video or _VIDEO_FINAL), *_AUDIO, "-shortest",
-        str(destino),
-    ]
-
-
-def comando_cartela(
-    texto: str, formato: str, cfg: dict, destino: Path, cor_fundo: str
-) -> list[str]:
-    """A cartela tem audio mudo de proposito.
-
-    A emenda e `concat` com copia de fluxo, e o concat exige as MESMAS faixas em
-    todas as pecas. Cartela sem audio derrubaria a emenda inteira.
-    """
-    filtro = molde.filtro_cartela(
-        formato, texto, cor_fundo=cor_fundo, fonte=fonte_de(cfg),
-        duracao=DURACAO_DA_CARTELA,
-    )
-    return [
-        cfg["caminho_ffmpeg"], "-y",
-        "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000",
-        "-filter_complex", filtro,
-        "-map", "[v]", "-map", "0:a",
-        "-t", str(DURACAO_DA_CARTELA),
-        *_VIDEO_FINAL, *_AUDIO,
         str(destino),
     ]
 
@@ -351,7 +291,6 @@ def _item_de(dados_receita: dict, gol: int, canal: str) -> dict:
 def planejar(
     dados: dict,
     dados_receita: dict,
-    cfg: dict,
     avisar: Callable[[str], None] | None = None,
 ) -> list[dict]:
     """As pecas deste video, na ordem, cada uma com o nome que tem no cache.
@@ -360,27 +299,12 @@ def planejar(
     esta lista para saber o que fazer, e a recepcao usa a MESMA lista para
     saber se o mp4 que esta no disco ainda e o video que a edicao pede.
     """
-    formato = dados_receita.get("formato", FORMATO_PADRAO)
     clipes = _clipes_por_chave(dados)
+    # Um filtro so para todas as pecas: sem texto, o molde nao tem nada de
+    # individual para desenhar. O que separa uma peca da outra e o corte.
+    filtro, rotulo = filtro_do_item(dados_receita)
     plano = []
-    gol_anterior = None
     for item in receita.itens_do_video(dados_receita):
-        if item["gol"] != gol_anterior:
-            gol_anterior = item["gol"]
-            texto = texto_da_cartela(dados, item["gol"])
-            filtro = molde.filtro_cartela(
-                formato, texto, cor_fundo=cor_do_fundo(dados_receita),
-                fonte=fonte_de(cfg), duracao=DURACAO_DA_CARTELA,
-            )
-            plano.append({
-                "tipo": "cartela",
-                "nome": identidade(
-                    f"cartela-{item['gol']}", 0, DURACAO_DA_CARTELA, filtro
-                ),
-                "qual": f"cartela do gol {item['gol']}",
-                "texto": texto,
-            })
-
         clipe = clipes.get((item["gol"], item["canal"]))
         if clipe is None:
             if avisar:
@@ -389,9 +313,7 @@ def planejar(
                     "nao esta no catalogo"
                 )
             continue
-        filtro, rotulo = filtro_do_item(clipe, dados, dados_receita, cfg)
         plano.append({
-            "tipo": "item",
             "nome": identidade(clipe["arquivo"], item["de"], item["ate"], filtro),
             "qual": f"{item['canal']} no gol {item['gol']}",
             "clipe": clipe,
@@ -402,18 +324,18 @@ def planejar(
     return plano
 
 
-def assinatura(dados: dict, dados_receita: dict, cfg: dict) -> str:
+def assinatura(dados: dict, dados_receita: dict) -> str:
     """Impressao digital do video que esta edicao geraria.
 
-    E a lista de pecas do plano, que ja carrega corte, molde, formato, cartela,
-    placar e cor - o mesmo truque de `identidade`, um degrau acima. O render
+    E a lista de pecas do plano, que ja carrega corte, molde, formato e cor - o
+    mesmo truque de `identidade`, um degrau acima. O render
     guarda esta assinatura no `render.json`; a recepcao compara com a de agora
     e sabe se o mp4 do disco envelheceu.
 
     O mtime do arquivo nao serve para isso: a tela de edicao regrava a receita
     cada vez que abre, e ai todo video parecia velho um minuto depois de sair.
     """
-    nomes = [peca["nome"] for peca in planejar(dados, dados_receita, cfg)]
+    nomes = [peca["nome"] for peca in planejar(dados, dados_receita)]
     return hashlib.sha1("|".join(nomes).encode("utf-8")).hexdigest()[:12]
 
 
@@ -440,21 +362,14 @@ def montar(
     cache = pasta_das_pecas(pasta_jogo)
 
     tarefas = []
-    for peca in planejar(dados, dados_receita, cfg, avisar):
+    for peca in planejar(dados, dados_receita, avisar):
         destino = cache / f"{peca['nome']}.mp4"
-        if peca["tipo"] == "cartela":
-            comando_de = (
-                lambda destino, texto=peca["texto"]: comando_cartela(
-                    texto, formato, cfg, destino, cor_do_fundo(dados_receita)
-                )
+        comando_de = (
+            lambda destino, p=peca: comando_item(
+                pasta_jogo / p["clipe"]["arquivo"], p["item"], p["filtro"],
+                p["rotulo"], mascara, moldura, destino, cfg["caminho_ffmpeg"],
             )
-        else:
-            comando_de = (
-                lambda destino, p=peca: comando_item(
-                    pasta_jogo / p["clipe"]["arquivo"], p["item"], p["filtro"],
-                    p["rotulo"], mascara, moldura, destino, cfg["caminho_ffmpeg"],
-                )
-            )
+        )
         tarefas.append((destino, comando_de, peca["qual"]))
 
     total = len(tarefas)
@@ -490,7 +405,7 @@ def montar(
 
     anotar(pasta_jogo, rodando=False, feito=total, total=total,
            saida=str(saida), mensagem="pronto",
-           assinatura=assinatura(dados, dados_receita, cfg))
+           assinatura=assinatura(dados, dados_receita))
     return saida
 
 
@@ -503,14 +418,14 @@ def espiar(
     cfg: dict,
     executar: Callable[[list[str]], None] | None = None,
 ) -> Path:
-    """Um quadro parado, com todas as camadas. E o mais barato dos tres."""
+    """Um quadro parado, ja no molde. E o mais barato dos dois."""
     executar = executar or cortador.executar
     pasta_jogo = Path(pasta_jogo)
     clipe = _clipe_de(dados, gol, canal)
     item = _item_de(dados_receita, gol, canal)
     formato = dados_receita.get("formato", FORMATO_PADRAO)
     mascara, moldura = mascaras(pasta_jogo, formato)
-    filtro, rotulo = filtro_do_item(clipe, dados, dados_receita, cfg)
+    filtro, rotulo = filtro_do_item(dados_receita)
 
     destino = pasta_cache(pasta_jogo) / f"espiada-{gol}-{canal}.png"
     executar([

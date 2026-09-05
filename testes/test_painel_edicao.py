@@ -252,13 +252,16 @@ def test_limpar_devolve_o_espaco_e_diz_quanto(tmp_path: Path):
 
 
 def test_a_tela_diz_quanto_video_vai_sair(tmp_path: Path):
-    """12:08 de video e 12 clipes: o operador precisa saber antes de renderizar."""
+    """12:08 de video e 12 clipes: o operador precisa saber antes de renderizar.
+
+    Soma so os trechos: o video nao tem abertura nem cartela para somar junto.
+    """
     _jogo(tmp_path)
 
     _, corpo = _pedir("GET /api/edicao", {}, tmp_path)
 
     assert corpo["quantos"] == 2
-    assert corpo["segundos"] == 2 * 60 + estudio.DURACAO_DA_CARTELA
+    assert corpo["segundos"] == 2 * 60
 
 
 def test_rota_que_nao_existe_da_404(tmp_path: Path):
@@ -383,8 +386,12 @@ def test_placar_que_nao_e_numero_e_recusado_e_nada_muda(tmp_path: Path):
     assert "gols_mandante" not in catalogo.carregar(tmp_path)["partida"]
 
 
-def test_o_placar_de_cada_gol_escreve_a_cartela(tmp_path: Path):
-    """A cartela saia "GOL 3" pelado porque so a vigia sabia o placar do momento."""
+def test_o_placar_de_cada_gol_fica_anotado_no_catalogo(tmp_path: Path):
+    """O placar do momento nao entra mais no video - o video e limpo.
+
+    Continua sendo anotacao do jogo: e o que a tela mostra ao lado de cada gol,
+    e e de onde sai o texto da capa e da legenda do post.
+    """
     _jogo_sem_placar(tmp_path)
 
     codigo, corpo = _pedir(
@@ -394,7 +401,7 @@ def test_o_placar_de_cada_gol_escreve_a_cartela(tmp_path: Path):
 
     assert codigo == 200
     dados = catalogo.carregar(tmp_path)
-    assert estudio.texto_da_cartela(dados, 2) == "GOL 2 - Grêmio 2 x 0 Internacional"
+    assert estudio.placar_do_gol(dados, 2) == "Grêmio 2 x 0 Internacional"
     assert [g["placar"] for g in corpo["gols"] if g["numero"] == 2] == ["Grêmio 2 x 0 Internacional"]
 
 
@@ -457,14 +464,16 @@ def test_a_tela_marca_o_clipe_que_veio_de_outro_momento_do_jogo(tmp_path: Path):
 
 
 def test_a_tela_avisa_quantas_pecas_o_render_vai_ter(tmp_path: Path):
-    """O painel escrevia 12 e o render trocava para 16: a barra andava para tras."""
+    """O painel escrevia 12 e o render trocava para 16: a barra andava para tras.
+
+    Sem cartela, uma peca por trecho marcado - e o painel tem que dizer isso, e
+    nao o numero de antes.
+    """
     _jogo(tmp_path)
 
     _, corpo = _pedir("GET /api/edicao", {}, tmp_path)
 
-    assert corpo["pecas"] == corpo["quantos"] + len(
-        {i["gol"] for g in corpo["gols"] for i in g["itens"] if i["entra"]}
-    )
+    assert corpo["pecas"] == corpo["quantos"]
 
 
 def test_o_render_comeca_com_o_total_que_o_painel_prometeu(tmp_path: Path):
